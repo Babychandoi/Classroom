@@ -1,0 +1,2 @@
+ALTER TABLE users
+    ADD COLUMN profile_visibility VARCHAR(16) NOT NULL DEFAULT 'PRIVATE';

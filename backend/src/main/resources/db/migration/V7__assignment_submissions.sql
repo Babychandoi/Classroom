@@ -1,0 +1,21 @@
+CREATE TABLE assignment_submissions (
+    id VARCHAR(36) PRIMARY KEY,
+    lesson_id VARCHAR(36) NOT NULL,
+    course_id VARCHAR(36) NOT NULL,
+    class_id VARCHAR(36) NOT NULL,
+    user_id VARCHAR(36) NOT NULL,
+    attempt_number INT NOT NULL,
+    submission_text MEDIUMTEXT NOT NULL,
+    status VARCHAR(24) NOT NULL DEFAULT 'SUBMITTED',
+    score DECIMAL(8,2) NULL,
+    feedback TEXT NULL,
+    graded_by VARCHAR(36) NULL,
+    submitted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    graded_at TIMESTAMP NULL,
+    UNIQUE KEY uk_assignment_submission_attempt (lesson_id, user_id, attempt_number),
+    KEY ix_assignment_submission_queue (lesson_id, status, submitted_at),
+    CONSTRAINT fk_assignment_submission_lesson FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE,
+    CONSTRAINT fk_assignment_submission_course FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+    CONSTRAINT fk_assignment_submission_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_assignment_submission_grader FOREIGN KEY (graded_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

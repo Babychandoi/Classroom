@@ -1,0 +1,97 @@
+name: classroom-integration
+
+# Run with: docker compose --env-file infra/.env -f infra/compose.integration.yaml run --rm --build backend-integration-test
+# Tear down only this disposable project: docker compose --env-file infra/.env -f infra/compose.integration.yaml down
+services:
+  mysql-integration:
+    image: mysql:8.4.3
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: classroom_integration_test
+      MYSQL_USER: integration_user
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u integration_user -p$$MYSQL_PASSWORD || exit 1"]
+      interval: 5s
+      retries: 20
+      start_period: 20s
+
+  mongo-integration:
+    image: mongo:7.0.14
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?Set MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Set MONGO_INITDB_ROOT_PASSWORD}
+    tmpfs:
+      - /data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\")' || exit 1"]
+      interval: 5s
+      retries: 20
+
+  neo4j-integration:
+    image: neo4j:5.20-community
+    environment:
+      # Derived from NEO4J_PASSWORD so it can never drift from SPRING_NEO4J_AUTHENTICATION_PASSWORD below.
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD}
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 5s
+      retries: 20
+      start_period: 25s
+
+  minio-integration:
+    image: quay.io/minio/minio:RELEASE.2024-05-10T01-41-38Z
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      retries: 20
+
+  minio-integration-init:
+    image: quay.io/minio/mc:RELEASE.2024-05-09T17-04-24Z
+    depends_on:
+      minio-integration:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c", "mc alias set integration http://minio-integration:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD && mc mb --ignore-existing integration/classroom-integration-test"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+
+  backend-integration-test:
+    build:
+      context: ../backend
+      target: tester
+    environment:
+      SPRING_PROFILES_ACTIVE: integration
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-integration:3306/classroom_integration_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: integration_user
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+      SPRING_DATA_MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:?Set MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD:?Set MONGO_INITDB_ROOT_PASSWORD}@mongo-integration:27017/classroom_integration_test?authSource=admin
+      SPRING_NEO4J_URI: bolt://neo4j-integration:7687
+      SPRING_NEO4J_AUTHENTICATION_USERNAME: ${NEO4J_USER:-neo4j}
+      SPRING_NEO4J_AUTHENTICATION_PASSWORD: ${NEO4J_PASSWORD:?Set NEO4J_PASSWORD}
+      MINIO_ENDPOINT: http://minio-integration:9000
+      MINIO_EXTERNAL_ENDPOINT: http://minio-integration:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: classroom-integration-test
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+    depends_on:
+      mysql-integration:
+        condition: service_healthy
+      mongo-integration:
+        condition: service_healthy
+      neo4j-integration:
+        condition: service_healthy
+      minio-integration-init:
+        condition: service_completed_successfully
+    command: ["mvn", "test", "-Dgroups=integration", "-DexcludedGroups=", "-B"]

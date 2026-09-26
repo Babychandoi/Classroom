@@ -1,0 +1,23 @@
+# Demo overlay — LOCAL USE ONLY.
+#
+# The base stack (infra/compose.yaml) fails closed: no demo accounts, no demo login switcher and
+# no simulated payment rail. This overlay is the explicit opt-in that turns all three on so the
+# purchase -> entitlement flow and the README §4 role switcher can be exercised locally.
+#
+# Enabling it seeds fixed-password accounts (owner@classroom.local / Password123!, and peers) and
+# lets a class OWNER settle orders without a real payment gateway. Use it only against a throwaway
+# local stack. Never apply it to a persistent or internet-facing deployment, and never combine it
+# with a widened HOST_BIND_ADDRESS.
+#
+#   docker compose -f infra/compose.yaml -f infra/compose.demo.yaml --env-file infra/.env up -d --build
+services:
+  backend:
+    environment:
+      DEMO_SEED_ENABLED: "true"
+      PAYMENT_SANDBOX_ENABLED: "true"
+      MOCK_PAYMENT_CHECKOUT_ENABLED: "true"
+
+  frontend:
+    build:
+      args:
+        VITE_ENABLE_DEMO_LOGIN: "true"

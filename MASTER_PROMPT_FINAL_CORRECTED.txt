@@ -1,0 +1,1501 @@
+ulw-loop ultrawork mass-ulw
+
+==================================================
+QUALITY LOOP BẮT BUỘC — ANTIGRAVITY ↔ OPENAI REVIEW
+==================================================
+
+Đây là yêu cầu BẮT BUỘC, không phải gợi ý.
+
+Mục tiêu là tạo vòng lặp chất lượng độc lập:
+
+ANTIGRAVITY IMPLEMENT / FIX
+-> BUILD / TEST TRONG DOCKER
+-> INDEPENDENT OPENAI CODE REVIEW
+-> nếu REJECT: ANTIGRAVITY FIX
+-> BUILD / TEST LẠI
+-> FRESH OPENAI CODE REVIEW
+-> lặp đến APPROVE
+-> GEMINI LIVE QA
+-> OPENAI FINAL GATE
+-> nếu REJECT: quay lại ANTIGRAVITY FIX
+-> lặp lại toàn bộ chu kỳ
+-> chỉ DONE khi FINAL GATE APPROVE
+
+==================================================
+PHÂN VAI AGENT / CATEGORY / MODEL
+==================================================
+
+1. IMPLEMENTATION / FIXING
+
+Ưu tiên các implementation agent theo cấu hình Oh My OpenAgent:
+- sisyphus
+- hephaestus
+- atlas
+- sisyphus-junior
+
+Ưu tiên Antigravity cho coding, refactor, sửa bug và triển khai.
+Nếu model chính hết quota hoặc lỗi provider, cho phép runtime_fallback xử lý theo omo.jsonc.
+Không tự dừng chỉ vì một model cụ thể hết quota nếu fallback còn khả dụng.
+
+2. ARCHITECTURE / DEEP REASONING
+
+Ưu tiên:
+- oracle
+- prometheus
+- metis
+- category: ultrabrain
+- category: deep
+
+Model thực tế được quyết định bởi omo.jsonc và runtime fallback.
+Không hard-code giả định rằng một provider cụ thể luôn khả dụng.
+
+3. EXPLORATION / RESEARCH
+
+Ưu tiên:
+- librarian
+- explore
+- category: quick khi phù hợp
+
+Các task đọc repository, tìm file, tổng hợp context và kiểm tra nhanh có thể chạy song song nếu độc lập.
+
+4. INDEPENDENT CODE REVIEW
+
+KHÔNG gọi các agent type không được runtime hỗ trợ như:
+- omo-native-code-reviewer
+- omo-native-qa-executor
+- omo-native-gate-reviewer
+
+BẮT BUỘC delegate review bằng category:
+
+task(category="code-review")
+
+Category `code-review` trong omo.jsonc là nguồn cấu hình model.
+
+Kỳ vọng ưu tiên hiện tại:
+- primary: openai/gpt-6-sol, reasoning xhigh
+- fallback 1: openai/gpt-5.6-sol, reasoning xhigh
+- fallback 2: openai/gpt-5.3-codex-spark, reasoning high
+- fallback 3: google/antigravity-claude-opus-4-6-thinking
+
+Reviewer phải độc lập với implementation agent.
+
+Reviewer KHÔNG được:
+- tin IMPLEMENTATION_STATUS.md chỉ vì file ghi DONE
+- tin README là bằng chứng implementation
+- tin REVIEW_FINDINGS.md cũ
+- tin QUALITY_GATE.md cũ
+- tin báo cáo của implementation agent
+- tin kết luận APPROVE từ vòng review trước
+- chỉ đọc summary rồi approve
+- tự nhận đã chạy test nếu không có evidence thực tế
+
+Reviewer PHẢI:
+- tự đọc source code thực tế
+- tự đọc Dockerfile và infra/compose.yaml
+- tự đọc migration/schema
+- tự đọc security/auth/RBAC/access policy
+- tự đọc test hiện có
+- tự kiểm tra API/backend/frontend quan trọng
+- tự xem trạng thái source tree hiện tại
+- tự chạy hoặc kiểm chứng command build/test cần thiết
+- đối chiếu implementation với tài liệu yêu cầu đính kèm
+- kiểm tra IDOR, cross-class, cross-user và privilege escalation
+- kiểm tra entitlement, PRO, exam audience và answer leakage
+- kiểm tra payment/webhook/idempotency/refund
+- kiểm tra media permission/presigned URL
+- kiểm tra segment parser/injection
+- kiểm tra outbox/projection consistency
+- kiểm tra frontend có dùng API thật hay chỉ mock/hard-code
+- kiểm tra test có thực sự chứng minh behavior hay chỉ test hình thức
+- đưa verdict rõ ràng: APPROVE hoặc REJECT
+
+Nếu REJECT:
+- ghi finding cụ thể
+- ghi severity
+- ghi file/module liên quan
+- ghi cách reproduce hoặc evidence khi có
+- không tự sửa trong cùng vai reviewer nếu có thể tách vai trò
+- chuyển findings về implementation loop
+
+5. LIVE QA EXECUTION
+
+Chỉ chạy QA sau khi Independent Code Review APPROVE.
+
+BẮT BUỘC delegate bằng category:
+
+task(category="qa")
+
+Kỳ vọng ưu tiên hiện tại:
+- primary: google/antigravity-gemini-3.8-flash
+- fallback: theo omo.jsonc
+
+QA phải kiểm tra hệ thống đang chạy thật qua Docker.
+Không được coi việc đọc code hoặc đọc report là QA.
+
+QA phải ưu tiên kiểm tra:
+- frontend thực tế
+- backend health
+- login/authentication
+- classroom access
+- OWNER / STAFF / STUDENT boundaries
+- FREE / PRO / EXPIRED behavior
+- learning flow
+- exam flow
+- store / order / payment mock / entitlement
+- Studio permission
+- forbidden/expired/error states
+- API unauthorized behavior
+- các user journey quan trọng từ tài liệu
+
+6. FINAL QUALITY GATE
+
+Sau QA PASS, BẮT BUỘC delegate bằng category:
+
+task(category="final-gate")
+
+Category `final-gate` trong omo.jsonc là nguồn cấu hình model.
+
+Kỳ vọng ưu tiên hiện tại:
+- primary: openai/gpt-6-sol, reasoning xhigh
+- fallback 1: openai/gpt-5.6-sol, reasoning xhigh
+- fallback 2: openai/gpt-5.3-codex-spark, reasoning high
+- fallback 3: google/antigravity-claude-opus-4-6-thinking
+
+Final Gate phải độc lập với implementation agent và QA executor.
+
+Final Gate phải đưa đúng một verdict chất lượng:
+- APPROVE
+hoặc
+- REJECT
+
+Không được kết thúc dự án nếu Final Gate chưa APPROVE.
+
+==================================================
+QUY TẮC VÒNG LẶP REVIEW
+==================================================
+
+Sau MỖI milestone implementation lớn:
+
+1. Antigravity implementation agents triển khai hoặc sửa.
+2. Chạy build/test phù hợp trong Docker.
+3. Delegate MỘT independent review mới bằng category `code-review`.
+4. Reviewer tự kiểm tra source + evidence hiện tại.
+5. Nếu REJECT:
+   - cập nhật docs/REVIEW_FINDINGS.md
+   - biến từng finding thành task sửa cụ thể
+   - giao lại cho implementation agents
+   - sửa code
+   - chạy build/test lại
+   - delegate MỘT review `code-review` MỚI
+   - review lại trạng thái source/evidence mới
+6. Lặp FIX -> TEST -> FRESH REVIEW cho đến khi APPROVE.
+7. Sau APPROVE mới delegate category `qa`.
+8. QA chạy kiểm tra live trên Docker stack.
+9. Nếu QA FAIL:
+   - quay lại implementation sửa
+   - build/test lại
+   - fresh code-review lại
+   - QA lại
+10. Sau QA PASS mới delegate category `final-gate`.
+11. Nếu Final Gate REJECT:
+   - quay lại implementation sửa
+   - build/test lại
+   - fresh code-review lại
+   - QA lại
+   - final-gate lại
+12. Chỉ khi Final Gate APPROVE mới được đánh dấu milestone DONE.
+
+Không được dùng kết luận review cũ để tự xác nhận trạng thái code mới.
+Sau mỗi thay đổi do finding sinh ra phải có fresh review trên code mới.
+
+Không được để implementation agent tự review và tự APPROVE code của chính nó.
+
+==================================================
+FALLBACK KHI CATEGORY / MODEL KHÔNG KHẢ DỤNG
+==================================================
+
+Nếu category `code-review`, `qa` hoặc `final-gate` không delegate được vì giới hạn runtime:
+
+KHÔNG được bỏ qua bước đó.
+
+Phải tạo independent subtask/session tương đương với vai trò tách biệt.
+
+Đối với CODE REVIEW và FINAL GATE, ưu tiên model theo thứ tự:
+1. openai/gpt-6-sol với reasoning xhigh
+2. openai/gpt-5.6-sol với reasoning xhigh
+3. openai/gpt-5.3-codex-spark với reasoning high
+4. google/antigravity-claude-opus-4-6-thinking
+
+Đối với QA, ưu tiên model theo category `qa` trong omo.jsonc.
+
+Nếu primary model lỗi quota/rate-limit/provider:
+- sử dụng runtime_fallback theo omo.jsonc
+- không coi việc đổi fallback model là lý do bỏ vòng review
+- ghi model thực tế đã dùng vào docs/QUALITY_GATE.md
+
+Nếu hoàn toàn không thể tạo independent reviewer:
+- ghi BLOCKED trung thực
+- KHÔNG tự ghi APPROVE
+- KHÔNG tự tuyên bố DONE
+
+==================================================
+REVIEW EVIDENCE BẮT BUỘC
+==================================================
+
+Tạo và duy trì:
+
+docs/REVIEW_FINDINGS.md
+docs/QUALITY_GATE.md
+
+docs/REVIEW_FINDINGS.md phải ghi tối thiểu:
+- review round
+- category/role
+- model thực tế nếu biết
+- timestamp nếu lấy được
+- finding
+- severity
+- file/module
+- trạng thái OPEN/FIXED/VERIFIED
+- evidence sửa
+- vòng review xác minh lại
+
+docs/QUALITY_GATE.md phải ghi tối thiểu:
+- Docker config/build evidence
+- backend test evidence
+- frontend test/typecheck/build evidence
+- E2E evidence nếu có
+- Docker service health evidence
+- live QA evidence
+- latest independent code review verdict
+- latest final gate verdict
+- model/category thực tế của review/QA/gate nếu runtime hiển thị
+- blocker còn lại nếu có
+
+Không được ghi PASS/APPROVE nếu command hoặc evidence thực tế chưa tồn tại.
+
+Nếu repository hiện tại KHÔNG có .git:
+- không được bỏ qua review
+- không được coi "git status fail" là lý do để skip
+- review toàn bộ source tree hiện tại
+- review file thay đổi trong phiên nếu có thể xác định
+- review test/build evidence và tài liệu yêu cầu
+- ghi rõ "repository has no .git" trong evidence
+- không tự git init nếu không cần thiết
+
+==================================================
+ĐIỀU KIỆN CHẤM DỨT QUALITY LOOP
+==================================================
+
+Quality loop chỉ được dừng khi đồng thời thỏa mãn:
+
+- implementation milestone hoàn tất
+- Docker Compose validation PASS
+- Docker build phù hợp PASS
+- backend tests phù hợp PASS
+- frontend typecheck/build/tests phù hợp PASS
+- independent category `code-review` = APPROVE
+- category `qa` = PASS
+- category `final-gate` = APPROVE
+- không còn finding OPEN có thể tự xử lý
+- docs/REVIEW_FINDINGS.md đã cập nhật
+- docs/QUALITY_GATE.md đã cập nhật
+- report không chứa claim giả hoặc claim chưa có evidence
+
+Nếu một trong các điều kiện trên chưa đạt:
+TIẾP TỤC VÒNG LẶP, KHÔNG KẾT THÚC.
+
+Bạn là TECHNICAL LEAD + PRINCIPAL ENGINEER chịu trách nhiệm triển khai TOÀN BỘ hệ thống được mô tả trong tài liệu đính kèm.
+
+==================================================
+MỤC TIÊU CUỐI CÙNG
+==================================================
+
+Biến repository hiện tại thành một hệ thống lớp học trực tuyến HOÀN CHỈNH có thể chạy local bằng Docker Compose.
+
+Không chỉ tạo:
+- skeleton
+- mock UI
+- placeholder
+- TODO
+- pseudo code
+- tài liệu mà không có implementation
+
+Phải tạo CODE THỰC TẾ, DATABASE THỰC TẾ, MIGRATION, API, UI, TEST và môi trường chạy local.
+
+Mục tiêu cuối cùng:
+
+docker compose -f infra/compose.yaml up -d --build
+
+phải có khả năng dựng và chạy toàn bộ hệ thống local mà KHÔNG cần cài Java, JDK, Maven, Node.js, npm, MySQL, MongoDB, Neo4j hoặc MinIO trực tiếp trên máy host.
+
+==================================================
+NGUYÊN TẮC QUAN TRỌNG NHẤT: DOCKER-FIRST
+==================================================
+
+TUYỆT ĐỐI KHÔNG phụ thuộc runtime/toolchain cài trên máy host.
+
+Host chỉ được giả định có:
+- Docker Engine / Docker Desktop
+- Docker Compose
+- Git
+- OpenCode
+
+KHÔNG được yêu cầu host có:
+- Java
+- JDK
+- Maven
+- Gradle
+- Node.js
+- npm
+- pnpm
+- yarn
+- MySQL
+- MongoDB
+- Neo4j
+- MinIO
+
+KHÔNG chạy trực tiếp trên host:
+- java
+- javac
+- mvn
+- ./mvnw
+- mvnw.cmd
+- node
+- npm
+- npx
+- pnpm
+- yarn
+- mysql
+- mongosh
+
+Mọi build, dependency installation, migration, test và runtime phải chạy bên trong Docker container.
+
+Nếu cần tool để generate code hoặc Maven Wrapper:
+- sử dụng container tạm thời
+- không cài tool đó lên host
+
+==================================================
+DOCKER ARCHITECTURE BẮT BUỘC
+==================================================
+
+Tạo:
+
+infra/
+  compose.yaml
+
+backend/
+  Dockerfile
+
+frontend/
+  Dockerfile
+
+Docker Compose phải quản lý ít nhất:
+
+1. mysql
+2. mongodb
+3. neo4j
+4. minio
+5. backend
+6. frontend
+
+Có thể tạo thêm nếu cần:
+
+- minio-init
+- migration
+- seed
+- backend-test
+- frontend-test
+- e2e
+- reverse-proxy
+
+Tất cả service nằm trong Docker network riêng.
+
+Dùng named volumes cho dữ liệu:
+
+- mysql-data
+- mongodb-data
+- neo4j-data
+- minio-data
+
+Không bind trực tiếp data directory database vào filesystem host nếu không cần thiết.
+
+==================================================
+VERSION / REPRODUCIBILITY
+==================================================
+
+Pin version Docker image rõ ràng.
+
+Không sử dụng tag mơ hồ như:
+
+latest
+
+trừ khi hoàn toàn không còn lựa chọn.
+
+Các phiên bản phải tương thích với yêu cầu tài liệu:
+
+Backend:
+- Java 21
+- Spring Boot 4.x
+
+Frontend:
+- React
+- TypeScript strict
+- Vite hoặc build system phù hợp
+
+Database:
+- MySQL
+- MongoDB
+- Neo4j
+
+Storage:
+- MinIO
+
+Nếu tài liệu không chỉ định exact version:
+- tự chọn stable compatible version
+- ghi quyết định vào docs/DECISIONS.md
+- không hỏi tôi
+
+==================================================
+BACKEND DOCKER BUILD
+==================================================
+
+Backend phải dùng multi-stage Docker build.
+
+Logic mong muốn:
+
+builder stage
+  -> Maven + JDK 21
+  -> download dependencies
+  -> compile
+  -> test nếu phù hợp
+  -> package jar
+
+runtime stage
+  -> JRE 21
+  -> copy jar
+  -> chạy application
+
+Không yêu cầu Maven/JDK trên host.
+
+Ưu tiên dependency caching Docker tốt để rebuild nhanh.
+
+Tạo .dockerignore phù hợp.
+
+Backend container phải có:
+
+- health endpoint
+- readiness
+- graceful shutdown nếu phù hợp
+
+==================================================
+FRONTEND DOCKER BUILD
+==================================================
+
+Frontend phải dùng multi-stage build.
+
+builder stage:
+- Node image được pin version
+- install dependency
+- typecheck
+- build production
+
+runtime:
+- nginx hoặc runtime phù hợp
+
+Nếu là SPA:
+- cấu hình route fallback về index.html
+
+Không yêu cầu Node/npm trên host.
+
+Tạo .dockerignore.
+
+Frontend phải giao tiếp backend bằng cấu hình environment phù hợp.
+
+Không hard-code localhost sai ngữ cảnh container.
+
+==================================================
+TEST PHẢI CHẠY TRONG DOCKER
+==================================================
+
+Không chạy test bằng runtime host.
+
+Backend tests phải chạy bằng Docker.
+
+Frontend tests/typecheck/build phải chạy bằng Docker.
+
+Thiết kế Dockerfile target hoặc Compose service riêng như:
+
+backend-test
+frontend-test
+e2e
+
+Developer phải có thể chạy:
+
+docker compose -f infra/compose.yaml run --rm backend-test
+docker compose -f infra/compose.yaml run --rm frontend-test
+
+Không được yêu cầu chạy:
+
+mvn test
+
+hoặc:
+
+npm run build
+
+trực tiếp trên Windows.
+
+==================================================
+DATABASE VÀ STORAGE
+==================================================
+
+MYSQL là SOURCE OF TRUTH cho nghiệp vụ và permission.
+
+MySQL chạy trong Docker.
+MongoDB chạy trong Docker.
+Neo4j chạy trong Docker.
+MinIO chạy trong Docker.
+
+Mỗi service phải có:
+
+- environment variables
+- healthcheck
+- persistent volume
+- network
+- restart policy phù hợp cho local
+- credential development thông qua .env
+
+Không hard-code production secret.
+
+Tạo:
+
+.env.example
+
+Nếu cần local development credential:
+- sử dụng giá trị DEVELOPMENT ONLY
+- ghi rõ không dùng production
+
+==================================================
+DEPENDENCY STARTUP
+==================================================
+
+Dùng healthcheck + depends_on phù hợp.
+
+Backend không được khởi động giả định database đã sẵn sàng.
+
+Phải xử lý startup của:
+
+MySQL
+MongoDB
+Neo4j
+MinIO
+
+Backend chỉ bắt đầu nghiệp vụ khi dependency bắt buộc đã usable.
+
+Nếu projection DB như MongoDB hoặc Neo4j tạm unavailable:
+- permission và nghiệp vụ quan trọng vẫn dựa trên MySQL
+- không làm sai access control
+
+==================================================
+MIGRATION
+==================================================
+
+Database schema phải được quản lý bằng migration.
+
+Ưu tiên Flyway hoặc công cụ phù hợp với Spring Boot stack.
+
+Migration phải chạy tự động/containerized.
+
+Không yêu cầu developer cài MySQL client.
+
+Không dùng Hibernate auto schema create làm giải pháp production-like duy nhất.
+
+Migration phải deterministic và versioned.
+
+==================================================
+DEVELOPMENT SEED
+==================================================
+
+Tạo seed development idempotent.
+
+Phải có dữ liệu demo tối thiểu:
+
+OWNER
+STAFF
+FREE STUDENT
+PRO STUDENT
+EXPIRED STUDENT
+CLASSROOM
+FREE COURSE
+PAID COURSE
+SECTIONS
+LESSONS
+PRODUCT
+ENTITLEMENT
+EXAM
+QUESTIONS
+SEGMENT
+RANKING DATA
+
+Seed chạy nhiều lần không tạo duplicate sai nghiệp vụ.
+
+==================================================
+NGUYÊN TẮC LÀM VIỆC CỦA AGENT
+==================================================
+
+- Làm việc tự động.
+- KHÔNG hỏi tôi từng bước.
+- KHÔNG yêu cầu tôi xác nhận plan.
+- KHÔNG dừng sau khi lập plan.
+- Sau plan phải implement ngay.
+- Tự phân chia công việc cho nhiều agent.
+- Chạy các agent song song khi task độc lập.
+- Tự đọc toàn bộ tài liệu trước khi code.
+- Tự scan toàn bộ repository.
+- Luôn kiểm tra code hiện có trước khi tạo code mới.
+- Không rewrite code đang hoạt động nếu không cần.
+- Không dừng khi gặp compile error.
+- Không dừng khi test fail.
+- Tự phân tích root cause.
+- Tự sửa.
+- Tự chạy lại.
+- Lặp cho đến khi lỗi được xử lý tối đa có thể.
+
+Nếu có quyết định kỹ thuật thông thường:
+TỰ QUYẾT ĐỊNH.
+
+Không hỏi tôi:
+"Bạn muốn dùng X hay Y?"
+
+Nếu cả hai đều hợp lý:
+- chọn phương án đơn giản
+- maintainable
+- secure
+- configurable
+- ghi vào docs/DECISIONS.md
+
+Chỉ được dừng vì blocker thật sự không thể mock hoặc giải quyết bằng local environment.
+
+==================================================
+PHASE 0 — AUDIT
+==================================================
+
+Trước khi sửa code:
+
+1. Đọc toàn bộ tài liệu đính kèm.
+2. Scan toàn bộ repository.
+3. Xác định:
+   - code hiện có
+   - code thiếu
+   - module đã hoàn thành
+   - module partial
+   - module chưa có
+4. Phát hiện technology/version hiện tại.
+5. Không phá phần đang hoạt động.
+6. Tạo:
+
+docs/IMPLEMENTATION_STATUS.md
+
+Nội dung:
+
+DONE
+PARTIAL
+TODO
+BLOCKED
+
+7. Tạo dependency-aware implementation plan.
+
+8. Sau audit phải tiếp tục implementation.
+KHÔNG dừng để hỏi tôi.
+
+==================================================
+PHASE 1 — FOUNDATION
+==================================================
+
+Thiết lập structure:
+
+backend/
+frontend/
+infra/
+docs/
+
+Triển khai:
+
+Spring Boot 4.x
+JDK 21
+
+React
+TypeScript strict
+
+Docker Compose
+
+MySQL
+MongoDB
+Neo4j
+MinIO
+
+Environment config
+
+Docker network
+
+healthcheck
+
+migration
+
+development seed
+
+logging
+
+error response convention
+
+==================================================
+PHASE 2 — IDENTITY + CLASSROOM CORE
+==================================================
+
+Triển khai đầy đủ:
+
+identity
+authentication
+authorization
+user
+classroom
+class membership
+OWNER
+STAFF
+staff assignment
+staff permissions
+permission scope
+RBAC
+audit
+access policy
+
+Backend là nguồn quyết định quyền cuối cùng.
+
+KHÔNG tin:
+
+userId
+classId
+isPro
+role
+permission
+
+do client gửi lên để quyết định authorization.
+
+Identity phải lấy từ authentication context.
+
+==================================================
+PHASE 3 — LEARNING
+==================================================
+
+Triển khai:
+
+course
+section
+lesson
+lesson type
+video/media
+documents
+lesson progress
+assignment
+Q&A
+course access
+FREE
+PRO
+PRODUCT ENTITLEMENT
+expiration
+archive lifecycle
+
+Media phải dùng MinIO.
+
+Không lưu presigned URL dài hạn trong database.
+
+Database lưu object key.
+
+Backend kiểm permission trước khi phát download URL.
+
+==================================================
+PHASE 4 — COMMUNITY
+==================================================
+
+Triển khai:
+
+classroom feed
+post
+comment
+visibility
+member list
+profile
+learning journey
+class introduction/about
+
+visibility phải hỗ trợ phù hợp tài liệu:
+
+PUBLIC
+FREE
+PRO
+PRODUCT_OWNER
+SEGMENT
+
+Backend phải enforce visibility.
+
+==================================================
+PHASE 5 — EXAM
+==================================================
+
+Triển khai:
+
+exam
+question
+answer option
+question types
+attempt
+attempt answer
+autosave
+submit
+grading
+automatic grading
+manual grading
+publish result
+
+audience:
+
+ALL
+PRO
+COURSE
+SEGMENT
+
+schedule
+duration
+attempt limit
+snapshot
+
+Không bao giờ gửi answer key cho student trước thời điểm được phép.
+
+Attempt submit phải idempotent.
+
+==================================================
+PHASE 6 — RANKING
+==================================================
+
+Triển khai:
+
+rank tiers
+exam reward rules
+leaderboard
+published attempt calculation
+best attempt policy theo giả định tài liệu nếu chưa chốt
+không cộng điểm duplicate
+support score correction
+audit score changes
+rebuild leaderboard
+
+==================================================
+PHASE 7 — SEGMENT
+==================================================
+
+Triển khai:
+
+segment
+segment rule
+preview
+AND / OR condition
+whitelisted operators
+
+KHÔNG cho phép raw SQL expression do user cung cấp.
+
+==================================================
+PHASE 8 — COMMERCE
+==================================================
+
+Triển khai:
+
+product
+product price
+duration
+order
+order item
+payment
+entitlement
+expiration
+refund
+revoke
+payment webhook
+idempotency
+price snapshot
+duration snapshot
+
+Do tài liệu CHƯA chọn payment provider thật:
+
+KHÔNG tự tích hợp Stripe, PayPal hay provider production cụ thể.
+
+Tạo abstraction:
+
+PaymentProvider
+
+và implementation:
+
+MockPaymentProvider
+hoặc
+SandboxPaymentProvider
+
+để local flow chạy end-to-end.
+
+Mock provider phải hỗ trợ:
+
+PENDING
+PAID
+FAILED
+REFUNDED
+webhook simulation
+idempotency
+
+Thiết kế để provider thật có thể được thêm sau.
+
+==================================================
+PHASE 9 — EVENT / OUTBOX / PROJECTION
+==================================================
+
+MySQL là source of truth.
+
+Tạo outbox pattern.
+
+Business transaction + outbox phải commit cùng transaction MySQL.
+
+Tạo worker xử lý event.
+
+Projection sang:
+
+MongoDB
+Neo4j
+
+Consumer phải:
+
+idempotent
+retry được
+có error handling
+không duplicate effect
+
+Projection failure không được làm sai permission hoặc commerce.
+
+==================================================
+PHASE 10 — FRONTEND
+==================================================
+
+Xây UI thực tế cho:
+
+login
+class list
+class page
+feed
+learning
+course list
+course detail
+lesson page
+video lesson
+lesson progress
+documents
+Q&A
+exams
+exam attempt
+exam result
+leaderboard
+members
+profile
+store
+product
+checkout
+orders
+Studio
+
+==================================================
+STUDIO
+==================================================
+
+Studio gồm:
+
+overview
+feed management
+courses
+course editor
+lessons
+exams
+exam editor
+grading
+leaderboard
+documents
+members
+segments
+products
+orders
+about
+settings
+staff
+staff permission management
+
+UI phải phản ánh OWNER và STAFF permission.
+
+==================================================
+UI STATES
+==================================================
+
+Mọi màn phù hợp phải xử lý:
+
+loading
+empty
+error
+forbidden
+expired
+not found
+pending
+paid
+failed
+refunded
+responsive
+keyboard usability
+basic WCAG 2.1 AA principles
+
+Route guard chỉ hỗ trợ UX.
+
+Backend vẫn phải kiểm permission.
+
+==================================================
+PHASE 11 — SECURITY
+==================================================
+
+Tự review:
+
+IDOR
+cross-class access
+cross-user access
+OWNER scope
+STAFF permission scope
+course entitlement bypass
+PRO bypass
+exam audience bypass
+answer leakage
+private media leakage
+presigned URL misuse
+payment spoofing
+webhook duplication
+refund inconsistency
+secret leakage
+CORS
+authentication
+authorization
+mass assignment
+unsafe deserialization nếu liên quan
+SQL injection
+segment injection
+
+Không sửa bằng cách đơn giản hide button ở frontend.
+
+==================================================
+PHASE 12 — TEST
+==================================================
+
+Triển khai tests thực tế.
+
+BACKEND:
+
+unit tests
+domain policy tests
+AccessPolicy tests
+StaffPolicy tests
+ProPolicy tests
+ExamAudience tests
+ExamScoring tests
+OrderIdempotency tests
+SegmentParser tests
+repository integration tests
+API authorization tests
+cross-class tests
+media permission tests
+payment webhook tests
+
+FRONTEND:
+
+TypeScript typecheck
+component tests nếu phù hợp
+critical behavior tests
+production build
+
+E2E:
+
+luồng login
+class
+learning
+exam
+purchase
+entitlement
+Studio permission
+
+Bao phủ tối đa:
+
+TC-01 đến TC-18 trong tài liệu.
+
+Không ghi test PASS nếu chưa thực sự chạy.
+
+==================================================
+PHASE 13 — BUILD / VERIFY TOÀN BỘ BẰNG DOCKER
+==================================================
+
+TUYỆT ĐỐI KHÔNG dùng Java/Node trên host.
+
+Tự chạy:
+
+docker compose -f infra/compose.yaml config
+docker compose -f infra/compose.yaml build
+docker compose -f infra/compose.yaml run --rm backend-test
+docker compose -f infra/compose.yaml run --rm frontend-test
+
+Nếu có E2E service:
+
+docker compose -f infra/compose.yaml run --rm e2e
+
+Nếu command fail:
+
+1. đọc đầy đủ error
+2. xác định root cause
+3. sửa code/config
+4. rebuild phần cần thiết
+5. chạy lại
+
+Lặp tới khi pass hoặc xác định blocker thật sự.
+
+KHÔNG:
+
+xóa test chỉ để build xanh
+disable compiler check
+disable TypeScript strict
+bỏ validation
+bỏ security
+comment code lỗi chỉ để compile
+
+==================================================
+PHASE 14 — LOCAL FULL STACK
+==================================================
+
+Sau khi build/test:
+
+docker compose -f infra/compose.yaml up -d --build
+
+Kiểm tra:
+
+docker compose -f infra/compose.yaml ps
+
+Tất cả required services phải:
+
+healthy
+hoặc running đúng trạng thái mong đợi.
+
+Kiểm tra:
+
+frontend
+backend health
+MySQL
+MongoDB
+Neo4j
+MinIO
+Seed data
+Login
+Class access
+Course
+Exam
+Store
+Studio
+
+Không chạy Spring Boot hoặc Vite trực tiếp trên host.
+
+==================================================
+PHASE 15 — REPRODUCIBILITY TEST
+==================================================
+
+Giả định developer mới chỉ có:
+
+Docker
+Git
+
+Repository phải chạy được theo README.
+
+Kiểm tra quy trình clean:
+
+docker compose -f infra/compose.yaml down -v
+docker compose -f infra/compose.yaml build --no-cache
+docker compose -f infra/compose.yaml up -d
+
+Sau đó verify lại migration + seed + health.
+
+Nếu quy trình clean environment không chạy:
+sửa cho đến khi chạy.
+
+==================================================
+PHASE 16 — DOCUMENTATION
+==================================================
+
+Cập nhật:
+
+README.md
+docs/IMPLEMENTATION_STATUS.md
+docs/DECISIONS.md
+docs/API.md
+OpenAPI
+docs/RUNBOOK.md
+docs/DOCKER.md
+.env.example
+
+README phải hướng dẫn developer mới chạy project bằng Docker.
+
+README KHÔNG được yêu cầu:
+
+install Java
+install Maven
+install Node
+install MySQL
+install MongoDB
+install Neo4j
+install MinIO
+
+Command chính phải gần như:
+
+git clone ...
+copy .env.example .env
+docker compose -f infra/compose.yaml up -d --build
+
+==================================================
+QUYẾT ĐỊNH CHƯA CHỐT
+==================================================
+
+Với các mục [CẦN CHỐT]:
+
+Không dừng để hỏi tôi nếu có thể tiếp tục bằng assumption an toàn.
+
+Ghi assumption vào:
+
+docs/DECISIONS.md
+
+Ưu tiên:
+
+configurable
+replaceable
+backward compatible
+secure defaults
+
+Ví dụ:
+
+Payment provider chưa chọn
+-> PaymentProvider abstraction + MockPaymentProvider.
+
+SLA chưa chốt
+-> không tuyên bố SLA.
+
+Performance target chưa xác minh
+-> benchmark ghi rõ thực tế.
+
+Production secret chưa có
+-> development env placeholder.
+
+Profile privacy chưa chốt chi tiết
+-> privacy-first default.
+
+==================================================
+GIT SAFETY
+==================================================
+
+ĐƯỢC:
+
+đọc git status
+đọc git diff
+tạo/sửa file
+tạo local implementation
+
+KHÔNG:
+
+git push
+force push
+reset --hard vào lịch sử có sẵn
+xóa remote
+xóa repository
+xóa history
+ghi credential vào git
+
+==================================================
+KHÔNG ĐƯỢC GIẢ MẠO
+==================================================
+
+Không tự ghi:
+
+UAT PASS
+Requirement signed
+Production deployed
+Performance passed
+Security certified
+Customer accepted
+
+nếu chưa có evidence thực tế.
+
+Các tài liệu đó phải giữ đúng trạng thái thực tế.
+
+==================================================
+THEO DÕI TIẾN ĐỘ
+==================================================
+
+Sau mỗi phase lớn cập nhật:
+
+docs/IMPLEMENTATION_STATUS.md
+
+Ghi:
+
+DONE
+PARTIAL
+BLOCKED
+TODO
+
+Không chờ cuối task mới cập nhật.
+
+Nếu một agent/subtask thất bại:
+- delegate lại
+- thử phương án khác
+- tiếp tục phần độc lập khác
+
+==================================================
+ĐỊNH NGHĨA DONE
+==================================================
+
+KHÔNG được kết thúc chỉ vì đã viết nhiều code.
+
+Chỉ được coi implementation hoàn tất tối đa khi:
+
+1. Docker Compose hợp lệ.
+2. Backend build trong Docker thành công.
+3. Frontend build trong Docker thành công.
+4. Không cần JDK/Node/npm/Maven trên host.
+5. MySQL chạy container.
+6. MongoDB chạy container.
+7. Neo4j chạy container.
+8. MinIO chạy container.
+9. Migration chạy thành công.
+10. Seed development chạy được.
+11. Backend tests khả thi đã chạy.
+12. Frontend typecheck/build đã chạy.
+13. Core permission tests pass.
+14. Commerce idempotency được test.
+15. Exam/scoring tests được chạy.
+16. Frontend truy cập được.
+17. Backend health endpoint hoạt động.
+18. Core API hoạt động.
+19. Không còn compile error.
+20. Không còn TypeScript error.
+21. Không có known blocker có thể tự sửa mà chưa xử lý.
+22. External integrations chưa có credential được mock/abstract đúng cách.
+23. README có command Docker chính xác.
+24. IMPLEMENTATION_STATUS.md phản ánh trung thực hệ thống.
+
+
+25. Independent OpenAI code review qua category `code-review` đã APPROVE.
+26. Live QA qua category `qa` đã PASS.
+27. Independent OpenAI final gate qua category `final-gate` đã APPROVE.
+28. Không còn finding OPEN có thể tự xử lý trong docs/REVIEW_FINDINGS.md.
+29. docs/QUALITY_GATE.md chứa evidence thực tế của build/test/QA/review.
+30. Không implementation agent nào được tự tuyên bố DONE nếu chưa qua independent `code-review` + live `qa` + independent `final-gate`.
+
+==================================================
+BÁO CÁO CUỐI
+==================================================
+
+Khi không còn task khả thi để tiếp tục, báo cáo:
+
+1. Architecture đã triển khai.
+2. Module đã DONE.
+3. Module PARTIAL.
+4. Blocker thật sự còn lại.
+5. Test đã chạy.
+6. Test PASS.
+7. Test FAIL nếu còn.
+8. Docker services.
+9. URL local.
+10. Demo accounts.
+11. Command start.
+12. Command stop.
+13. Command rebuild.
+14. Command test backend.
+15. Command test frontend.
+16. Các file quan trọng đã tạo/sửa.
+17. Các assumption trong DECISIONS.md.
+
+==================================================
+BẮT ĐẦU
+==================================================
+
+BẮT ĐẦU NGAY.
+
+Không hỏi tôi xác nhận plan.
+Không hỏi tôi lựa chọn công nghệ nhỏ.
+Không dừng sau khi audit.
+Không dừng sau khi tạo skeleton.
+Không dừng sau khi backend compile.
+Không dừng sau khi frontend build.
+
+Tiếp tục:
+
+AUDIT
+-> PLAN
+-> IMPLEMENT
+-> BUILD
+-> TEST
+-> FIX
+-> REBUILD
+-> RUN
+-> VERIFY
+-> DOCUMENT
+
+cho đến khi hoàn thành tối đa có thể.
+
+Ưu tiên sử dụng Antigravity agents/model cho coding, exploration và implementation theo cấu hình Oh My OpenAgent hiện tại.
+
+Tự dùng multi-agent orchestration.
+Tự quyết định.
+Tự triển khai.
+Tự kiểm thử.
+Tự sửa lỗi.
+
+Không yêu cầu tôi thao tác thêm trong quá trình triển khai trừ khi gặp blocker bên ngoài thực sự không thể mock hoặc tự giải quyết.
+
+
+==================================================
+MODEL / RUNTIME TRUTH
+==================================================
+
+Không được khẳng định một model cụ thể đã review chỉ vì prompt đặt tên model đó.
+
+Chỉ ghi model reviewer/QA/gate là model cụ thể khi:
+- runtime log hiển thị model đó, hoặc
+- task/subtask metadata xác nhận model đó.
+
+Nếu runtime chỉ hiển thị category/role mà không hiển thị model:
+- ghi category/role đã chạy
+- ghi model là "UNVERIFIED BY RUNTIME"
+- KHÔNG giả mạo rằng GPT-6 Sol, GPT-5.6 Sol, Codex hoặc model khác đã thực sự được gọi.
+
+Nếu category delegate fail:
+- ghi lỗi thật
+- dùng fallback độc lập nếu có thể
+- không đổi tên một General Agent thành "GPT-6/Codex reviewer" nếu không có evidence model.
+
+==================================================
+QUY TẮC CUỐI CÙNG — KHÔNG ĐƯỢC SHORT-CIRCUIT
+==================================================
+
+Không được coi việc:
+- code compile
+- test pass
+- Docker healthy
+- IMPLEMENTATION_STATUS ghi DONE
+- agent implementation tự báo hoàn thành
+
+là đủ để kết thúc.
+
+Sau mọi thay đổi phát sinh từ review:
+BẮT BUỘC BUILD/TEST LẠI -> FRESH `code-review` -> `qa` -> `final-gate`.
+
+Mục tiêu không phải "hoàn thành nhanh".
+Mục tiêu là tạo vòng lặp độc lập giữa đội triển khai Antigravity và đội kiểm định OpenAI/GPT theo category cho tới khi chất lượng đạt gate cuối cùng.
+

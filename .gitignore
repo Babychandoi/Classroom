@@ -1,0 +1,42 @@
+# Environment
+
+# Build Artifacts
+**/target/
+**/build/
+**/dist/
+**/node_modules/
+**/*.tsbuildinfo
+.gradle/
+*.jar
+*.war
+
+# Logs and system
+*.log
+*.pid
+*.dump
+.DS_Store
+Thumbs.db
+
+# IDE configuration
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+
+# Test reports and coverage
+**/coverage/
+**/playwright-report/
+**/test-results/
+.artifacts/
+.nyc_output/
+
+# Agent / Antigravity
+.agents/
+
+# Docker data volumes
+docker-data/
+pgdata/
