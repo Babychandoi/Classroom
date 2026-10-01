@@ -105,6 +105,13 @@ Mã thoát: `0` = mọi ngưỡng đạt, `1` = có ngưỡng vi phạm (in `FAI
 `loadtest/sql/seed-bulk.sh` nạp thêm ~1800 thành viên, 2000 bài viết và 40 000 bình luận vào lớp trong `.state/state.json` bằng SQL trực tiếp vào `classroom-drill-mysql` (mật khẩu MySQL lấy từ biến môi trường **của container**, không đọc `.env`; script từ chối container không có "drill" trong tên).
 
 ## Dọn dẹp
+
+Đo bổ sung sau khi người học đã mở trang đề: `node scenarios/exam-burst.js --users 200 --duration 20 --preload-exams --json preloaded.json`. Script yêu cầu đủ GET đề thành công trước khi tạo lượt thi; báo cáo preload riêng. Mặc định không preload và mọi ngưỡng giữ nguyên. Phải giữ riêng cả báo cáo mặc định và preload, không thay kết quả cold bằng kết quả đã mở kết nối. Kết quả trên máy làm server hiện tại ghi trong `docs/PERFORMANCE_REVIEW.md`.
+
+Kịch bản media yêu cầu đủ N intent/PUT/complete thành công; readiness dùng ngưỡng `max(1000, controlHealthP99 + 300)` ms của script. Đọc cả số đối chứng và độ trễ tuyệt đối khi đánh giá. Có thể lưu JSON bằng `--json`.
+
+Sau kiểm thử có chủ đích trên server chính, xem trước bằng `python infra/scripts/disable-test-accounts.py`, rồi `--apply` để vô hiệu hóa đúng tài khoản giả và lưu trữ lớp thử. Thao tác giữ hồ sơ học/thi/thanh toán, thu hồi refresh token, ghi audit và lưu trạng thái trước trong thư mục bảo vệ `.artifacts/server`. Đừng tái dùng state của những tài khoản đã vô hiệu hóa: tạo bộ seed mới. Server demo không bị thay đổi.
+
 ```powershell
 docker compose -p classroom-drill -f infra/compose.yaml -f infra/compose.demo.yaml -f infra/compose.drill.yaml --env-file infra/.env down -v
 ```

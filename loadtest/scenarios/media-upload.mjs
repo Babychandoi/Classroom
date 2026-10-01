@@ -4,6 +4,7 @@
 //   node scenarios/media-upload.mjs --parallel 50 --size 20
 // Ngưỡng: --max-complete-p95 3000 --max-probe-p99 1000
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
 const require = createRequire(import.meta.url);
 const { API, assertSafeTarget, args, num, pct, loadState, saveState, checkThresholds } = require('../lib');
 const { ensureTokens } = require('../fixtures');
@@ -66,7 +67,11 @@ const out = {
   control: sum('/health (không dùng DB) cùng lúc - độ trễ mạng nền', control),
 };
 console.log(JSON.stringify(out, null, 2));
+if (a.json) fs.writeFileSync(a.json, JSON.stringify(out, null, 2) + '\n');
 const failures = checkThresholds([
+  { name: 'intent: số thành công', value: flows.filter((f) => f.intent.status === 200).length, equals: P },
+  { name: 'PUT: số thành công', value: flows.filter((f) => f.put?.status === 200).length, equals: P },
+  { name: 'complete: số kết quả', value: completes.length, equals: P },
   { name: 'complete: số lỗi (khác 200)', value: completes.filter((c) => c.status !== 200).length, equals: 0 },
   { name: 'complete: p95 (ms)', value: out.complete.p95, max: thresholds.completeP95 },
   { name: 'readiness: số lần không 200', value: probe.filter((r) => r.status !== 200).length, equals: 0 },

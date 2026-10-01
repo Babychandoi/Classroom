@@ -360,9 +360,17 @@ Giao diện của D-19 (frontend + E2E). Backend và hợp đồng API giữ ngu
 ## D-20 đến D-24 — Round 23 (01/10/2026)
 
 - D-20: MySQL chia sẻ budget/lockout dùng giờ DB; khóa từng bucket, fail closed khi DB gián đoạn. Outbox dùng claim token khi finalize; membership Neo4j giữ sequence để worker cũ không đảo sự kiện mới.
-- D-21: Máy Windows này chạy web HTTPS qua Caddy, nginx và hai backend; CA nội bộ cho LAN, ACME chỉ khi có DNS/router thật. Demo/DB/console giữ loopback.
+- D-21: Máy Windows này chạy web HTTPS qua Caddy và nginx; mặc định một backend, hai node tùy chọn theo D-26. CA nội bộ cho LAN, ACME chỉ khi có DNS/router thật. Demo/DB/console giữ loopback.
 - D-22: Giới thiệu có tối đa 12 tab/ảnh; ảnh ABOUT được cấp URL ngắn hạn sau khi kiểm tra quyền nhìn lớp; optimistic version chống ghi đè.
 - D-23: Export chính chủ có xác nhận mật khẩu; yêu cầu xóa bền vững, PLATFORM_ADMIN phải ghi căn cứ giữ/xử lý. Đóng tài khoản ẩn danh hóa và thu hồi phiên; không tự xóa chứng từ hoặc tuyên bố đã đạt toàn bộ pháp lý.
 - D-24: Video hỗ trợ WebVTT tiếng Việt và contentText làm bản chép lời/mô tả; người tạo nội dung chịu trách nhiệm độ chính xác của phụ đề và mô tả âm thanh/hình ảnh.
 
 D-20 bổ sung: start/submit dùng UPSERT nguyên tử, trả counter của chính request qua MySQL OK packet. Autosave đặt trước tối đa 8 lượt trong transaction khóa bucket; tổng lượt đặt trước của các node không vượt 300/phút. Cache chỉ tiêu thụ lượt đã tính ở DB, dùng đồng hồ đơn điệu với hạn bảo thủ bắt đầu trước DB I/O. Eviction/restart bỏ lượt chưa dùng và không hoàn lại budget. DB lỗi trả 503. Kiểm thử nhiều connection chia sẻ chính xác ngân sách và hết hạn bằng giờ DB.
+
+D-25: Khi công bố đề, chuẩn bị một bản JSON cho người học và một bản JSON chấm điểm trong cùng giao dịch khóa đề. V43 lưu hai bản này; mỗi lượt thi sao chép lại để giữ tính bất biến riêng. API người học chỉ nhận DTO không có đáp án. Xem thử vẫn dùng nội dung hiện hành, nên sửa đề nháp không bị bản công bố che khuất. Backend nâng cấp đề cũ theo từng nhóm 100 ID; đề cũ không có câu hỏi vẫn bị từ chối bắt đầu. Lỗi ghi snapshot làm giao dịch công bố rollback. Không thay đổi quyền tham gia, lịch, hạn lượt hoặc kiểm tra thu hồi tài khoản.
+
+D-26: Mặc định một backend JVM trên máy i5/RAM 16 GB này, dựa trên phép đo tải; `start-server.ps1 -TwoBackends` vẫn hỗ trợ kiểm tra phân tán. Xác thực đọc trạng thái/quyền hiện tại từ MySQL cho mọi request bằng projection nhỏ; truy vấn thu hồi token vẫn đọc database. Không cache trạng thái tài khoản hoặc tin quyền đã cũ trong JWT. Ngưỡng tải không được nới để nghiệm thu.
+
+D-25 bổ sung vòng đời ORM: ExamAttempt có UUID được gán trước, dùng Persistable với cờ transient, PostPersist/PostLoad để insert trực tiếp bản mới và merge bản đã tải. Không đưa cờ vào JSON. Integration thật xác minh insert, tải lại và cập nhật cùng ID. Căn cứ: [Spring Data JPA — Persisting Entities](https://docs.spring.io/spring-data/jpa/reference/jpa/entity-persistence.html).
+
+D-25 bổ sung: cache prepared statement chỉ giữ câu lệnh SQL (250/connection, SQL ≤ 2048), dùng prepared statement phía MySQL và trạng thái session/autocommit do driver theo dõi. Cấu hình này nằm trên URL JDBC của cả Compose ứng dụng và integration; không thay isolation, kiểm tra quyền hay độ bền ghi. Căn cứ: [HikariCP MySQL Configuration](https://github.com/brettwooldridge/HikariCP/wiki/MySQL-Configuration), [Connector/J Performance Extensions](https://dev.mysql.com/doc/connector-j/en/connector-j-connp-props-performance-extensions.html). Số lượt thi được đọc một lần dưới khóa học viên và dùng lại trong policy; không đọc lại cùng số. Kiểm tra nhân sự đọc assignment trước, membership/expiry vẫn bắt buộc với assignment ACTIVE.

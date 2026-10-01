@@ -42,6 +42,25 @@ public class AccessPolicyTest {
     private Classroom classA;
     private Classroom classB;
 
+    @Test void missingStaffAssignmentNeedsNoMembershipRead() {
+        assertFalse(accessPolicy.isActiveStaff("learner", "class-a-id"));
+        verifyNoInteractions(classroomRepository, memberRepository);
+    }
+
+    @Test void activeAssignmentCannotBypassRemovedBlockedOrExpiredMembership() {
+        var assignment = new StaffAssignment("class-a-id", "staff"); assignment.setStatus("ACTIVE");
+        when(staffAssignmentRepository.findByClassIdAndUserId("class-a-id", "staff")).thenReturn(Optional.of(assignment));
+        when(classroomRepository.findById("class-a-id")).thenReturn(Optional.of(classA));
+        var member = new ClassMember("class-a-id", "staff", "STAFF");
+        when(memberRepository.findByClassIdAndUserId("class-a-id", "staff")).thenReturn(Optional.of(member));
+        member.setState("ACTIVE"); assertTrue(accessPolicy.isActiveStaff("staff", "class-a-id"));
+        for (String state : List.of("REMOVED", "BLOCKED", "EXPIRED")) {
+            member.setState(state); assertFalse(accessPolicy.isActiveStaff("staff", "class-a-id"), state);
+        }
+        member.setState("ACTIVE"); member.setAccessExpiresAt(java.time.Instant.now().minusSeconds(1));
+        assertFalse(accessPolicy.isActiveStaff("staff", "class-a-id"));
+    }
+
     @BeforeEach
     void setUp() {
         classA = new Classroom("class-a-id", "owner-1-id", "class-a", "Class A", "Desc A");

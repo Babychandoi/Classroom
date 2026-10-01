@@ -9,7 +9,18 @@ import java.util.UUID;
 @Table(name = "exam_attempts", uniqueConstraints = {
         @UniqueConstraint(name = "uq_ea_exam_user_attempt", columnNames = {"exam_id", "user_id", "attempt_number"})
 })
-public class ExamAttempt {
+public class ExamAttempt implements org.springframework.data.domain.Persistable<String> {
+
+    @Transient
+    private boolean newEntity = true;
+
+    @Override
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isNew() { return newEntity; }
+
+    @PostPersist
+    @PostLoad
+    void markExisting() { newEntity = false; }
 
     @Id
     @Column(length = 36)

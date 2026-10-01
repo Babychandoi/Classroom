@@ -22,7 +22,7 @@
 | **Phase 9** | Outbox Worker & Projection (MongoDB, Neo4j) | **DONE** | Outbox pattern MySQL commit chung TX, idempotent projection |
 | **Phase 10** | Frontend Web (React, TS strict, 8 tabs Class + Studio, Responsive) | **DONE** | Multi-stage Nginx build, API client, States (loading, empty, error, forbidden) |
 | **Phase 11** | Bảo mật & Kiểm soát truy cập (IDOR, Cross-class, Answer guard) | **DONE** | Backend-enforced authorization trên mọi endpoint |
-| **Phase 12** | Bộ kiểm thử | **DONE chức năng; tải còn mở** | Round 23: backend 999, integration 96, frontend 369; Chrome demo 210 bước, HTTPS 182 bước; ngưỡng tải 200 học viên còn chưa đạt. Xem WALKTHROUGHS_HISTORY.md. |
+| **Phase 12** | Bộ kiểm thử | **DONE chức năng; cold HTTPS còn mở** | Backend 1005, integration 99 (V1..V43), frontend 369; Chrome demo 194/194, HTTPS 166/166; quét axe đầy đủ riêng 30/30 mỗi môi trường. Xem WALKTHROUGHS_HISTORY.md và PERFORMANCE_REVIEW.md. |
 | **Phase 13** | Docker Verify (Build, Backend-test, Frontend-test) | **DONE** | 100% build và test thành công trong Docker container |
 | **Phase 14** | Local Full Stack (Chạy up -d, healthcheck) | **DONE** | Tất cả 6 containers đều UP & HEALTHY |
 | **Phase 15** | Reproducibility Test (Clean down -v && up) | **DONE** | Khởi động sạch từ zero-state và Flyway migration thành công. `DataSeedRunner` chỉ chạy khi bật lớp phủ demo tường minh (`infra/compose.demo.yaml`) — xem RUNBOOK §1.4 |
@@ -76,13 +76,14 @@
 - MySQL chia sẻ rate limit, autosave tiêu thụ lượt đặt trước; outbox có claim token, Neo4j chống áp dụng ngược sequence.
 - Export/xóa dữ liệu cá nhân có xác nhận mật khẩu và xử lý có audit; video hỗ trợ WebVTT và bản chép lời.
 - Secret ngẫu nhiên 64 ký tự đã được áp dụng lên volume thật; cấu hình cũ đã dọn, dependency đã cập nhật. Hai stack được tái tạo và giữ dữ liệu.
-- HTTPS trên máy hiện tại, hai backend, cookie Secure/HttpOnly, CORS chính xác, firewall LocalSubnet, CA được tin cậy trên máy chủ; ba Scheduled Tasks đã đăng ký. Backup/restore bốn kho đã chạy thật.
+- HTTPS trên máy hiện tại, mặc định một backend và hỗ trợ hai backend, cookie Secure/HttpOnly, CORS chính xác, firewall LocalSubnet, CA được tin cậy trên máy chủ; ba Scheduled Tasks đã đăng ký. Backup/restore bốn kho đã chạy thật.
+- V43 chuẩn bị bản đề/đáp án chấm điểm bất biến trong giao dịch công bố; DTO người học không chứa đáp án. Nâng cấp đề cũ theo batch, rollback khi ghi thất bại; quyền và thời hạn vẫn kiểm tra hiện tại.
 
 **Giới hạn còn mở:**
-1. Ngưỡng độ trễ tải 200 học viên chưa đạt dù bài nộp/đáp án đầy đủ; có một lượt readiness 503 và một lượt 8 save 429 trước sửa ranh giới. Feed/media cũng chưa đạt ổn định. Chi tiết `PERFORMANCE_REVIEW.md`; không coi đây là nghiệm thu NFR tải.
+1. 200 người đã mở trang đề đạt start p95 1262 ms, save 57, submit 1367; feed/media/NAT qua gate script. Mặc định 200 kết nối HTTPS mới vẫn vượt ngưỡng start (1925 > 1500 ms), đủ bài/đáp án và không lỗi request. Media readiness dùng ngưỡng tương đối của script. Các lỗi 503/429 thuộc lượt cũ trước sửa; giữ riêng bằng chứng lịch sử. Xem `PERFORMANCE_REVIEW.md`; chưa nghiệm thu toàn bộ NFR tải.
 2. Lịch sử GitHub cần xác nhận riêng trước khi thay bằng bản đã loại secret; báo cáo chuẩn bị trong `.artifacts/git-cleanup/result.json`.
 3. Internet cần DNS/router hoặc phương án kết nối do người vận hành cung cấp. Chưa kiểm chứng từ thiết bị LAN thứ hai hoặc reboot thật. Server hiện tại không có cam kết SLA.
 4. Quét axe và kiểm tra bàn phím đã qua; NVDA/VoiceOver, mọi nội dung giáo viên và toàn bộ WCAG cần nghiệm thu thủ công. Danh tính/căn cứ giữ dữ liệu của đơn vị vận hành cần được điền trong DATA_POLICY.md.
 5. Cổng thanh toán thật nằm ngoài yêu cầu; sandbox chỉ bật ở demo. Web responsive là sản phẩm được yêu cầu, không làm app native.
 
-**Migration:** Flyway V1..V42. V37 lớp riêng tư/trả phí; V38 mục giới thiệu; V39 budget chung; V40 claim token; V41 quyền dữ liệu; V42 WebVTT. Giữ nguyên các migration đã áp dụng.
+**Migration:** Flyway V1..V43. V37 lớp riêng tư/trả phí; V38 mục giới thiệu; V39 budget chung; V40 claim token; V41 quyền dữ liệu; V42 WebVTT; V43 bản đề khi công bố. Giữ nguyên các migration đã áp dụng.

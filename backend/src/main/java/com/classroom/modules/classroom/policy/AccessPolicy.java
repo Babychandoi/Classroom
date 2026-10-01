@@ -183,10 +183,12 @@ public class AccessPolicy {
     }
 
     public boolean isActiveStaff(String userId, String classId) {
-        if (userId == null || classId == null || !isMember(userId, classId)) return false;
+        if (userId == null || classId == null) return false;
+        // Most callers are learners: absence of an active assignment needs no roster read.
+        // Staff still must pass the live membership/expiry check.
         return staffAssignmentRepository.findByClassIdAndUserId(classId, userId)
                 .map(a -> "ACTIVE".equalsIgnoreCase(a.getStatus()))
-                .orElse(false);
+                .orElse(false) && isMember(userId, classId);
     }
 
     public void enforceOwner(String userId, String classId) {

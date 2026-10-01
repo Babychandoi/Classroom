@@ -85,11 +85,46 @@ public class ExamSecurityTest {
     @Mock
     private ProfileVisibilityPolicy profileVisibilityPolicy;
 
+    @Mock
+    private com.classroom.modules.exam.repository.ExamPublicationSnapshotRepository publicationSnapshots;
+
     @InjectMocks
     private ExamService examService;
 
     private Exam exam;
     private Question q1;
+
+    @Test
+    void publishedSnapshotIsReusedWithoutReadingMutableQuestionsOrLeakingKeys() throws Exception {
+        var snapshot = new com.classroom.modules.exam.model.ExamPublicationSnapshot("exam-1",
+                "[{\"id\":\"q-1\",\"questionText\":\"Frozen question\"}]",
+                "[{\"id\":\"q-1\",\"answerKey\":\"secret-correct-answer\"}]");
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        when(publicationSnapshots.findById("exam-1")).thenReturn(Optional.of(snapshot));
+        when(attemptRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        var dto = examService.startAttempt("exam-1", "student-1", false);
+
+        assertEquals("Frozen question", dto.getQuestions().get(0).getQuestionText());
+        assertNull(dto.getQuestions().get(0).getAnswerKey());
+        assertFalse(new ObjectMapper().findAndRegisterModules().writeValueAsString(dto).contains("secret-correct-answer"));
+        var saved = org.mockito.ArgumentCaptor.forClass(ExamAttempt.class);
+        verify(attemptRepository).save(saved.capture());
+        assertEquals(snapshot.getGradingJson(), saved.getValue().getGradingSnapshotJson());
+        verifyNoInteractions(questionRepository, optionRepository);
+        verify(audiencePolicy).enforceEnterExam(eq("student-1"), eq(exam), any(), eq(false), eq(false), eq(0L));
+    }
+
+    @Test
+    void corruptPublishedSnapshotCannotConsumeAnAttemptOrFallbackToMutableContent() {
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        when(publicationSnapshots.findById("exam-1")).thenReturn(Optional.of(
+                new com.classroom.modules.exam.model.ExamPublicationSnapshot("exam-1", "[]", "[]")));
+        assertEquals(ErrorCode.INTERNAL_SERVER_ERROR, assertThrows(AppException.class,
+                () -> examService.startAttempt("exam-1", "student-1", false)).getErrorCode());
+        verify(attemptRepository, never()).save(any());
+        verifyNoInteractions(questionRepository, optionRepository);
+    }
 
     @BeforeEach
     void setUp() throws Exception {
@@ -135,7 +170,7 @@ public class ExamSecurityTest {
         assertEquals("att-1", dto.getId());
         assertEquals("IN_PROGRESS", dto.getStatus());
         verify(audiencePolicy).enforceResumeAttempt(eq("student-1"), eq(exam), eq(activeAttempt), any());
-        verify(audiencePolicy, never()).enforceEnterExam(eq("student-1"), eq(exam), any(), eq(false), eq(true));
+        verify(audiencePolicy, never()).enforceEnterExam(eq("student-1"), eq(exam), any(), eq(false), eq(true), any());
         assertTrue(activeAttempt.isAudienceEligibleAtStart());
         // Verify attempt count was not incremented
         verify(attemptRepository, never()).save(argThat(a -> a != activeAttempt));
@@ -163,7 +198,7 @@ public class ExamSecurityTest {
 
         assertNotNull(result);
         assertEquals("IN_PROGRESS", result.getStatus());
-        verify(audiencePolicy).enforceEnterExam(eq("former-staff-1"), eq(exam), any(), eq(false), eq(false));
+        verify(audiencePolicy).enforceEnterExam(eq("former-staff-1"), eq(exam), any(), eq(false), eq(false), eq(0L));
         verify(audiencePolicy, never()).enforceResumeAttempt(anyString(), any(), any(), any());
         // The preview-including lookup must never be consulted from the student path.
         verify(attemptRepository, never())
@@ -253,7 +288,7 @@ public class ExamSecurityTest {
         assertThrows(AppException.class, () -> examService.startAttempt("exam-1", "owner-1", false));
         assertThrows(AppException.class, () -> examService.startAttempt("exam-1", "staff-1", false));
         verify(attemptRepository, never()).save(any());
-        verify(audiencePolicy, never()).enforceEnterExam(anyString(), any(), any(), eq(false), anyBoolean());
+        verify(audiencePolicy, never()).enforceEnterExam(anyString(), any(), any(), eq(false), anyBoolean(), any());
     }
 
     @Test

@@ -554,4 +554,10 @@ V30 dùng `ALGORITHM=COPY` cho 8 bảng (`entitlements`, `product_prices`, `orde
 
 ## 8. Server Windows hiện tại — Round 23
 
-Quy trình khởi động HTTPS, CA nội bộ, LAN/firewall, hai backend, lịch backup/health/logon và cấu hình Internet nằm trong [SERVER_ON_THIS_PC.md](SERVER_ON_THIS_PC.md). Chính sách phục hồi sau yêu cầu xóa nằm trong cùng tài liệu; phải áp dụng lại quyết định đóng tài khoản trước khi mở dữ liệu phục hồi cũ.
+Quy trình khởi động HTTPS, CA nội bộ, LAN/firewall, một backend mặc định/hai node tùy chọn, lịch backup/health/logon và cấu hình Internet nằm trong [SERVER_ON_THIS_PC.md](SERVER_ON_THIS_PC.md). Chính sách phục hồi sau yêu cầu xóa nằm trong cùng tài liệu; phải áp dụng lại quyết định đóng tài khoản trước khi mở dữ liệu phục hồi cũ.
+
+### 8.1 V43 và dọn dữ liệu kiểm thử
+
+V43 thêm bảng snapshot của đề công bố. Lúc khởi động, backend chuẩn bị đề cũ theo batch 100 ID, có khóa giao dịch/idempotency; cần chờ readiness trước khi mở giờ thi. Đề cũ không có câu hỏi không được bắt đầu. Không chỉnh migration đã áp dụng hoặc sửa trực tiếp nội dung công bố để thay đề của lượt thi; xem API.md và D-25.
+
+`python infra/scripts/disable-test-accounts.py` chỉ xem trước tài khoản/class fixture trên đúng project chính. `--apply` lưu trạng thái trước trong `.artifacts/server`, ghi audit, vô hiệu hóa tài khoản, thu hồi refresh và lưu trữ lớp của chính fixture. Không xóa hồ sơ học/thi/thanh toán. Chạy sau E2E/load đã được phép và trước backup kết thúc đợt; không dùng lại bộ seed đã bị vô hiệu hóa. Nếu restore backup cũ hơn, phải rà soát trạng thái fixture cùng ledger đóng tài khoản trước khi mở dịch vụ.

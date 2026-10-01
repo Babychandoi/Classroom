@@ -1,4 +1,4 @@
-# Kiểm toán trợ năng — Round 23, 01/10/2026
+# Kiểm toán trợ năng — Round 23, cập nhật 02/10/2026
 
 Phạm vi kỹ thuật: web desktop/mobile, WCAG 2.0/2.1 A+AA và WCAG 2.2 AA qua axe-core trong Chrome thật. Đây là bằng chứng kiểm tra ứng dụng, không phải chứng nhận toàn bộ WCAG hoặc kiểm tra độ chính xác của mọi nội dung giáo viên tải lên.
 
@@ -10,7 +10,7 @@ Phạm vi kỹ thuật: web desktop/mobile, WCAG 2.0/2.1 A+AA và WCAG 2.2 AA qu
 - Layout: 390px/375px, cửa sổ thấp, không tràn ngang ở các luồng được quét; nội dung About tiếp tục dùng được ở chiều rộng tương đương zoom 200%.
 - Video: Chrome đọc cue từ WebVTT lưu trong DB, hiển thị captions và bản chép lời, sửa rồi reload vẫn đúng; không có CSP violation.
 
-Ảnh và báo cáo chi tiết: `e2e/shots/a11y-mupjt45g/axe-report.json`, `a11y-mupk92ud/axe-report.json`, ảnh About `r23-mupj81nt/`; artifact nằm trên máy và được bỏ qua khi commit.
+Bản V43 được quét lại đầy đủ: `e2e/shots/a11y-muq0govs/axe-report.json` (HTTPS chính), `e2e/shots/a11y-muq0jom0/axe-report.json` (demo); mỗi báo cáo 29 trang, 0 violation. Log `a11y-v43-https-full-validation.log` và `a11y-v43-demo-full-validation.log`: 30/30 bước mỗi lượt. Vòng tấn công và captions được chạy lại: `round23-v43-demo-validation.log` 16/16 và `captions-v43-demo-validation.log` PASS. Artifact nằm trên máy, được bỏ qua khi commit; báo cáo cũ giữ làm lịch sử.
 
 ## Sửa trong lượt kiểm toán
 

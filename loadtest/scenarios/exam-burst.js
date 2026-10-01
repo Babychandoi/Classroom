@@ -2,7 +2,7 @@
 // Kịch bản kỳ thi: N học viên cùng bấm "Bắt đầu" -> tự lưu ~1 lần/giây trong D giây -> cùng nộp bài ở cùng một thời điểm.
 // Đo: p50/p95/p99 từng pha, tỷ lệ lỗi 5xx, sức khỏe readiness (dùng 1 kết nối DB) trong lúc bắn tải, mất/lệch/nhân đôi câu trả lời,
 // và thời gian để bảng xếp hạng nhất quán với điểm thưởng mong đợi.
-//   node scenarios/exam-burst.js --users 200 --duration 20 [--exam-index 0] [--json out.json]
+//   node scenarios/exam-burst.js --users 200 --duration 20 [--exam-index 0] [--json out.json] [--preload-exams]
 // Ngưỡng (đổi bằng cờ): --max-start-p95 1500 --max-save-p95 300 --max-submit-p95 5000 --max-probe-p99 1000 --max-lb-lag 15000
 const {
   API, assertSafeTarget, args, num, log, req, call, data, summary, sleep, saveState, loadState, checkThresholds,
@@ -29,6 +29,18 @@ async function run(opts = {}) {
   const { examId, qids } = exam;
   const report = { N, examId, questions: qids.length, thresholds };
   const probe = startReadinessProbe(100);
+
+  // Optional separate scenario: learners have opened the exam page before clicking Start.
+  // The default still includes cold client connections. Preserve/report both measurements.
+  if (a['preload-exams']) {
+    const preload = await Promise.all(sessions.map(s => req('GET', `${API}/exams/${examId}`, { token: s.token })));
+    report.preload = summary('exam page before Start', preload);
+    log('preload', JSON.stringify(report.preload));
+    if (preload.some(r => r.status !== 200)) {
+      await probe.stop();
+      throw new Error('Exam page preload failed; no attempts were created.');
+    }
+  }
 
   // 1) Tất cả bấm "Bắt đầu làm bài" cùng lúc
   let t0 = Date.now();

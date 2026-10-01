@@ -799,19 +799,19 @@ Re-verified in Docker after fixing the one High and four Medium findings. All fi
 **Release status: NOT APPROVED.** This gate covers only the five findings raised in round 15. Open items from earlier rounds — ranking tier/reward-rule configuration endpoints, real payment provider integration and buyer checkout completion, the Studio exam authoring workflow, and several outstanding API-level regression tests — are unchanged and still open. A fresh independent review is required.
 # Gate hiện tại — 2026-10-02, Round 23
 
-Mục này thay thế các kết luận trạng thái hiện tại ở các vòng cũ bên dưới; giữ nguyên chúng làm lịch sử. Đây là kiểm tra source/runtime bởi agent thực hiện, không tự nhận là review độc lập.
+Mục này thay thế các kết luận trạng thái hiện tại ở các vòng cũ phía trên; giữ nguyên chúng làm lịch sử. Đây là kiểm tra source/runtime bởi agent thực hiện, không tự nhận là review độc lập.
 
 | Gate | Kết quả |
 |---|---|
-| Backend Java 21 | 999/999 pass, 0 failure/error/skip; `backend-final-validation.log` |
-| Integration MySQL/MongoDB/Neo4j/MinIO, Flyway V1..V42 | 96/96 pass; `.artifacts/integration-auth-read-validation.log` |
+| Backend Java 21 | 1005/1005 pass, 0 failure/error/skip; `backend-persistable-validation.log` |
+| Integration MySQL/MongoDB/Neo4j/MinIO, Flyway V1..V43 | 99/99 pass; `.artifacts/integration-persistable-validation.log` |
 | Frontend | 369/369 pass, TypeScript strict và Vite build thành công; audit npm 0 vulnerability |
-| Chrome E2E | Demo 210/210 (10 script); HTTPS chính 182/182, script sandbox bỏ qua có chủ đích vì sandbox chính tắt |
-| Lớp private/paid và quyền dữ liệu | Attack/regression Round23 16/16 pass; `round23-deployed-validation.log` |
-| Trợ năng tự động | 29 route mỗi môi trường, 0 axe violation; WebVTT/transcript và keyboard kiểm tra trên Chrome |
-| Vận hành trên máy | Mặc định một node, hỗ trợ hai node; HTTPS tin cậy, cookie Secure/HttpOnly, firewall LAN, secret đã xoay, backup/restore thật, scheduled tasks đã đăng ký |
-| Tải server mới | **OPEN**; xem `PERFORMANCE_REVIEW.md`, không có cam kết 200 học viên đạt NFR |
+| Chrome E2E | Demo 194/194 (10 script), `e2e-v43-demo-release-validation.log`; HTTPS chính 166/166, `e2e-v43-https-release-validation.log`, bỏ qua 28 bước sandbox có chủ đích |
+| Lớp private/paid và quyền dữ liệu | Attack/regression Round23 16/16 pass trên V43; `round23-v43-demo-validation.log` |
+| Trợ năng tự động | Quét mở rộng riêng 30/30 bước mỗi môi trường, 29 route × 2 với 0 axe violation; `a11y-v43-*-full-validation.log`; WebVTT/transcript pass trong `captions-v43-demo-validation.log` |
+| Vận hành trên máy | Một node HTTPS smoke PASS, hai node JWT/quota PASS; cookie Secure/HttpOnly, firewall LAN, secret đã xoay; backup mới `20261002-040424` đủ bốn kho, VerifyOnly PASS, DailyBackup enabled/LastTaskResult 0 |
+| Tải server mới | 200 người đã mở trang đề, feed, media và NAT/auth PASS; **OPEN cho 200 kết nối HTTPS mới**. Media dùng gate readiness tương đối của script; xem `PERFORMANCE_REVIEW.md` |
 | Lịch sử Git | Bản sạch cần kiểm tra tree/object và xác nhận riêng trước force push |
 | Internet / WCAG đầy đủ / pháp lý | Chưa có DNS/router, kiểm chứng thiết bị LAN thứ hai/reboot; manual AT và dữ liệu đơn vị vận hành còn cần nghiệm thu |
 
-Các chức năng Studio authoring, reward rule, checkout giả lập và regression được ghi là còn thiếu ở Round 15 nay đã có trong source và bộ E2E. Thanh toán thật nằm ngoài yêu cầu hiện tại. **Chưa phê duyệt phát hành đáp ứng toàn bộ NFR** vì gate tải vẫn chưa đạt.
+Các chức năng Studio authoring, reward rule, checkout giả lập và regression được ghi là còn thiếu ở Round 15 nay đã có trong source và bộ E2E. Thanh toán thật nằm ngoài yêu cầu hiện tại. **Chưa phê duyệt phát hành đáp ứng toàn bộ NFR** vì cold HTTPS, kiểm chứng Internet và các nghiệm thu thủ công còn mở.

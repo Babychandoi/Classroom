@@ -136,6 +136,12 @@ public class ExamAudiencePolicy {
     }
 
     public void enforceEnterExam(String userId, Exam exam, Instant now, boolean isStaffPreview, boolean isResume) {
+        enforceEnterExam(userId, exam, now, isStaffPreview, isResume, null);
+    }
+
+    /** The service may supply the count it just read under the per-learner start lock. */
+    public void enforceEnterExam(String userId, Exam exam, Instant now, boolean isStaffPreview, boolean isResume,
+                                 Long knownAttemptCount) {
         if (userId == null || exam == null) {
             throw new AppException(ErrorCode.UNAUTHORIZED);
         }
@@ -175,7 +181,8 @@ public class ExamAudiencePolicy {
 
         // Only enforce attempt limit when starting a new attempt (not when resuming an active in-progress attempt)
         if (!isResume) {
-            long currentAttempts = attemptRepository.countAttemptsTowardLimit(exam.getId(), userId);
+            long currentAttempts = knownAttemptCount == null
+                    ? attemptRepository.countAttemptsTowardLimit(exam.getId(), userId) : knownAttemptCount;
             if (currentAttempts >= exam.getAttemptLimit()) {
                 throw new AppException(ErrorCode.EXAM_ATTEMPT_LIMIT_REACHED, "Bạn đã hết số lượt làm bài cho kỳ thi này");
             }

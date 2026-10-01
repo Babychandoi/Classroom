@@ -226,3 +226,7 @@ PUT /classes/{classId}/about nhận contentMarkdown, rulesMarkdown, publishedVer
 Lesson tạo/sửa có captionsVtt WebVTT tối đa 1 triệu ký tự. contentText là bản chép lời/mô tả cho VIDEO; phụ đề chỉ có trong DTO mà người dùng có quyền học.
 
 POST /privacy/me/export?offset=0 và POST /privacy/me/deletion-requests yêu cầu password hiện tại; GET /privacy/me/requests chỉ của chính mình. PLATFORM_ADMIN: GET /privacy/requests, PUT /privacy/requests/{userId} với status ON_HOLD/REJECTED/COMPLETED và resolution. Export không chứa credential, đáp án/snapshot hay điểm chưa công bố. Xem DATA_POLICY.md về phạm vi đóng tài khoản và hồ sơ cần giữ.
+
+## V43: bản đề khi công bố
+
+Không thêm endpoint. Công bố đề lưu bản người học và bản chấm điểm trong cùng giao dịch; lỗi ghi làm rollback trạng thái công bố. Bắt đầu bài sao chép bản công bố vào lượt thi, DTO chỉ có nội dung được phép thấy. Mọi lần bắt đầu vẫn kiểm tra trạng thái tài khoản, lớp/thành viên, lịch, audience và hạn lượt hiện tại. Xem thử dùng nội dung hiện hành. Đề cũ được chuẩn bị theo batch lúc khởi động; đề không có câu hỏi vẫn bị từ chối bắt đầu. Không xuất bản snapshot chấm điểm qua API.

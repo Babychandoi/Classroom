@@ -47,6 +47,28 @@ public class ExamAudiencePolicyTest {
     private Exam examCourseA;
     private Exam examPro;
 
+    @Test void suppliedLockedCountStillEnforcesLimitWithoutReadingItAgain() {
+        var exam = new Exam("class-1", "Locked count", "ALL", 30);
+        exam.setStatus("PUBLISHED"); exam.setAttemptLimit(1);
+        when(accessPolicy.isMember("user-1", "class-1")).thenReturn(true);
+        audiencePolicy.enforceEnterExam("user-1", exam, Instant.now(), false, false, 0L);
+        assertEquals(com.classroom.common.ErrorCode.EXAM_ATTEMPT_LIMIT_REACHED,
+                assertThrows(AppException.class, () -> audiencePolicy.enforceEnterExam(
+                        "user-1", exam, Instant.now(), false, false, 1L)).getErrorCode());
+        verifyNoInteractions(attemptRepository);
+    }
+
+    @Test void suppliedCountCannotBypassMembershipOrSchedule() {
+        var exam = new Exam("class-1", "Locked count", "ALL", 30); exam.setStatus("PUBLISHED");
+        assertEquals(com.classroom.common.ErrorCode.FORBIDDEN, assertThrows(AppException.class,
+                () -> audiencePolicy.enforceEnterExam("user-1", exam, Instant.now(), false, false, 0L)).getErrorCode());
+        when(accessPolicy.isMember("user-1", "class-1")).thenReturn(true);
+        Instant now = Instant.now(); exam.setScheduleEnd(now);
+        assertEquals(com.classroom.common.ErrorCode.EXAM_NOT_OPEN, assertThrows(AppException.class,
+                () -> audiencePolicy.enforceEnterExam("user-1", exam, now, false, false, 0L)).getErrorCode());
+        verifyNoInteractions(attemptRepository);
+    }
+
     @Test void batchEligibilityMatchesIndividualPolicyAcrossLiveBoundaries() {
         Instant now = Instant.parse("2026-10-02T00:00:00Z");
         var exams = new java.util.ArrayList<Exam>();

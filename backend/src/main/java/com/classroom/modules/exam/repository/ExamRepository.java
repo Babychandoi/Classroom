@@ -16,6 +16,10 @@ public interface ExamRepository extends JpaRepository<Exam, String> {
     List<Exam> findByClassIdOrderByCreatedAtDesc(String classId);
     List<Exam> findByClassIdAndStatusOrderByCreatedAtDesc(String classId, String status);
 
+    @Query("SELECT e.id FROM Exam e WHERE e.id > :afterId AND e.status IN ('PUBLISHED','OPEN','CLOSED','ARCHIVED') "
+            + "AND NOT EXISTS (SELECT s.examId FROM ExamPublicationSnapshot s WHERE s.examId=e.id) ORDER BY e.id")
+    List<String> findPublicationSnapshotBacklog(@Param("afterId") String afterId, org.springframework.data.domain.Pageable pageable);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT e FROM Exam e WHERE e.id = :id")
     Optional<Exam> findByIdForUpdate(@Param("id") String id);

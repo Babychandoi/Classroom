@@ -82,7 +82,7 @@ class ExamStartWithoutQuestionsTest {
         examService = new ExamService(examRepository, questionRepository, optionRepository, attemptRepository,
                 attemptAnswerRepository, audiencePolicy, new ExamScoringPolicy(), accessPolicy, leaderboardService,
                 objectMapper, courseRepository, segmentRepository, auditService, outboxService, userRepository,
-                profileVisibilityPolicy);
+                profileVisibilityPolicy, null);
 
         exam = new Exam(CLASS_ID, "Kiểm Tra Cuối Khóa", "ALL", 60);
         exam.setId("exam-1");

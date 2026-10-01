@@ -67,6 +67,7 @@ public class ExamService {
     private final OutboxService outboxService;
     private final UserRepository userRepository;
     private final ProfileVisibilityPolicy profileVisibilityPolicy;
+    private final ExamPublicationSnapshotRepository publicationSnapshots;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     @org.springframework.context.annotation.Lazy
@@ -87,7 +88,8 @@ public class ExamService {
                        AuditService auditService,
                        OutboxService outboxService,
                        UserRepository userRepository,
-                       ProfileVisibilityPolicy profileVisibilityPolicy) {
+                       ProfileVisibilityPolicy profileVisibilityPolicy,
+                       ExamPublicationSnapshotRepository publicationSnapshots) {
         this.examRepository = examRepository;
         this.questionRepository = questionRepository;
         this.optionRepository = optionRepository;
@@ -104,6 +106,7 @@ public class ExamService {
         this.outboxService = outboxService;
         this.userRepository = userRepository;
         this.profileVisibilityPolicy = profileVisibilityPolicy;
+        this.publicationSnapshots = publicationSnapshots;
     }
 
     @Transactional(readOnly = true)
@@ -222,6 +225,7 @@ public class ExamService {
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
         // Serialise this learner's starts of this exam (and only theirs).
         attemptRepository.lockUserScope(examId, userId);
+        long existingAttempts = 0;
 
         // If preview is requested, strictly validate caller is OWNER or staff with EXAM:PREVIEW or EXAM:EDIT
         if (isPreview) {
@@ -301,7 +305,8 @@ public class ExamService {
 
             // No active attempt to resume (both branches above always return when one exists):
             // verify full eligibility to start a NEW attempt.
-            audiencePolicy.enforceEnterExam(userId, exam, now, false, false);
+            existingAttempts = attemptRepository.countAttemptsTowardLimit(examId, userId);
+            audiencePolicy.enforceEnterExam(userId, exam, now, false, false, existingAttempts);
         }
 
         // R19-05: never create an attempt (student OR preview) for an exam without questions. Such an attempt has
@@ -309,8 +314,11 @@ public class ExamService {
         // out - burning the learner's try. publishExam already requires >= 1 question; this also covers exams that
         // reach PUBLISHED without it (seed data, imports, questions deleted afterwards). Checked before anything
         // is written, so a refusal leaves no attempt behind.
-        List<Question> questions = questionRepository.findByExamIdOrderByPositionAsc(examId);
-        if (questions.isEmpty()) {
+        var publishedSnapshot = !isPreview && publicationSnapshots != null
+                ? publicationSnapshots.findById(examId) : Optional.<ExamPublicationSnapshot>empty();
+        List<Question> questions = publishedSnapshot.isPresent() ? List.of()
+                : questionRepository.findByExamIdOrderByPositionAsc(examId);
+        if (publishedSnapshot.isEmpty() && questions.isEmpty()) {
             throw new AppException(ErrorCode.UNPROCESSABLE_ENTITY,
                     "Kỳ thi chưa có câu hỏi nên chưa thể bắt đầu làm bài. Vui lòng liên hệ giảng viên của lớp.");
         }
@@ -318,7 +326,6 @@ public class ExamService {
         int attemptNumber = 1;
         if (!isPreview) {
             // R14-14: CANCELLED attempts do not count against the limit ...
-            long existingAttempts = attemptRepository.countAttemptsTowardLimit(examId, userId);
             if (existingAttempts >= exam.getAttemptLimit()) {
                 throw new AppException(ErrorCode.BAD_REQUEST, "Bạn đã hết lượt tham gia kỳ thi này (tối đa " + exam.getAttemptLimit() + " lượt)");
             }
@@ -345,11 +352,16 @@ public class ExamService {
         }
 
         // Snapshot question set (loaded and checked non-empty above)
-        List<QuestionDto> questionDtos = toQuestionDtos(questions, false);
+        List<QuestionDto> questionDtos = publishedSnapshot.isPresent()
+                ? parseQuestionSnapshot(publishedSnapshot.get().getLearnerJson()) : toQuestionDtos(questions, false);
+        if (questionDtos == null || questionDtos.isEmpty())
+            throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR, "Không thể đọc bản đề thi đã công bố");
 
         try {
-            attempt.setQuestionSnapshotJson(objectMapper.writeValueAsString(questionDtos));
-            attempt.setGradingSnapshotJson(objectMapper.writeValueAsString(questions));
+            attempt.setQuestionSnapshotJson(publishedSnapshot.isPresent() ? publishedSnapshot.get().getLearnerJson()
+                    : objectMapper.writeValueAsString(questionDtos));
+            attempt.setGradingSnapshotJson(publishedSnapshot.isPresent() ? publishedSnapshot.get().getGradingJson()
+                    : objectMapper.writeValueAsString(questions));
         } catch (Exception e) {
             log.error("Failed to serialize question snapshot for exam {}", examId, e);
             throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR, "Không thể lưu bản chụp đề thi cho bài làm");
@@ -1312,10 +1324,30 @@ public class ExamService {
             throw new AppException(ErrorCode.BAD_REQUEST, "Lịch hoặc cấu hình thời lượng kỳ thi không hợp lệ");
         }
         exam.setStatus("PUBLISHED");
+        if (publicationSnapshots != null) savePublicationSnapshot(exam, questions);
         exam.setUpdatedAt(Instant.now());
         Exam published = examRepository.save(exam);
         auditService.record(exam.getClassId(), currentUserId, "EXAM_PUBLISH", "EXAM", examId, "{} ");
         return published;
+    }
+
+    private void savePublicationSnapshot(Exam exam, List<Question> questions) {
+        try {
+            publicationSnapshots.save(new ExamPublicationSnapshot(exam.getId(),
+                    objectMapper.writeValueAsString(toQuestionDtos(questions, false)), objectMapper.writeValueAsString(questions)));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+            throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR, "Không thể chuẩn bị bản đề thi để công bố");
+        }
+    }
+
+    /** Internal startup upgrade; the exam lock fences concurrent backfills/publish/start. */
+    @Transactional
+    public void prepareLegacyPublicationSnapshot(String examId) {
+        Exam exam = examRepository.findByIdForUpdate(examId).orElse(null);
+        if (exam == null || "DRAFT".equalsIgnoreCase(exam.getStatus()) || publicationSnapshots.existsById(examId)) return;
+        var questions = questionRepository.findByExamIdOrderByPositionAsc(examId);
+        // Invalid legacy exams keep the existing refusal-to-start behaviour.
+        if (!questions.isEmpty()) savePublicationSnapshot(exam, questions);
     }
 
     private void validateQuestion(Question question, List<AnswerOption> options) {

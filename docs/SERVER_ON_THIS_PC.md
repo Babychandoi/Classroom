@@ -74,3 +74,7 @@ npm run all
 ```
 
 Không chạy E2E vào dữ liệu production: bộ test đăng ký tài khoản, tạo lớp và nộp bài thật.
+
+Sau một đợt kiểm thử được phép trên server chính, `python infra/scripts/disable-test-accounts.py` chỉ xem trước. Thêm `--apply` để vô hiệu hóa đúng mẫu tài khoản E2E/load dùng example.com và tên giả, lưu trữ lớp thử thuộc các tài khoản này, thu hồi refresh token và ghi audit. Hồ sơ học/thi/thanh toán vẫn được giữ; trạng thái trước lưu dưới `.artifacts/server` có ACL hạn chế. Script kiểm tra project container trước khi ghi; không thao tác demo. Không dùng state load cũ sau khi vô hiệu hóa.
+
+Gate tải hiện tại và giới hạn phần cứng/kết nối: `PERFORMANCE_REVIEW.md`. Có hỗ trợ hai backend để kiểm tra quota/JWT chung, nhưng một backend là mặc định trên máy này.
