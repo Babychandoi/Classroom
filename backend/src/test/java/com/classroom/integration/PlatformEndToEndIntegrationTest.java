@@ -407,6 +407,8 @@ public class PlatformEndToEndIntegrationTest {
         Exam publishedExam = examRepository.findById(examId).orElseThrow();
         publishedExam.setStatus("PUBLISHED");
         examRepository.save(publishedExam);
+        // R19-05: an exam without questions can no longer be started (422), so give this one a question.
+        questionRepository.save(new com.classroom.modules.exam.model.Question(examId, "1 + 1 = ?", "MULTIPLE_CHOICE", 10, 1, "B"));
         mockMvc.perform(post("/api/v1/exams/" + examId + "/attempts")
                         .header("Authorization", "Bearer " + studentToken))
                 .andExpect(status().isOk());

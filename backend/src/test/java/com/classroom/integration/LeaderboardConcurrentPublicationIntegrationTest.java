@@ -139,6 +139,12 @@ public class LeaderboardConcurrentPublicationIntegrationTest {
             pool.awaitTermination(10, TimeUnit.SECONDS);
         }
 
+        // R20-01: recalculation runs on the worker pool after the commit; wait for both publications to be folded in.
+        Eventually.await(30_000, () -> jdbcTemplate.queryForObject(
+                "SELECT total_points FROM leaderboard_entries WHERE class_id = ? AND user_id = ?",
+                Integer.class, classId, userId) == REWARD_EXAM_ONE + REWARD_EXAM_TWO
+                && jdbcTemplate.queryForObject("SELECT COUNT(*) FROM leaderboard_recalc_jobs WHERE class_id = ?",
+                Integer.class, classId) == 0);
         Integer total = jdbcTemplate.queryForObject(
                 "SELECT total_points FROM leaderboard_entries WHERE class_id = ? AND user_id = ?",
                 Integer.class, classId, userId);

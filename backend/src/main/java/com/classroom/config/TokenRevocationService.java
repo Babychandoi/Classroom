@@ -6,6 +6,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,7 +24,8 @@ public class TokenRevocationService {
         if (expiry.isAfter(Instant.now())) repository.save(new RevokedToken(hash(token.trim()), expiry));
     }
 
-    @Transactional(readOnly = true)
+    // The declared exists query is one live SELECT. It needs no independent read transaction;
+    // revocation writes and cleanup still require their existing transactions.
     public boolean isRevoked(String token) {
         return token != null && !token.isBlank()
                 && repository.existsByTokenHashAndExpiresAtAfter(hash(token.trim()), Instant.now());
@@ -31,6 +33,13 @@ public class TokenRevocationService {
 
     @Transactional
     public void clear() { repository.deleteAllInBatch(); }
+
+    /** R3-06: expired revocation records are otherwise never removed, growing the table forever. */
+    @Scheduled(fixedDelayString = "${classroom.security.revoked-token-purge-delay-ms:3600000}")
+    @Transactional
+    public void purgeExpiredRevocations() {
+        repository.deleteByExpiresAtBefore(Instant.now());
+    }
 
     private String hash(String token) {
         try {

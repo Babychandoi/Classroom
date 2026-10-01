@@ -1,0 +1,78 @@
+# Restore-drill overlay (R14-07d) - lets a SECOND, throw-away copy of the stack run next to the live one.
+#
+# infra/compose.yaml pins container_name and publishes fixed host ports, so a second Compose project
+# cannot start beside the live stack (name and port conflicts). This overlay changes only those two
+# things (plus restart policy) for the drill project:
+#   - container names   : ${DRILL_PREFIX:-classroom-drill}-<service>  (live stack keeps classroom-<service>)
+#   - published ports   : DRILL_*_PORT variables whose defaults differ from the live defaults
+#   - restart policy    : "no", so a forgotten drill stack does not come back after a Docker restart
+# Volumes and the network are already namespaced by the Compose project name (-p), so they never clash.
+#
+# Usage (see docs/RUNBOOK.md section 5.3 for the full drill):
+#   docker compose -p classroom-drill -f infra/compose.yaml -f infra/compose.drill.yaml \
+#       --env-file infra/.env up -d --build mysql mongodb neo4j minio minio-init backend
+#   ...
+#   docker compose -p classroom-drill -f infra/compose.yaml -f infra/compose.drill.yaml \
+#       --env-file infra/.env down -v          # removes ONLY the classroom-drill project's volumes
+#
+# Never run this overlay with -p online-classroom (the live project name): `down -v` there would
+# delete the live volumes. Always pass an explicit, different -p.
+#
+# Ports are bound to loopback (HOST_BIND_ADDRESS for backend/frontend, as in the base file). Override
+# any DRILL_*_PORT in the shell or the env file if a default is taken on your machine.
+# Keep the drill isolated even when an operator omits -p.
+name: ${DRILL_PREFIX:-classroom-drill}
+
+services:
+  mysql:
+    container_name: ${DRILL_PREFIX:-classroom-drill}-mysql
+    restart: "no"
+    ports: !override
+      - "127.0.0.1:${DRILL_MYSQL_PORT:-13307}:3306"
+
+  mongodb:
+    container_name: ${DRILL_PREFIX:-classroom-drill}-mongodb
+    restart: "no"
+    ports: !override
+      - "127.0.0.1:${DRILL_MONGO_PORT:-37017}:27017"
+
+  neo4j:
+    container_name: ${DRILL_PREFIX:-classroom-drill}-neo4j
+    restart: "no"
+    ports: !override
+      - "127.0.0.1:${DRILL_NEO4J_HTTP_PORT:-17474}:7474"
+      - "127.0.0.1:${DRILL_NEO4J_BOLT_PORT:-17687}:7687"
+
+  minio:
+    container_name: ${DRILL_PREFIX:-classroom-drill}-minio
+    restart: "no"
+    ports: !override
+      - "127.0.0.1:${DRILL_MINIO_PORT:-19000}:9000"
+      - "127.0.0.1:${DRILL_MINIO_CONSOLE_PORT:-19001}:9001"
+
+  minio-init:
+    container_name: ${DRILL_PREFIX:-classroom-drill}-minio-init
+
+  backend:
+    container_name: ${DRILL_PREFIX:-classroom-drill}-backend
+    restart: "no"
+    ports: !override
+      - "${HOST_BIND_ADDRESS:-127.0.0.1}:${DRILL_BACKEND_PORT:-18080}:8080"
+    environment:
+      # Presigned URLs must point at the DRILL MinIO port, not the live one from infra/.env.
+      MINIO_EXTERNAL_ENDPOINT: http://localhost:${DRILL_MINIO_PORT:-19000}
+      # R19-02: the drill frontend is published on DRILL_FRONTEND_PORT, not on the live FRONTEND_PORT that the base
+      # file derives the CORS allow-list from. A dedicated variable so an APP_CORS_ALLOWED_ORIGINS set in
+      # infra/.env for the live stack can never leak into (or be needed by) the drill.
+      APP_CORS_ALLOWED_ORIGINS: ${DRILL_APP_CORS_ALLOWED_ORIGINS:-http://localhost:${DRILL_FRONTEND_PORT:-13000},http://127.0.0.1:${DRILL_FRONTEND_PORT:-13000}}
+      # R20-01: on the drill a connection held longer than 30 s is logged with its stack trace, so a request that keeps a
+      # pooled connection across slow I/O (or a nested acquisition) is visible while the load scenarios run.
+      DB_POOL_LEAK_DETECTION_MS: ${DRILL_DB_POOL_LEAK_DETECTION_MS:-30000}
+
+  frontend:
+    container_name: ${DRILL_PREFIX:-classroom-drill}-frontend
+    restart: "no"
+    ports: !override
+      - "${HOST_BIND_ADDRESS:-127.0.0.1}:${DRILL_FRONTEND_PORT:-13000}:80"
+    environment:
+      MINIO_PUBLIC_ORIGIN: http://localhost:${DRILL_MINIO_PORT:-19000} https://localhost:${DRILL_MINIO_PORT:-19000}

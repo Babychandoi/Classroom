@@ -2,28 +2,37 @@ import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
 import { StoreTab } from '../pages/classroom/StoreTab';
+import { resetCheckoutAvailabilityCache } from '../api/payments';
 import type { Classroom, Product } from '../types';
 
 const mockNavigate = vi.fn();
+const mockRefreshClassroom = vi.fn().mockResolvedValue(undefined);
+
+// Stable object identities across renders: StoreTab's data-fetch effect depends on
+// classroom.id/user, so a mock that returns a fresh object literal on every render would make
+// the effect re-fire (and, transitively, the component re-render) forever.
+const mockClassroom: Classroom = {
+  id: 'class-1',
+  ownerId: 'owner-1',
+  slug: 'demo-class',
+  title: 'Demo Class',
+  status: 'ACTIVE',
+  memberCount: 1,
+  createdAt: new Date().toISOString(),
+};
+
+const mockUser = { id: 'u1', fullName: 'Buyer', email: 'buyer@test.local', role: 'STUDENT', status: 'ACTIVE' };
 
 vi.mock('react-router-dom', () => ({
   useOutletContext: () => ({
-    classroom: {
-      id: 'class-1',
-      ownerId: 'owner-1',
-      slug: 'demo-class',
-      title: 'Demo Class',
-      status: 'ACTIVE',
-      memberCount: 1,
-      createdAt: new Date().toISOString(),
-    } as Classroom,
-    refreshClassroom: vi.fn().mockResolvedValue(undefined),
+    classroom: mockClassroom,
+    refreshClassroom: mockRefreshClassroom,
   }),
   useNavigate: () => mockNavigate,
 }));
 
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 'u1', fullName: 'Buyer', email: 'buyer@test.local', role: 'STUDENT', status: 'ACTIVE' } }),
+  useAuth: () => ({ user: mockUser }),
 }));
 
 const product: Product = {
@@ -54,7 +63,12 @@ describe('StoreTab idempotency key handling', () => {
       if (url.includes('/payments/sandbox-status')) {
         return new Response(JSON.stringify({ success: true, data: { checkoutAvailable: true } }), { status: 200 });
       }
-      if (url.includes('/orders')) {
+      // R13-06: StoreTab also fetches "Đơn hàng của tôi" (GET /me/orders) — match it before the
+      // general /orders check below (order creation), which only counts POST /orders.
+      if (url.includes('/me/orders')) {
+        return new Response(JSON.stringify({ success: true, data: [] }), { status: 200 });
+      }
+      if (url.includes('/orders') && init?.method === 'POST') {
         callCount += 1;
         const headers = init?.headers as Headers;
         capturedKey = headers.get('Idempotency-Key');
@@ -98,7 +112,10 @@ describe('StoreTab idempotency key handling', () => {
       if (url.includes('/payments/sandbox-status')) {
         return new Response(JSON.stringify({ success: true, data: { checkoutAvailable: true } }), { status: 200 });
       }
-      if (url.includes('/orders')) {
+      if (url.includes('/me/orders')) {
+        return new Response(JSON.stringify({ success: true, data: [] }), { status: 200 });
+      }
+      if (url.includes('/orders') && init?.method === 'POST') {
         callCount += 1;
         const headers = init?.headers as Headers;
         capturedKey = headers.get('Idempotency-Key');
@@ -125,5 +142,41 @@ describe('StoreTab idempotency key handling', () => {
 
     await waitFor(() => expect(callCount).toBe(2));
     expect(capturedKey).not.toBe(firstKey);
+  });
+});
+
+// R17-06: in a deployment without the sandbox payment controller GET /payments/sandbox-status is a 404 the
+// browser logs as a console error; it used to be requested on every (re)load of the tab, up to 3 times.
+describe('StoreTab sandbox-status lookup (R17-06)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    resetCheckoutAvailabilityCache();
+    window.alert = vi.fn();
+  });
+
+  it('asks once per page load even when the tab is mounted again, and shows checkout as unavailable on a 404', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input.toString();
+      if (url.includes('/products')) {
+        return new Response(JSON.stringify({ success: true, data: [product] }), { status: 200 });
+      }
+      if (url.includes('/payments/sandbox-status')) {
+        return new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Không tìm thấy' } }), { status: 404 });
+      }
+      if (url.includes('/me/orders')) {
+        return new Response(JSON.stringify({ success: true, data: [] }), { status: 200 });
+      }
+      return new Response('{}', { status: 404 });
+    });
+    const sandboxCalls = () => spy.mock.calls.filter(([u]) => String(u).includes('/payments/sandbox-status')).length;
+
+    const first = render(<StoreTab />);
+    await waitFor(() => expect(screen.getByText('Tạm chưa hỗ trợ thanh toán')).toBeInTheDocument());
+    first.unmount();
+
+    render(<StoreTab />);
+    await waitFor(() => expect(screen.getByText('Tạm chưa hỗ trợ thanh toán')).toBeInTheDocument());
+
+    expect(sandboxCalls()).toBe(1);
   });
 });

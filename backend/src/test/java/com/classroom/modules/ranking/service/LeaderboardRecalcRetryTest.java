@@ -152,6 +152,11 @@ public class LeaderboardRecalcRetryTest {
             verify(recalcJobRepository).save(any(LeaderboardRecalcJob.class));
             verify(attemptRepository, never()).lockPublishedAttemptsForRecalculation(anyString(), anyString());
         } finally {
+            // finish the "transaction" the way Spring does, so the per-transaction resource does not leak into other tests
+            for (var synchronization : new java.util.ArrayList<>(
+                    org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations())) {
+                synchronization.afterCompletion(org.springframework.transaction.support.TransactionSynchronization.STATUS_COMMITTED);
+            }
             org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
         }
     }

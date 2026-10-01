@@ -1,13 +1,26 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { Classroom, Course, StaffAssignment } from '../../types';
 import { api } from '../../api/client';
 import { LoadingSpinner, ErrorBanner } from '../../components/UIStates';
+import { Modal } from '../../components/Modal';
+import { COURSE_SCOPABLE_MODULES } from '../../api/permissions';
 import { UserPlus, Trash2, Pencil } from 'lucide-react';
+
+interface MemberItem {
+  id: string;
+  userId: string;
+  role: string;
+  state: string;
+  joinedAt: string;
+  userFullName?: string | null;
+  userAvatarUrl?: string | null;
+}
 
 type Permission = StaffAssignment['permissions'][number];
 const PERMISSION_OPTIONS: { module: string; actions: string[] }[] = [
   { module: 'STUDIO', actions: ['VIEW'] },
+  { module: 'CLASS', actions: ['VIEW', 'EDIT'] },
   { module: 'FEED', actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'PUBLISH'] },
   { module: 'COURSE', actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'PUBLISH', 'PREVIEW', 'GRADE'] },
   { module: 'EXAM', actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'PUBLISH', 'GRADE', 'PREVIEW'] },
@@ -24,6 +37,7 @@ export const StudioStaff: React.FC = () => {
 
   const [staffList, setStaffList] = useState<StaffAssignment[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
+  const [members, setMembers] = useState<MemberItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,14 +47,20 @@ export const StudioStaff: React.FC = () => {
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const targetUserFieldId = useId();
+  // R18-08: a course-scoped grant must say which course it is scoped to; class-wide grants stay bare.
+  const courseTitleById = useMemo(() => new Map(courses.map((course) => [course.id, course.title])), [courses]);
 
   const fetchStaff = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await api.get<StaffAssignment[]>(`/classes/${classroom.id}/staff`);
       setStaffList(data || []);
       const courseData = await api.get<Course[]>(`/classes/${classroom.id}/courses`);
       setCourses(courseData || []);
+      const memberData = await api.get<MemberItem[]>(`/classes/${classroom.id}/members`);
+      setMembers(memberData || []);
     } catch (err: any) {
       setError(err.message || 'Không thể tải danh sách nhân sự');
     } finally {
@@ -105,7 +125,7 @@ export const StudioStaff: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Nhân sự & Phân quyền Studio</h1>
-          <p className="text-xs text-slate-500">Chỉ định trợ giảng và cấp quyền theo từng phân hệ quản trị</p>
+          <p className="text-xs text-slate-600">Chỉ định trợ giảng và cấp quyền theo từng phân hệ quản trị</p>
         </div>
 
         {classroom.userRole === 'OWNER' && (
@@ -136,7 +156,7 @@ export const StudioStaff: React.FC = () => {
                     key={idx}
                     className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 font-mono"
                   >
-                    {p.module}:{p.action}
+                    {`${p.module}:${p.action}${p.scopeCourseId ? ` · ${courseTitleById.get(p.scopeCourseId) ?? 'Khóa không còn hiển thị'}` : ''}`}
                   </span>
                 ))}
               </div>
@@ -149,7 +169,7 @@ export const StudioStaff: React.FC = () => {
               </button>
               <button
                 onClick={() => handleRemoveStaff(st.userId)}
-                className="p-2 text-slate-300 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition"
+                className="p-2 text-slate-500 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition"
                 title="Xóa quyền trợ giảng"
               >
                 <Trash2 className="w-4 h-4" />
@@ -162,20 +182,37 @@ export const StudioStaff: React.FC = () => {
 
       {/* Add Staff Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200">
-            <h3 className="text-lg font-bold text-slate-900 mb-4">{editingUserId ? 'Chỉnh sửa quyền trợ giảng' : 'Phân quyền Trợ giảng'}</h3>
+        <Modal size="md" title={editingUserId ? 'Chỉnh sửa quyền trợ giảng' : 'Phân quyền Trợ giảng'} onClose={() => setShowModal(false)}>
             <form onSubmit={handleAssignStaff} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase">Mã User ID thành viên</label>
-                <input
-                  type="text"
-                  required
-                  value={targetUserId}
-                  onChange={(e) => setTargetUserId(e.target.value)}
-                  placeholder="Nhập User ID của học viên cần bổ nhiệm..."
-                  className="mt-1 block w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-indigo-500"
-                />
+                <label htmlFor={targetUserFieldId} className="block text-xs font-semibold text-slate-700 uppercase">Thành viên</label>
+                {editingUserId ? (
+                  <input
+                    id={targetUserFieldId}
+                    type="text"
+                    disabled
+                    value={targetUserId}
+                    className="mt-1 block w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-xl text-xs font-mono text-slate-500"
+                  />
+                ) : (
+                  <select
+                    id={targetUserFieldId}
+                    required
+                    value={targetUserId}
+                    onChange={(e) => setTargetUserId(e.target.value)}
+                    className="mt-1 block w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="">Chọn thành viên đang hoạt động trong lớp...</option>
+                    {members
+                      .filter(m => m.state === 'ACTIVE' && m.role !== 'STAFF' && m.role !== 'OWNER')
+                      .map(m => (
+                        <option key={m.userId} value={m.userId}>
+                          {m.userFullName || m.userId}
+                        </option>
+                      ))}
+                  </select>
+                )}
+                <p className="mt-1 text-[11px] text-slate-500">Chỉ có thể bổ nhiệm trợ giảng từ các thành viên đang hoạt động trong lớp.</p>
               </div>
 
               <div>
@@ -185,11 +222,15 @@ export const StudioStaff: React.FC = () => {
                     <legend className="font-bold text-slate-800">{group.module}</legend>
                     <div className="grid grid-cols-2 gap-1">
                     {group.actions.map(action => <label key={action} className="flex items-center gap-2">
-                      <input type="checkbox" checked={permissions.some(p => p.module === group.module && p.action === action && !p.scopeCourseId)} onChange={e => togglePermission(group.module, action, e.target.checked)} className="rounded text-indigo-600" />
+                      <input type="checkbox" checked={permissions.some(p => p.module === group.module && p.action === action && !p.scopeCourseId)} onChange={e => togglePermission(group.module, action, e.target.checked)} className="h-6 w-6 shrink-0 rounded text-indigo-600" />
                       <span>{action}</span>
                     </label>)}
                     </div>
-                    {courses.length > 0 && group.actions.map(action => <label key={`${action}-scope`} className="flex items-center gap-2 mt-1">
+                    {/* R7-01: server only ever evaluates a course scope for COURSE/EXAM
+                        (AccessPolicy.canManage callers) — showing this picker for any other
+                        module would let the owner grant a scoped permission that assignStaff now
+                        rejects (400) and that would never authorize anything anyway. */}
+                    {courses.length > 0 && COURSE_SCOPABLE_MODULES.has(group.module) && group.actions.map(action => <label key={`${action}-scope`} className="flex items-center gap-2 mt-1">
                       <span className="min-w-24">{action} · khóa:</span>
                       <select value={permissions.find(p => p.module === group.module && p.action === action && p.scopeCourseId)?.scopeCourseId ?? ''} onChange={e => setCoursePermission(group.module, action, e.target.value)} className="border rounded px-2 py-1">
                         <option value="">Không cấp riêng</option>{courses.map(course => <option key={course.id} value={course.id}>{course.title}</option>)}
@@ -199,7 +240,8 @@ export const StudioStaff: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex justify-end space-x-2 pt-2">
+              {/* R18-01: the panel scrolls, so the actions stick to its bottom edge and stay reachable. */}
+              <div className="sticky bottom-0 -mx-6 -mb-6 flex justify-end space-x-2 border-t border-slate-100 bg-white px-6 py-4">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
@@ -216,8 +258,7 @@ export const StudioStaff: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

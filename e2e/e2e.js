@@ -1,0 +1,421 @@
+'use strict';
+// Hành trình E2E chính (J1-J6) chạy trên trình duyệt thật. Xem README.md.
+// Tạo người dùng/lớp học e2e.* MỚI trên hệ thống đích ở mỗi lần chạy - không dọn dẹp sau khi chạy.
+const fs = require('fs');
+const path = require('path');
+const {
+  BASE, FIXTURES, SHOTS_ROOT, log, newRunId, launchBrowser, newCtx, createRunner, settle,
+  register, login, isLoggedIn, overflowCheck, saveState, assertSafeTarget, unexpectedEvents,
+} = require('./lib');
+
+assertSafeTarget();
+
+const RUN = newRunId();
+const OWNER = { name: `E2E Owner ${RUN}`, email: `e2e.owner.${RUN}@example.com` };
+const STUDENT = { name: `E2E Student ${RUN}`, email: `e2e.student.${RUN}@example.com` };
+const CLASS = { title: `E2E Class ${RUN}`, slug: `e2e-class-${RUN}`, desc: 'Lop kiem thu E2E trinh duyet that' };
+const COURSE = `E2E Course ${RUN}`;
+const SECTION = `Chuong 1 ${RUN}`;
+const LESSON = `Bai video ${RUN}`;
+const EXAM = `E2E Exam ${RUN}`;
+const PRODUCT = `E2E Product ${RUN}`;
+const DOC = `E2E Doc ${RUN}`;
+const MINIO_PORT = process.env.E2E_MINIO_PORT || '9000';
+
+const SHOTS = path.join(SHOTS_ROOT, process.env.RUNDIR || `run-${RUN}`);
+const { results, events, step, shot, summarize, instrument } = createRunner(SHOTS);
+const state = {};
+
+const persist = () => saveState({
+  run: RUN, owner: OWNER, student: STUDENT, classSlug: CLASS.slug, classId: state.classId,
+  examTitle: EXAM, courseTitle: COURSE, createdAt: new Date().toISOString(),
+});
+
+(async () => {
+  const browser = await launchBrowser();
+  log('browser', browser.version(), 'run', RUN, 'base', BASE);
+
+  // ---------------- Journey 1: đăng ký, tạo lớp, phiên đăng nhập ----------------
+  const ownerCtx = await newCtx(browser);
+  const owner = await ownerCtx.newPage();
+  instrument(owner, 'owner');
+
+  await step('J1', 'register owner via UI', owner, async () => { await register(owner, OWNER); });
+  await step('J1', 'create class via UI', owner, async () => {
+    await owner.getByRole('button', { name: 'Tạo lớp học mới' }).click();
+    await owner.getByLabel('Tên lớp học').fill(CLASS.title);
+    await owner.getByLabel('Đường dẫn slug (URL)').fill(CLASS.slug);
+    await owner.getByLabel('Mô tả ngắn').fill(CLASS.desc);
+    await owner.getByRole('button', { name: 'Xác nhận tạo lớp' }).click();
+    await owner.waitForURL(new RegExp(`/classes/${CLASS.slug}/feed`), { timeout: 15000 });
+    await owner.getByRole('heading', { name: CLASS.title }).waitFor({ timeout: 10000 });
+    const href = await owner.getByRole('link', { name: 'Studio Quản Trị' }).getAttribute('href');
+    state.classId = href.split('/').pop();
+    persist();
+    return `classId=${state.classId}`;
+  });
+  await step('J1', 'F5 keeps session (refresh-cookie bootstrap)', owner, async () => {
+    await owner.reload();
+    await owner.getByRole('heading', { name: CLASS.title }).waitFor({ timeout: 15000 });
+    await owner.getByTitle('Đăng xuất').waitFor({ timeout: 10000 });
+    await owner.getByRole('link', { name: 'Studio Quản Trị' }).waitFor({ timeout: 5000 });
+  });
+  let owner2;
+  await step('J1', 'second tab still logged in', owner, async () => {
+    owner2 = await ownerCtx.newPage();
+    instrument(owner2, 'owner-tab2');
+    await owner2.goto(`${BASE}/classes/${CLASS.slug}/feed`);
+    await owner2.getByTitle('Đăng xuất').waitFor({ timeout: 15000 });
+    await owner2.getByRole('link', { name: 'Studio Quản Trị' }).waitFor({ timeout: 5000 });
+  });
+  await step('J1', 'classes list shows new class + owner badge', owner, async () => {
+    await owner.goto(`${BASE}/classes`);
+    await owner.getByText(`/${CLASS.slug}`).waitFor({ timeout: 10000 });
+  });
+  await step('J1', 'signed-in user opening /login is sent on, not stranded (R17-01)', owner, async () => {
+    await owner.goto(`${BASE}/login`);
+    await owner.waitForURL(/\/classes$/, { timeout: 10000 });
+  });
+
+  // ---------------- Journey 2: Studio - soạn nội dung ----------------
+  const S = () => `${BASE}/studio/classes/${state.classId}`;
+  await step('J2', 'studio index redirects to an authorized page', owner, async () => {
+    await owner.goto(S());
+    await owner.waitForURL(/\/studio\/classes\/[^/]+\/overview/, { timeout: 10000 });
+    await settle(owner);
+    return owner.url();
+  });
+  const courseCard = () => owner.locator('div.p-6', { has: owner.locator('h3', { hasText: COURSE }) }).first();
+  await step('J2', 'create course', owner, async () => {
+    await owner.goto(`${S()}/courses`);
+    await owner.getByRole('button', { name: 'Tạo khóa học mới' }).click();
+    await owner.getByLabel('Tên khóa học').fill(COURSE);
+    await owner.getByLabel('Mô tả khóa học').fill('Khoa hoc E2E');
+    await owner.getByRole('button', { name: 'Tạo khóa học', exact: true }).click();
+    await owner.locator('h3', { hasText: COURSE }).waitFor({ timeout: 10000 });
+  });
+  await step('J2', 'create section', owner, async () => {
+    await courseCard().getByRole('button', { name: 'Thêm chương' }).click();
+    await owner.getByPlaceholder('Tên chương học mới (VD: Chương 1: Giới thiệu)...').fill(SECTION);
+    await owner.getByRole('button', { name: 'Lưu chương' }).click();
+    await settle(owner);
+  });
+  await step('J2', 'expand course shows the new section', owner, async () => {
+    await courseCard().getByRole('button', { name: 'Xem bài học' }).click();
+    await owner.locator('h4', { hasText: SECTION }).waitFor({ timeout: 8000 });
+  });
+  await step('J2', 'create VIDEO lesson with mp4 upload', owner, async () => {
+    await courseCard().getByRole('button', { name: 'Thêm bài học' }).click();
+    await owner.getByLabel('Tên bài học', { exact: true }).fill(LESSON);
+    await owner.getByLabel('Loại bài học', { exact: true }).selectOption('VIDEO');
+    const [uploadResp] = await Promise.all([
+      owner.waitForResponse((r) => r.request().method() === 'PUT' && new RegExp(`:${MINIO_PORT}/`).test(r.url()), { timeout: 20000 }),
+      courseCard().locator('input[type=file]').setInputFiles(path.join(FIXTURES, 'tiny.mp4')),
+    ]);
+    state.uploadHost = new URL(uploadResp.url()).origin;
+    if (uploadResp.status() >= 300) throw new Error(`MinIO PUT ${uploadResp.status()}`);
+    await owner.getByText('Đã tải tệp').waitFor({ timeout: 15000 });
+    await owner.getByRole('button', { name: 'Tạo bài' }).click();
+    await settle(owner);
+    return `uploadHost=${state.uploadHost}`;
+  });
+  await step('J2', 'new lesson visible in expanded course without re-toggle (R17-02)', owner, async () => {
+    await owner.getByText(`${LESSON} · VIDEO`).waitFor({ timeout: 4000 });
+  });
+  await step('J2', 'lesson visible after collapse/expand', owner, async () => {
+    const card = courseCard();
+    if (await card.getByRole('button', { name: 'Ẩn nội dung' }).isVisible()) await card.getByRole('button', { name: 'Ẩn nội dung' }).click();
+    await card.getByRole('button', { name: 'Xem bài học' }).click();
+    await owner.getByText(`${LESSON} · VIDEO`).waitFor({ timeout: 8000 });
+  });
+  await step('J2', 'publish course', owner, async () => {
+    await courseCard().getByRole('button', { name: 'Xuất bản' }).click();
+    await courseCard().getByText('PUBLISHED').waitFor({ timeout: 10000 });
+  });
+
+  const examCard = () => owner.locator('div.p-5', { has: owner.locator('h3', { hasText: EXAM }) }).first();
+  await step('J2', 'create exam', owner, async () => {
+    await owner.goto(`${S()}/exams`);
+    await owner.getByRole('button', { name: 'Tạo kỳ thi mới' }).click();
+    await owner.getByLabel('Tên kỳ thi').fill(EXAM);
+    await owner.getByLabel('Số lượt làm bài').fill('2');
+    await owner.getByLabel('Mô tả kỳ thi').fill('De thi E2E');
+    await owner.getByRole('button', { name: 'Tạo kỳ thi', exact: true }).click();
+    await owner.locator('h3', { hasText: EXAM }).waitFor({ timeout: 10000 });
+  });
+  await step('J2', 'add MCQ question', owner, async () => {
+    await examCard().getByRole('button', { name: 'Soạn câu hỏi và công bố' }).click();
+    await owner.getByLabel('Nội dung câu hỏi', { exact: true }).fill('2 + 2 = ?');
+    await owner.getByLabel('Loại câu hỏi', { exact: true }).selectOption('MULTIPLE_CHOICE');
+    await owner.getByLabel('Lựa chọn A', { exact: true }).fill('3');
+    await owner.getByLabel('Lựa chọn B', { exact: true }).fill('4');
+    await owner.getByLabel('Đáp án đúng', { exact: true }).selectOption('B');
+    await owner.getByRole('button', { name: 'Thêm câu hỏi' }).click();
+    await examCard().getByText('Số câu hỏi: 1').waitFor({ timeout: 10000 });
+  });
+  await step('J2', 'added question listed in authoring panel (R17-03)', owner, async () => {
+    await examCard().getByText('1. 2 + 2 = ?').waitFor({ timeout: 4000 });
+  });
+  await step('J2', 'add ESSAY question', owner, async () => {
+    await owner.getByLabel('Nội dung câu hỏi', { exact: true }).fill('Giai thich vi sao 2 + 2 = 4');
+    await owner.getByLabel('Loại câu hỏi', { exact: true }).selectOption('ESSAY');
+    await owner.getByRole('button', { name: 'Thêm câu hỏi' }).click();
+    await examCard().getByText('Số câu hỏi: 2').waitFor({ timeout: 10000 });
+    await examCard().getByText('2. Giai thich vi sao 2 + 2 = 4').waitFor({ timeout: 4000 });
+  });
+  await step('J2', 'publish exam', owner, async () => {
+    await examCard().getByRole('button', { name: 'Công bố' }).click();
+    await examCard().getByRole('button', { name: 'Đóng kỳ thi' }).waitFor({ timeout: 10000 });
+  });
+
+  await step('J2', 'create product (no target course)', owner, async () => {
+    await owner.goto(`${S()}/store`);
+    await owner.getByRole('button', { name: 'Tạo gói sản phẩm mới' }).click();
+    await owner.getByLabel('Tên sản phẩm').fill(PRODUCT);
+    await owner.getByLabel('Mô tả sản phẩm').fill('Goi E2E');
+    await owner.getByRole('button', { name: 'Tạo sản phẩm' }).click();
+    await owner.getByText(PRODUCT).first().waitFor({ timeout: 10000 });
+  });
+  await step('J2', 'publish product', owner, async () => {
+    await owner.getByRole('button', { name: 'Xuất bản' }).first().click();
+    await settle(owner);
+    if (await owner.getByRole('button', { name: 'Xuất bản' }).count()) throw new Error('Xuất bản button still visible after publish');
+    return (await owner.locator('main').innerText()).match(/PUBLISHED|Đang bán|ĐANG BÁN/i)?.[0] || 'status text not found';
+  });
+  await step('J2', 'upload + create document (Studio Documents)', owner, async () => {
+    await owner.goto(`${S()}/documents`);
+    await owner.getByLabel('Tên tài liệu').fill(DOC);
+    await owner.getByLabel('Tệp').setInputFiles(path.join(FIXTURES, 'tiny.pdf'));
+    await owner.getByText('Tệp đã tải lên và sẵn sàng đính kèm.').waitFor({ timeout: 15000 });
+    await owner.getByRole('button', { name: 'Tạo tài liệu' }).click();
+    await owner.getByText('Đã tạo tài liệu.').waitFor({ timeout: 10000 });
+  });
+
+  // ---------------- Journey 3: học viên ----------------
+  const stuCtx = await newCtx(browser);
+  const stu = await stuCtx.newPage();
+  instrument(stu, 'student');
+  const C = () => `${BASE}/classes/${CLASS.slug}`;
+  await step('J3', 'register student via UI', stu, async () => { await register(stu, STUDENT); });
+  await step('J3', 'join class via UI (immediately, no waiting for the auth bootstrap; R17-01)', stu, async () => {
+    await stu.goto(`${C()}/feed`);
+    await stu.getByRole('button', { name: 'Tham gia lớp ngay' }).click();
+    await stu.getByPlaceholder('Tiêu đề bài viết...').waitFor({ timeout: 10000 });
+    if (/\/login/.test(stu.url())) throw new Error(`redirected to ${stu.url()}`);
+  });
+  await step('J3', 'post in feed', stu, async () => {
+    await stu.getByPlaceholder('Tiêu đề bài viết...').fill(`Hello ${RUN}`);
+    await stu.getByPlaceholder('Bạn muốn chia sẻ điều gì với thầy cô và bạn bè?...').fill('Xin chao ca lop, day la bai viet E2E.');
+    await stu.getByRole('button', { name: 'Đăng bài' }).click();
+    await stu.getByText(`Hello ${RUN}`).first().waitFor({ timeout: 10000 });
+    await stu.reload();
+    await stu.getByText(`Hello ${RUN}`).first().waitFor({ timeout: 10000 });
+  });
+  await step('J3', 'open lesson; video loads from MinIO (presigned GET + CSP media-src)', stu, async () => {
+    await stu.goto(`${C()}/learn`);
+    await stu.getByRole('link', { name: 'Vào học' }).first().click();
+    await stu.locator('video').waitFor({ timeout: 10000 });
+    await stu.waitForFunction(() => { const v = document.querySelector('video'); return v && (v.readyState >= 2 || v.error); }, null, { timeout: 15000 }).catch(() => {});
+    const info = await stu.evaluate(() => { const v = document.querySelector('video'); return { src: v.currentSrc.replace(/\?.*/, ''), readyState: v.readyState, networkState: v.networkState, error: v.error && v.error.code, duration: v.duration }; });
+    state.video = info;
+    if (info.error || info.readyState < 1) throw new Error(`video not loaded ${JSON.stringify(info)}`);
+    await shot(stu, 'J3-lesson-video');
+    return JSON.stringify(info);
+  });
+  await step('J3', 'mark lesson complete', stu, async () => {
+    await stu.getByRole('button', { name: 'Đánh dấu hoàn thành' }).click();
+    await stu.getByRole('button', { name: 'Đã hoàn thành' }).waitFor({ timeout: 8000 });
+  });
+  await step('J3', 'documents tab: download works', stu, async () => {
+    await stu.goto(`${C()}/documents`);
+    await stu.getByText(DOC).first().waitFor({ timeout: 10000 });
+    const [dl] = await Promise.all([
+      stu.waitForEvent('download', { timeout: 15000 }),
+      stu.locator('div.p-5', { has: stu.locator('h4', { hasText: DOC }) }).getByRole('button', { name: 'Tải xuống' }).click(),
+    ]);
+    const p = await dl.path();
+    const size = fs.statSync(p).size;
+    const head = fs.readFileSync(p).subarray(0, 5).toString('latin1');
+    if (head !== '%PDF-') throw new Error(`downloaded file is not the PDF: ${head} size=${size}`);
+    return `downloaded ${dl.suggestedFilename()} ${size}B`;
+  });
+  await step('J3', 'exam: start attempt', stu, async () => {
+    await stu.goto(`${C()}/exams`);
+    await stu.getByText(EXAM).first().waitFor({ timeout: 10000 });
+    await stu.getByRole('link', { name: /Vào thi ngay/ }).first().click();
+    await stu.getByRole('button', { name: 'Bắt đầu làm bài' }).click();
+    await stu.getByText('2 + 2 = ?').waitFor({ timeout: 10000 });
+  });
+  await step('J3', 'exam: answer + autosave', stu, async () => {
+    await stu.locator('label', { hasText: '4' }).filter({ has: stu.locator('input[type=radio]') }).last().click();
+    await stu.getByText('Đã tự động lưu').waitFor({ timeout: 8000 });
+    await stu.getByLabel('Câu trả lời tự luận cho câu hỏi 2').fill('Vi hai cong hai bang bon - E2E essay');
+    await stu.waitForTimeout(300);
+    await stu.getByText('Đã tự động lưu').waitFor({ timeout: 8000 });
+    await stu.waitForTimeout(800);
+  });
+  await step('J3', 'exam: F5 mid-exam resumes same attempt with answers', stu, async () => {
+    const before = await stu.locator('span.font-mono').first().innerText().catch(() => '');
+    await stu.reload();
+    await stu.getByText('2 + 2 = ?').waitFor({ timeout: 10000 });
+    if (await stu.getByRole('button', { name: 'Bắt đầu làm bài' }).isVisible()) throw new Error('reload showed start screen instead of resuming');
+    const checked = await stu.locator('input[type=radio]:checked').getAttribute('value');
+    const essay = await stu.getByLabel('Câu trả lời tự luận cho câu hỏi 2').inputValue();
+    if (checked !== 'B' || !essay.includes('E2E essay')) throw new Error(`answers not restored radio=${checked} essay=${essay}`);
+    return `timer before=${before}`;
+  });
+  await step('J3', 'exam: submit -> result page', stu, async () => {
+    await stu.getByRole('button', { name: 'Hoàn tất & Nộp bài thi' }).click();
+    await stu.waitForURL(/\/result\?attemptId=/, { timeout: 15000 });
+    await settle(stu);
+    await shot(stu, 'J3-result-before-grading');
+    return (await stu.locator('main').innerText()).replace(/\s+/g, ' ').slice(0, 300);
+  });
+  await step('J3', 'exam list shows exactly 1 attempt used', stu, async () => {
+    await stu.goto(`${C()}/exams`);
+    await stu.getByText(EXAM).first().waitFor({ timeout: 10000 });
+    const txt = (await stu.locator('main').innerText()).replace(/\s+/g, ' ');
+    const m = txt.match(/(\d+) \/ 2 lượt/);
+    if (!m || m[1] !== '1') throw new Error(`attempt count text: ${m && m[0]}`);
+    return m[0];
+  });
+
+  // ---------------- Journey 4: chấm bài + duyệt mọi trang ----------------
+  await step('J4', 'grade essay in Studio Grading', owner, async () => {
+    await owner.goto(`${S()}/grading`);
+    await owner.getByRole('button', { name: new RegExp(EXAM) }).first().click();
+    await owner.getByText('Vi hai cong hai bang bon - E2E essay').waitFor({ timeout: 10000 });
+    await owner.getByLabel('Điểm', { exact: true }).fill('8');
+    await owner.getByLabel('Phản hồi', { exact: true }).fill('Tot');
+    await owner.getByRole('button', { name: 'Lưu điểm' }).click();
+    await owner.getByText(/Đã công bố · Điểm:/).waitFor({ timeout: 10000 });
+    return (await owner.getByText(/Đã công bố · Điểm:/).innerText());
+  });
+  await step('J4', 'student result page shows graded score', stu, async () => {
+    await stu.goto(`${C()}/exams`);
+    await stu.getByRole('link', { name: 'Xem kết quả bài thi' }).first().click();
+    await settle(stu);
+    await shot(stu, 'J4-result-after-grading');
+    const txt = (await stu.locator('main').innerText()).replace(/\s+/g, ' ');
+    if (!/90|18\s*\/\s*20/.test(txt)) throw new Error(`result text lacks expected 90%/18/20: ${txt.slice(0, 300)}`);
+    return txt.slice(0, 200);
+  });
+  await step('J4', 'leaderboard includes student', stu, async () => {
+    await stu.goto(`${C()}/leaderboard`);
+    await settle(stu, 1200);
+    await shot(stu, 'J4-leaderboard');
+    const txt = (await stu.locator('main').innerText()).replace(/\s+/g, ' ');
+    if (!txt.includes(STUDENT.name)) throw new Error(`leaderboard lacks student: ${txt.slice(0, 300)}`);
+    return 'student listed';
+  });
+  // Mọi trang phải render không có [role=alert] và không phát sinh lỗi console/CSP/mạng (trừ nhiễu đã biết: xem unexpectedEvents trong lib.js).
+  for (const p of ['overview', 'members', 'settings', 'leaderboard', 'staff', 'segments', 'audit', 'about', 'feed', 'documents', 'store', 'courses', 'exams', 'grading']) {
+    await step('J4', `studio page renders: ${p}`, owner, async () => {
+      const before = events.length;
+      await owner.goto(`${S()}/${p}`);
+      await settle(owner, 800);
+      const alerts = await owner.locator('main [role=alert]').allInnerTexts();
+      const newEv = unexpectedEvents(events, before);
+      await shot(owner, `J4-studio-${p}`);
+      if (alerts.length) throw new Error(`alert: ${alerts.join(' / ').slice(0, 200)}`);
+      if (newEv.length) throw new Error(`events: ${newEv.map((e) => e.kind + ' ' + e.text).join(' / ').slice(0, 300)}`);
+    });
+  }
+  for (const p of ['feed', 'learn', 'exams', 'leaderboard', 'documents', 'members', 'about', 'store']) {
+    await step('J4', `student tab renders: ${p}`, stu, async () => {
+      const before = events.length;
+      await stu.goto(`${C()}/${p}`);
+      await settle(stu, 800);
+      const alerts = await stu.locator('main [role=alert]').allInnerTexts();
+      const newEv = unexpectedEvents(events, before);
+      if (alerts.length) throw new Error(`alert: ${alerts.join(' / ').slice(0, 200)}`);
+      if (newEv.length) throw new Error(`events: ${newEv.map((e) => e.kind + ' ' + e.text).join(' / ').slice(0, 300)}`);
+    });
+  }
+
+  // ---------------- Journey 5: đăng xuất giữa nhiều tab ----------------
+  await step('J5', 'logout in tab1 -> tab2 logged out on next action', owner2, async () => {
+    await owner2.goto(`${C()}/feed`);
+    await owner2.getByTitle('Đăng xuất').waitFor({ timeout: 10000 });
+    await owner.goto(`${C()}/feed`);
+    await owner.getByTitle('Đăng xuất').click();
+    await owner.waitForURL(/\/login/, { timeout: 10000 });
+    await owner2.waitForTimeout(800);
+    const immediately = !(await isLoggedIn(owner2));
+    await owner2.getByRole('link', { name: 'Luyện thi' }).click().catch(() => {});
+    await settle(owner2);
+    const loggedIn = await isLoggedIn(owner2);
+    if (loggedIn) throw new Error('tab2 still logged in after tab1 logout');
+    // tải lại hẳn cũng không được "hồi sinh" phiên
+    await owner2.reload();
+    await settle(owner2);
+    if (await isLoggedIn(owner2)) throw new Error('tab2 logged in again after reload (refresh cookie not revoked)');
+    return `clearedImmediately=${immediately}`;
+  });
+  await step('J5', 'login again', owner, async () => {
+    await login(owner, OWNER);
+    await owner.goto(`${C()}/feed`);
+    await owner.getByRole('link', { name: 'Studio Quản Trị' }).waitFor({ timeout: 10000 });
+  });
+
+  // ---------------- Journey 6: giao diện điện thoại (390px) ----------------
+  const phone = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 };
+  const mobCtx = await newCtx(browser, phone);
+  const mob = await mobCtx.newPage();
+  instrument(mob, 'mobile-student');
+  await step('J6', 'mobile login student', mob, async () => { await login(mob, STUDENT); });
+  const mobilePages = [
+    ['classes', `${BASE}/classes`],
+    ['feed', `${C()}/feed`],
+    ['learn', `${C()}/learn`],
+    ['exams', `${C()}/exams`],
+    ['leaderboard', `${C()}/leaderboard`],
+    ['documents', `${C()}/documents`],
+    ['store', `${C()}/store`],
+    ['profile', `${BASE}/me/profile`],
+  ];
+  state.mobile = {};
+  for (const [name, url] of mobilePages) {
+    await step('J6', `mobile ${name}`, mob, async () => {
+      await mob.goto(url);
+      await settle(mob, 800);
+      const o = await overflowCheck(mob);
+      state.mobile[name] = o;
+      await mob.screenshot({ path: path.join(SHOTS, `J6-mobile-${name}.png`) });
+      if (o.over > 1) throw new Error(`horizontal overflow ${o.over}px: ${o.offenders.join(' ; ')}`);
+      return `sw=${o.scrollWidth}`;
+    });
+  }
+  await step('J6', 'mobile lesson page', mob, async () => {
+    await mob.goto(`${C()}/learn`);
+    await mob.getByRole('link', { name: 'Vào học' }).first().click();
+    await mob.locator('video').waitFor({ timeout: 10000 });
+    await settle(mob);
+    const o = await overflowCheck(mob);
+    await mob.screenshot({ path: path.join(SHOTS, 'J6-mobile-lesson.png') });
+    if (o.over > 1) throw new Error(`horizontal overflow ${o.over}px: ${o.offenders.join(' ; ')}`);
+  });
+  const mobOwnerCtx = await newCtx(browser, phone);
+  const mobO = await mobOwnerCtx.newPage();
+  instrument(mobO, 'mobile-owner');
+  await step('J6', 'mobile login owner', mobO, async () => { await login(mobO, OWNER); });
+  for (const p of ['courses', 'exams', 'grading', 'store', 'members']) {
+    await step('J6', `mobile studio ${p}`, mobO, async () => {
+      await mobO.goto(`${S()}/${p}`);
+      await settle(mobO, 800);
+      const o = await overflowCheck(mobO);
+      await mobO.screenshot({ path: path.join(SHOTS, `J6-mobile-studio-${p}.png`) });
+      const mainTop = await mobO.locator('main').last().evaluate((el) => Math.round(el.getBoundingClientRect().top + window.scrollY));
+      state.mobile[`studio-${p}`] = { ...o, mainTop };
+      if (o.over > 1) throw new Error(`horizontal overflow ${o.over}px: ${o.offenders.join(' ; ')}`);
+      // R17-05: the Studio nav collapses on phones, so the page content starts near the top.
+      if (mainTop > 400) throw new Error(`studio content starts too low on a phone: y=${mainTop}px`);
+      return `studio main content starts at y=${mainTop}px`;
+    });
+  }
+
+  await browser.close();
+  fs.writeFileSync(path.join(SHOTS, 'report.json'), JSON.stringify({ run: RUN, owner: OWNER.email, student: STUDENT.email, classSlug: CLASS.slug, state, results, events }, null, 2));
+  console.log(`\nẢnh chụp + report.json: ${SHOTS}`);
+  process.exitCode = summarize('E2E hành trình chính (e2e.js)');
+})().catch((e) => { console.error('FATAL', e); process.exit(2); });

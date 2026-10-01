@@ -80,6 +80,8 @@ public class OrderIdempotencyTest {
         product.setId("prod-1");
 
         item = new OrderItem(order.getId(), product.getId(), product.getTitle(), new BigDecimal("299000"), 30);
+        // R19-01: a refund locks the products of the order's ITEMS before it reads the entitlements.
+        lenient().when(orderItemRepository.findByOrderId("order-id-1")).thenReturn(List.of(item));
     }
 
     @Test
@@ -167,7 +169,7 @@ public class OrderIdempotencyTest {
         when(orderRepository.findByOrderNumber("ORD-TEST-123")).thenReturn(Optional.of(order));
         when(orderItemRepository.findByOrderId("order-id-1")).thenReturn(List.of(item));
         when(productRepository.findByIdForUpdate("prod-1")).thenReturn(Optional.of(product));
-        when(entitlementRepository.findLatestActiveByProduct(eq("buyer-1"), eq("class-1"), eq("prod-1"), any())).thenReturn(List.of());
+        when(entitlementRepository.findLatestActiveByProductForUpdate(eq("buyer-1"), eq("class-1"), eq("prod-1"), any())).thenReturn(List.of());
 
         WebhookPayload payload = new WebhookPayload("ORD-TEST-123", "MOCK-REF-1", "PAYMENT_SUCCESS", new BigDecimal("299000"), "VND");
 
@@ -190,9 +192,9 @@ public class OrderIdempotencyTest {
 
         when(paymentProvider.verifyWebhookSignature(any(), any())).thenReturn(true);
         when(orderRepository.findByOrderNumber("ORD-TEST-123")).thenReturn(Optional.of(order));
-        when(entitlementRepository.findByOrderId("order-id-1")).thenReturn(List.of(entitlement));
+        when(entitlementRepository.findByOrderIdForUpdate("order-id-1")).thenReturn(List.of(entitlement));
         when(productRepository.findByIdForUpdate("prod-1")).thenReturn(Optional.of(product));
-        when(entitlementRepository.findFutureActiveByProductAsc(eq("buyer-1"), eq("class-1"), eq("prod-1"), any())).thenReturn(List.of(entitlement));
+        when(entitlementRepository.findFutureActiveByProductAscForUpdate(eq("buyer-1"), eq("class-1"), eq("prod-1"), any())).thenReturn(List.of(entitlement));
 
         WebhookPayload payload = new WebhookPayload("ORD-TEST-123", "MOCK-REF-1", "PAYMENT_REFUNDED", new BigDecimal("299000"), "VND");
 
@@ -261,12 +263,12 @@ public class OrderIdempotencyTest {
 
         when(paymentProvider.verifyWebhookSignature(any(), any())).thenReturn(true);
         when(orderRepository.findByOrderNumber("ORD-TEST-123")).thenReturn(Optional.of(order));
-        when(entitlementRepository.findByOrderId("order-id-1")).thenReturn(List.of(e1));
+        when(entitlementRepository.findByOrderIdForUpdate("order-id-1")).thenReturn(List.of(e1));
         when(productRepository.findByIdForUpdate("prod-1")).thenReturn(Optional.of(product));
         when(orderItemRepository.findByOrderId("order-id-2")).thenReturn(List.of(
                 new OrderItem("order-id-2", "prod-1", "Product", BigDecimal.ONE, 30, e2OriginalStart)));
         // Remaining active after e1 is revoked has an independently configured start.
-        when(entitlementRepository.findFutureActiveByProductAsc(eq("buyer-1"), eq("class-1"), eq("prod-1"), any()))
+        when(entitlementRepository.findFutureActiveByProductAscForUpdate(eq("buyer-1"), eq("class-1"), eq("prod-1"), any()))
                 .thenReturn(List.of(e2));
 
         WebhookPayload payload = new WebhookPayload("ORD-TEST-123", "MOCK-REF-1", "PAYMENT_REFUNDED", new BigDecimal("299000"), "VND");
@@ -303,13 +305,13 @@ public class OrderIdempotencyTest {
 
         when(paymentProvider.verifyWebhookSignature(any(), any())).thenReturn(true);
         when(orderRepository.findByOrderNumber("ORD-TEST-123")).thenReturn(Optional.of(order));
-        when(entitlementRepository.findByOrderId("order-id-1")).thenReturn(List.of(refunded));
+        when(entitlementRepository.findByOrderIdForUpdate("order-id-1")).thenReturn(List.of(refunded));
         when(productRepository.findByIdForUpdate("prod-1")).thenReturn(Optional.of(product));
         when(orderItemRepository.findByOrderId("order-id-2")).thenReturn(List.of(
                 new OrderItem("order-id-2", "prod-1", "Product", BigDecimal.ONE, 30, now.plus(40, ChronoUnit.DAYS))));
         when(orderItemRepository.findByOrderId("order-id-3")).thenReturn(List.of(
                 new OrderItem("order-id-3", "prod-1", "Product", BigDecimal.ONE, 30, now.plus(60, ChronoUnit.DAYS))));
-        when(entitlementRepository.findFutureActiveByProductAsc(eq("buyer-1"), eq("class-1"), eq("prod-1"), any()))
+        when(entitlementRepository.findFutureActiveByProductAscForUpdate(eq("buyer-1"), eq("class-1"), eq("prod-1"), any()))
                 .thenReturn(List.of(futureEntitlement, overlappingRenewal));
 
         WebhookPayload payload = new WebhookPayload("ORD-TEST-123", "MOCK-REF-1", "PAYMENT_REFUNDED", new BigDecimal("299000"), "VND");
@@ -339,9 +341,9 @@ public class OrderIdempotencyTest {
 
         when(paymentProvider.verifyWebhookSignature(any(), any())).thenReturn(true);
         when(orderRepository.findByOrderNumber("ORD-TEST-123")).thenReturn(Optional.of(order));
-        when(entitlementRepository.findByOrderId("order-id-1")).thenReturn(List.of(refundedRenewal));
+        when(entitlementRepository.findByOrderIdForUpdate("order-id-1")).thenReturn(List.of(refundedRenewal));
         when(productRepository.findByIdForUpdate("prod-1")).thenReturn(Optional.of(product));
-        when(entitlementRepository.findFutureActiveByProductAsc(eq("buyer-1"), eq("class-1"), eq("prod-1"), any()))
+        when(entitlementRepository.findFutureActiveByProductAscForUpdate(eq("buyer-1"), eq("class-1"), eq("prod-1"), any()))
                 .thenReturn(List.of(survivingEarlierPurchase));
 
         WebhookPayload payload = new WebhookPayload("ORD-TEST-123", "MOCK-REF-1", "PAYMENT_REFUNDED", new BigDecimal("299000"), "VND");
@@ -376,7 +378,7 @@ public class OrderIdempotencyTest {
 
         assertThrows(AppException.class, () -> commerceService.handlePaymentWebhook(payload, "{}", "valid-sig"));
         verify(orderRepository, never()).save(argThat(o -> "REFUNDED".equals(o.getStatus())));
-        verify(entitlementRepository, never()).findByOrderId(anyString());
+        verify(entitlementRepository, never()).findByOrderIdForUpdate(anyString());
     }
 
     @Test
@@ -390,7 +392,7 @@ public class OrderIdempotencyTest {
         assertThrows(AppException.class, () -> commerceService.handlePaymentWebhook(missingAmount, "{}", "valid-sig"));
         WebhookPayload missingCurrency = new WebhookPayload("ORD-TEST-123", "MOCK-REF-1", "PAYMENT_REFUNDED", new BigDecimal("299000"), null);
         assertThrows(AppException.class, () -> commerceService.handlePaymentWebhook(missingCurrency, "{}", "valid-sig"));
-        verify(entitlementRepository, never()).findByOrderId(anyString());
+        verify(entitlementRepository, never()).findByOrderIdForUpdate(anyString());
     }
 
     @Test
@@ -434,7 +436,7 @@ public class OrderIdempotencyTest {
         when(orderRepository.findByProviderRef("MOCK-REF-1")).thenReturn(Optional.empty());
         when(orderItemRepository.findByOrderId("order-id-1")).thenReturn(List.of(item));
         when(productRepository.findByIdForUpdate("prod-1")).thenReturn(Optional.of(product));
-        when(entitlementRepository.findLatestActiveByProduct(any(), any(), any(), any())).thenReturn(List.of());
+        when(entitlementRepository.findLatestActiveByProductForUpdate(any(), any(), any(), any())).thenReturn(List.of());
 
         WebhookPayload payload = new WebhookPayload("ORD-TEST-123", "MOCK-REF-1", "PAYMENT_SUCCESS", new BigDecimal("299000"), "VND");
         OrderDto result = commerceService.handlePaymentWebhook(payload, "{}", "valid-sig");
@@ -480,5 +482,43 @@ public class OrderIdempotencyTest {
         );
         assertEquals(com.classroom.common.ErrorCode.BAD_REQUEST, ex.getErrorCode());
         assertTrue(ex.getMessage().contains("không khớp với đơn hàng"));
+    }
+
+    // ----- R14-13 (D-14): an ARCHIVED class takes no NEW orders, but still replays an existing one -----
+
+    @Test
+    @DisplayName("R14-13: creating a NEW order in an ARCHIVED class is refused with a clear Vietnamese message")
+    void newOrderRefusedInArchivedClass() {
+        CreateOrderRequest request = new CreateOrderRequest();
+        request.setClassId("class-1");
+        request.setProductId("prod-1");
+        request.setIdempotencyKey("archived-key");
+        when(orderRepository.findByIdempotencyKey("archived-key")).thenReturn(Optional.empty());
+        when(accessPolicy.isClassArchived("class-1")).thenReturn(true);
+
+        AppException ex = assertThrows(AppException.class, () -> commerceService.createOrder("buyer-1", request));
+
+        assertEquals(com.classroom.common.ErrorCode.BAD_REQUEST, ex.getErrorCode());
+        assertTrue(ex.getMessage().contains("Lớp học đã được lưu trữ"));
+        verify(orderRepository, never()).saveAndFlush(any());
+        verify(productRepository, never()).findByIdForUpdate(any());
+    }
+
+    @Test
+    @DisplayName("R14-13: replaying an order that already exists still works after the class is archived")
+    void existingOrderStillReplaysInArchivedClass() {
+        order.setIdempotencyKey("key-1");
+        when(orderRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(order));
+        when(orderItemRepository.findByOrderId("order-id-1")).thenReturn(List.of(item));
+
+        CreateOrderRequest retry = new CreateOrderRequest();
+        retry.setClassId("class-1");
+        retry.setProductId("prod-1");
+        retry.setIdempotencyKey("key-1");
+
+        OrderDto replayed = commerceService.createOrder("buyer-1", retry);
+
+        assertEquals("ORD-TEST-123", replayed.getOrderNumber());
+        verify(accessPolicy, never()).isClassArchived(any());
     }
 }

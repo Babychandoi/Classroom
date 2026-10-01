@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useParams, useOutletContext } from 'react-router-dom';
 import { api } from '../../api/client';
+import { putToObjectStore } from '../../api/upload';
 import { Classroom } from '../../types';
+import { AboutSection, AboutSectionsEditor } from '../../components/AboutSections';
 
 export const StudioFeed: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -31,8 +33,7 @@ export const StudioDocuments: React.FC = () => {
     setUploading(true); setMessage('');
     try {
       const intent = await api.post<{ assetId: string; uploadUrl: string }>(`/classes/${id}/media/upload-intents`, { filename: file.name, mimeType: file.type, sizeBytes: file.size, purpose: 'DOCUMENT' });
-      const response = await fetch(intent.uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
-      if (!response.ok) throw new Error(`Tải tệp thất bại (${response.status})`);
+      await putToObjectStore(intent.uploadUrl, file, 'Tải tệp thất bại');
       await api.post(`/media/${intent.assetId}/complete`);
       setForm(current => ({ ...current, mediaAssetId: intent.assetId }));
       setMessage(`Đã tải lên ${file.name}.`);
@@ -51,9 +52,12 @@ export const StudioAbout: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { classroom } = useOutletContext<{ classroom: Classroom }>();
   const canEdit = classroom.userRole === 'OWNER' || classroom.studioPermissions?.includes('ABOUT:EDIT');
+  const [sections, setSections] = useState<AboutSection[]>([]);
+  const [version, setVersion] = useState(1);
+  const [saving, setSaving] = useState(false);
   const [contentMarkdown, setContent] = useState(''); const [rulesMarkdown, setRules] = useState(''); const [message, setMessage] = useState('');
-  const load = async () => { try { const about = await api.get<{contentMarkdown:string;rulesMarkdown:string}>(`/classes/${id}/about`); setContent(about.contentMarkdown || ''); setRules(about.rulesMarkdown || ''); } catch (e) { setMessage(e instanceof Error ? e.message : 'Không thể tải giới thiệu.'); } };
+  const load = async () => { try { const about = await api.get<{contentMarkdown:string;rulesMarkdown:string;sections?:AboutSection[];publishedVersion:number}>(`/classes/${id}/about`); setContent(about.contentMarkdown || ''); setRules(about.rulesMarkdown || ''); setSections(about.sections || []); setVersion(about.publishedVersion); } catch (e) { setMessage(e instanceof Error ? e.message : 'Không thể tải giới thiệu.'); } };
   React.useEffect(() => { void load(); }, [id]);
-  const save = async (event: React.FormEvent) => { event.preventDefault(); try { await api.put(`/classes/${id}/about`, {contentMarkdown,rulesMarkdown}); setMessage('Đã lưu thông tin lớp.'); } catch(e) { setMessage(e instanceof Error ? e.message : 'Không thể lưu.'); } };
-  return <section className="max-w-3xl space-y-5"><h1 className="text-2xl font-bold">Giới thiệu & nội quy</h1><form onSubmit={save} className="space-y-3 rounded-xl bg-white p-5 shadow"><label className="block">Giới thiệu<textarea rows={8} value={contentMarkdown} onChange={e=>setContent(e.target.value)} className="mt-1 w-full rounded border p-2" /></label><label className="block">Nội quy<textarea rows={8} value={rulesMarkdown} onChange={e=>setRules(e.target.value)} className="mt-1 w-full rounded border p-2" /></label>{canEdit && <button className="rounded bg-indigo-600 px-4 py-2 font-semibold text-white">Lưu</button>}{message && <p role="status">{message}</p>}</form></section>;
+  const save = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); try { const result = await api.put<{publishedVersion:number}>(`/classes/${id}/about`, {contentMarkdown,rulesMarkdown,sections:sections.map(s=>({...s,imageUrl:s.mediaAssetId?'':s.imageUrl})),publishedVersion:version}); setVersion(result.publishedVersion); setMessage('Đã lưu thông tin lớp.'); } catch(e) { setMessage(e instanceof Error ? e.message : 'Không thể lưu.'); } finally { setSaving(false); } };
+  return <section className="max-w-3xl space-y-5"><h1 className="text-2xl font-bold">Giới thiệu & nội quy</h1><form onSubmit={save} className="space-y-6 rounded-xl bg-white p-5 shadow"><label className="block">Giới thiệu<textarea maxLength={100000} rows={8} value={contentMarkdown} onChange={e=>setContent(e.target.value)} className="mt-1 w-full rounded border p-2" /></label><AboutSectionsEditor classId={id!} sections={sections} onChange={setSections} /><label className="block">Nội quy<textarea maxLength={100000} rows={8} value={rulesMarkdown} onChange={e=>setRules(e.target.value)} className="mt-1 w-full rounded border p-2" /></label>{canEdit && <button disabled={saving} className="rounded bg-indigo-600 px-4 py-2 font-semibold text-white disabled:opacity-50">{saving ? 'Đang lưu...' : 'Lưu'}</button>}{message && <p role="status">{message}</p>}</form></section>;
 };

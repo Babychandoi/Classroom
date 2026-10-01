@@ -1,3 +1,5 @@
+import defaultTheme from 'tailwindcss/defaultTheme';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -6,6 +8,11 @@ export default {
   ],
   theme: {
     extend: {
+      // R17-04: <body class="font-sans"> (index.html) outranks the plain `body { font-family }` rule in
+      // index.css, so the app font has to be the Tailwind sans stack itself or it is never applied.
+      fontFamily: {
+        sans: ['"Plus Jakarta Sans Variable"', '"Plus Jakarta Sans"', ...defaultTheme.fontFamily.sans],
+      },
       colors: {
         brand: {
           50: '#eef2ff',

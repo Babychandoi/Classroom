@@ -1,6 +1,9 @@
 package com.classroom.modules.learning.dto;
 
 public class LessonDto {
+    private String captionsVtt;
+    public String getCaptionsVtt() { return captionsVtt; }
+    public void setCaptionsVtt(String captionsVtt) { this.captionsVtt = captionsVtt; }
     private String id;
     private String sectionId;
     private String courseId;
@@ -12,6 +15,7 @@ public class LessonDto {
     private int durationMinutes;
     private int position;
     private boolean completed;
+    private boolean archived;
 
     public LessonDto() {}
 
@@ -101,5 +105,13 @@ public class LessonDto {
 
     public void setCompleted(boolean completed) {
         this.completed = completed;
+    }
+
+    public boolean isArchived() {
+        return archived;
+    }
+
+    public void setArchived(boolean archived) {
+        this.archived = archived;
     }
 }

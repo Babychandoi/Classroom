@@ -1,4 +1,10 @@
-# Environment
+# Environment (real secrets; only .env.example is tracked)
+.env
+infra/.env
+**/.env
+*.env
+!.env.example
+!**/.env.example
 
 # Build Artifacts
 **/target/
@@ -39,4 +45,7 @@ Thumbs.db
 
 # Docker data volumes
 docker-data/
+
+# Backups made by infra/scripts/backup.* (full database dumps + object copies: contain personal data)
+infra/backups/
 pgdata/

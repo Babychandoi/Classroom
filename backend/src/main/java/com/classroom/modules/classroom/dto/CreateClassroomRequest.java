@@ -17,6 +17,10 @@ public class CreateClassroomRequest {
     private String description;
     private String coverImageUrl;
 
+    /** D-19: PUBLIC or PRIVATE. Optional - absent keeps the current value (create: PUBLIC). Case-insensitive. */
+    @Pattern(regexp = "^(?i)(PUBLIC|PRIVATE)$", message = "Chế độ hiển thị lớp chỉ có thể là PUBLIC hoặc PRIVATE")
+    private String visibility;
+
     public String getTitle() {
         return title;
     }
@@ -47,5 +51,13 @@ public class CreateClassroomRequest {
 
     public void setCoverImageUrl(String coverImageUrl) {
         this.coverImageUrl = coverImageUrl;
+    }
+
+    public String getVisibility() {
+        return visibility;
+    }
+
+    public void setVisibility(String visibility) {
+        this.visibility = visibility;
     }
 }

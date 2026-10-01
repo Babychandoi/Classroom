@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
+import java.util.UUID;
 
 @Component
 public class JwtTokenProvider {
@@ -26,7 +27,7 @@ public class JwtTokenProvider {
 
     public JwtTokenProvider(
             @Value("${app.jwt.secret}") String secret,
-            @Value("${app.jwt.expiration-hours:24}") long expirationHours,
+            @Value("${app.jwt.expiration-hours:1}") long expirationHours,
             TokenRevocationService tokenRevocationService,
             Environment environment) {
         if (secret == null || secret.isBlank() || secret.length() < 32) {
@@ -34,7 +35,8 @@ public class JwtTokenProvider {
                     "JWT secret (app.jwt.secret / JWT_SECRET) must be set and at least 32 characters. " +
                     "Refusing to start with an absent or weak secret.");
         }
-        DevSecretGuard.rejectKnownSampleValue("JWT_SECRET", secret, environment);
+        DevSecretGuard.rejectKnownSampleValue("JWT_SECRET", secret, environment,
+                environment.getProperty("app.payment.mock.webhook-secret"));
         this.secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expirationHours = expirationHours;
         this.tokenRevocationService = tokenRevocationService;
@@ -45,6 +47,10 @@ public class JwtTokenProvider {
         Instant expiry = now.plus(expirationHours, ChronoUnit.HOURS);
 
         return Jwts.builder()
+                // R19-08 (found while verifying it live): without a unique id, two tokens minted for the same user in the
+                // same second are byte-identical, so logging out (which blacklists the token) and logging straight back in
+                // handed out a token that was ALREADY on the blacklist - the user was logged out again with a 401.
+                .id(UUID.randomUUID().toString())
                 .subject(userId)
                 .claim("email", email)
                 .claim("role", role)
@@ -74,21 +80,30 @@ public class JwtTokenProvider {
         }
     }
 
+    /**
+     * Blacklists an access token until it would have expired anyway.
+     *
+     * <p>R19-08: only a token whose signature verifies is recorded. {@code /auth/logout} is public (it must still
+     * clear the cookie after the access token expired), so previously any caller could make the server insert a
+     * row per garbage string. A token that fails verification (forged, malformed, wrong key) or is already expired
+     * is unusable as it is: there is nothing to revoke and nothing is written.
+     */
     public void revokeToken(String token) {
         if (token == null || token.isBlank()) return;
+        Claims claims;
         try {
-            Claims claims = Jwts.parser()
+            claims = Jwts.parser()
                     .verifyWith(secretKey)
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
-            Date exp = claims.getExpiration();
-            Instant expiry = (exp != null) ? exp.toInstant() : Instant.now().plus(expirationHours, ChronoUnit.HOURS);
-            tokenRevocationService.revoke(token, expiry);
-        } catch (Exception e) {
-            // Even if token claims parsing fails, still blacklist the raw token string
-            tokenRevocationService.revoke(token, Instant.now().plus(expirationHours, ChronoUnit.HOURS));
+        } catch (JwtException | IllegalArgumentException e) {
+            log.debug("Ignoring revoke request for a token that does not verify: {}", e.getClass().getSimpleName());
+            return;
         }
+        Date exp = claims.getExpiration();
+        Instant expiry = (exp != null) ? exp.toInstant() : Instant.now().plus(expirationHours, ChronoUnit.HOURS);
+        tokenRevocationService.revoke(token, expiry);
     }
 
     public String getUserIdFromToken(String token) {

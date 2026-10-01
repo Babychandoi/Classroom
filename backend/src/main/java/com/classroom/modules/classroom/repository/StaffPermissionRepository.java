@@ -12,6 +12,12 @@ import java.util.List;
 public interface StaffPermissionRepository extends JpaRepository<StaffPermission, String> {
     List<StaffPermission> findByAssignmentId(String assignmentId);
 
+    /** R18-07: grants scoped to one course (staff_permissions.scope_course_id, RESTRICT foreign key to courses). */
+    List<StaffPermission> findByScopeCourseId(String scopeCourseId);
+
+    /** R16-08: batch form of findByAssignmentId for the class listing. */
+    List<StaffPermission> findByAssignmentIdIn(java.util.Collection<String> assignmentIds);
+
     // Bulk JPQL delete executes immediately against the database rather than being queued
     // as entity-level removals, so it is guaranteed to run before any subsequent save() of
     // permissions for the same assignment - avoiding a flush-ordering collision against

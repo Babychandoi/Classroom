@@ -45,7 +45,11 @@ const getScheduleStatus = (exam: Exam) => {
   return { status: 'OPEN', label: 'Đang mở', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
 };
 
-const blockedReason = (exam: Exam): string => {
+const blockedReason = (exam: Exam, classArchived = false): string => {
+  // R14-05 / R14-13: a closed/archived exam and an archived class accept no NEW attempts (a learner
+  // with a running attempt still gets canEnter=true and the "Vào thi ngay" button instead).
+  if (exam.status === 'CLOSED' || exam.status === 'ARCHIVED') return 'Kỳ thi đã đóng, không nhận lượt làm bài mới';
+  if (classArchived) return 'Lớp học đã được lưu trữ; không thể bắt đầu lượt làm bài mới';
   const sched = getScheduleStatus(exam);
   if (sched.status === 'UPCOMING') {
     const startStr = exam.scheduleStart ? new Date(exam.scheduleStart).toLocaleString('vi-VN') : '';
@@ -69,6 +73,7 @@ export const ExamsTab: React.FC = () => {
   const fetchExams = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await api.get<Exam[]>(`/classes/${classroom.id}/exams`);
       setExams(data || []);
     } catch (err: any) {
@@ -86,7 +91,7 @@ export const ExamsTab: React.FC = () => {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Kỳ thi & Khảo sát năng lực</h2>
-        <p className="text-xs text-slate-500">Tham gia làm bài để tích lũy điểm thưởng và thăng hạng trên Bảng Xếp Hạng</p>
+        <p className="text-xs text-slate-600">Tham gia làm bài để tích lũy điểm thưởng và thăng hạng trên Bảng Xếp Hạng</p>
       </div>
 
       {loading && <LoadingSpinner message="Đang tải danh sách kỳ thi..." />}
@@ -117,20 +122,20 @@ export const ExamsTab: React.FC = () => {
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getScheduleStatus(exam).badgeClass}`}>
                     {getScheduleStatus(exam).label}
                   </span>
-                  <span className="flex items-center space-x-1 text-xs text-slate-500 font-medium">
-                    <Clock className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="flex items-center space-x-1 text-xs text-slate-600 font-medium">
+                    <Clock className="w-3.5 h-3.5 text-slate-600" />
                     <span>{exam.durationMinutes} phút</span>
                   </span>
                 </div>
               </div>
 
               <h3 className="text-lg font-bold text-slate-900 mb-1.5">{exam.title}</h3>
-              <p className="text-xs text-slate-500 line-clamp-2 mb-2">
+              <p className="text-xs text-slate-600 line-clamp-2 mb-2">
                 {exam.description || 'Bài thi đánh giá chuẩn kiến thức.'}
               </p>
 
               {(exam.scheduleStart || exam.scheduleEnd) && (
-                <div className="text-[11px] text-slate-500 mb-3 space-y-0.5">
+                <div className="text-[11px] text-slate-600 mb-3 space-y-0.5">
                   {exam.scheduleStart && <div>Mở: {new Date(exam.scheduleStart).toLocaleString('vi-VN')}</div>}
                   {exam.scheduleEnd && <div>Đóng: {new Date(exam.scheduleEnd).toLocaleString('vi-VN')}</div>}
                 </div>
@@ -165,9 +170,9 @@ export const ExamsTab: React.FC = () => {
                   <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
               ) : (
-                <div className="text-center py-2 px-3 bg-slate-100 rounded-xl text-xs font-semibold text-slate-500 flex items-center justify-center space-x-1.5">
-                  <Lock className="w-3.5 h-3.5 text-slate-400" />
-                  <span>{blockedReason(exam)}</span>
+                <div className="text-center py-2 px-3 bg-slate-100 rounded-xl text-xs font-semibold text-slate-600 flex items-center justify-center space-x-1.5">
+                  <Lock className="w-3.5 h-3.5 text-slate-600" />
+                  <span>{blockedReason(exam, classroom.status === 'ARCHIVED')}</span>
                 </div>
               )}
               {exam.userAttemptsCount > 0 && (

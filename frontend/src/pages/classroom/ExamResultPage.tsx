@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import { ExamAttempt } from '../../types';
 import { LoadingSpinner, ErrorBanner } from '../../components/UIStates';
-import { Award, ArrowLeft, CheckCircle2, Clock, Calendar } from 'lucide-react';
+import { Award, ArrowLeft, CheckCircle2, Clock, Calendar, Eye } from 'lucide-react';
 
 export const ExamResultPage: React.FC = () => {
   const { slug, examId } = useParams<{ slug: string; examId: string }>();
+  const [searchParams] = useSearchParams();
+  const attemptId = searchParams.get('attemptId');
   const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +56,10 @@ export const ExamResultPage: React.FC = () => {
     );
   }
 
-  const latestAttempt = attempts[0];
+  // R8-02: prefer the attempt the caller just submitted (navigated here with ?attemptId=) so a
+  // student who submits, then starts another attempt before this one is graded, still lands on the
+  // result they just produced rather than whichever happens to be newest.
+  const latestAttempt = (attemptId && attempts.find((a) => a.id === attemptId)) || attempts[0];
   const isPublished = latestAttempt.status === 'PUBLISHED';
 
   return (
@@ -67,6 +72,13 @@ export const ExamResultPage: React.FC = () => {
         <span>Về danh mục kỳ thi</span>
       </Link>
 
+      {latestAttempt.isPreview && (
+        <p role="status" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs font-bold text-amber-800 flex items-center gap-2">
+          <Eye className="w-4 h-4" />
+          Chế độ xem thử — kết quả này không tính điểm/xếp hạng
+        </p>
+      )}
+
       <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm text-center">
         <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 mx-auto flex items-center justify-center mb-4">
           <CheckCircle2 className="w-8 h-8" />
@@ -74,17 +86,27 @@ export const ExamResultPage: React.FC = () => {
         <h2 className="text-2xl font-black text-slate-900 mb-1">Kết quả bài thi</h2>
         <p className="text-sm text-slate-500 mb-6">{latestAttempt.examTitle || 'Kỳ thi'}</p>
 
-        <div className="max-w-xs mx-auto bg-slate-50 p-6 rounded-2xl border border-slate-100 mb-6">
-          <div className="text-xs uppercase font-bold text-slate-400 tracking-wider mb-1">
-            Điểm số đạt được
+        {latestAttempt.resultHidden ? (
+          // R19-04: the server withheld the score of this preview attempt (the viewer may not read the answer key).
+          <div role="status" className="max-w-sm mx-auto bg-slate-50 p-6 rounded-2xl border border-slate-100 mb-6">
+            <div className="text-sm font-bold text-slate-700">
+              {latestAttempt.notice || 'Chế độ xem thử: không hiển thị điểm/đáp án cho quyền của bạn'}
+            </div>
+            <div className="text-xs text-slate-500 mt-2">Bài làm của bạn đã được ghi nhận.</div>
           </div>
-          <div className="text-5xl font-black text-indigo-600">
-            {isPublished && latestAttempt.score !== undefined ? `${latestAttempt.score}%` : 'Chờ chấm điểm'}
+        ) : (
+          <div className="max-w-xs mx-auto bg-slate-50 p-6 rounded-2xl border border-slate-100 mb-6">
+            <div className="text-xs uppercase font-bold text-slate-500 tracking-wider mb-1">
+              Điểm số đạt được
+            </div>
+            <div className="text-5xl font-black text-indigo-600">
+              {isPublished && latestAttempt.score !== undefined ? `${latestAttempt.score}%` : 'Chờ chấm điểm'}
+            </div>
+            <div className="text-xs text-slate-500 mt-2">
+              Trạng thái: <span className="font-bold text-slate-700">{latestAttempt.status}</span>
+            </div>
           </div>
-          <div className="text-xs text-slate-500 mt-2">
-            Trạng thái: <span className="font-bold text-slate-700">{latestAttempt.status}</span>
-          </div>
-        </div>
+        )}
 
         {attempts.length > 1 && (
           <div className="text-left mt-6 pt-6 border-t border-slate-100">
@@ -96,13 +118,13 @@ export const ExamResultPage: React.FC = () => {
                 <div key={att.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl text-xs">
                   <div className="flex items-center space-x-2">
                     <span className="font-bold text-slate-700">Lần {attempts.length - idx}</span>
-                    <span className="text-slate-400">· {att.status}</span>
+                    <span className="text-slate-500">· {att.status}</span>
                   </div>
                   <div className="flex items-center space-x-3">
                     <span className="font-bold text-indigo-600">
-                      {att.status === 'PUBLISHED' && att.score !== undefined ? `${att.score}%` : 'Chờ chấm'}
+                      {att.resultHidden ? 'Không hiển thị' : att.status === 'PUBLISHED' && att.score !== undefined ? `${att.score}%` : 'Chờ chấm'}
                     </span>
-                    <span className="text-slate-400 text-[10px]">
+                    <span className="text-slate-500 text-[10px]">
                       {att.submittedAt ? new Date(att.submittedAt).toLocaleString('vi-VN') : ''}
                     </span>
                   </div>
@@ -127,7 +149,7 @@ export const ExamResultPage: React.FC = () => {
                     )}
                   </div>
                   <div className="text-slate-600">
-                    <span className="text-slate-400">Câu trả lời của bạn: </span>
+                    <span className="text-slate-500">Câu trả lời của bạn: </span>
                     <span className="font-medium">{ans.studentAnswer || '(Chưa trả lời)'}</span>
                   </div>
                   {ans.teacherFeedback && (

@@ -1,0 +1,21 @@
+{
+  "name": "classroom-loadtest",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bộ kiểm thử tải/lỗi cho hệ thống lớp học - CHỈ chạy trên stack drill/dev, không bao giờ trên production",
+  "type": "commonjs",
+  "scripts": {
+    "seed": "node seed.js",
+    "exam-burst": "node scenarios/exam-burst.js",
+    "feed": "node scenarios/feed-read.js",
+    "media": "node scenarios/media-upload.mjs",
+    "auth-nat": "node scenarios/auth-nat.js",
+    "outbox-lag": "bash scenarios/outbox-lag.sh",
+    "outbox-outage": "bash scenarios/outbox-outage.sh",
+    "smoke": "node smoke.js",
+    "check": "node --check lib.js && node --check fixtures.js && node --check seed.js && node --check smoke.js && node --check scenarios/exam-burst.js && node --check scenarios/feed-read.js && node --check scenarios/auth-nat.js && node --check scenarios/media-upload.mjs && node --check scenarios/outbox-produce.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

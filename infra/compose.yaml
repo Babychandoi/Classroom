@@ -101,7 +101,7 @@ services:
       - classroom-net
     entrypoint: >
       /bin/sh -c "
-      /usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER:-minio_admin} ${MINIO_ROOT_PASSWORD:-minio_password} || exit 1;
+      /usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD} || exit 1;
       /usr/bin/mc mb --ignore-existing myminio/${MINIO_BUCKET:-classroom-media} || exit 1;
       /usr/bin/mc stat myminio/${MINIO_BUCKET:-classroom-media} || exit 1;
       echo 'MinIO initialization completed with private bucket enforcement.';
@@ -124,8 +124,8 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-classroom_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8
       SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-classroom_user}
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-classroom_pass}
-      SPRING_DATA_MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-mongo_admin}:${MONGO_INITDB_ROOT_PASSWORD:-mongo_pass}@mongodb:27017/${MONGO_INITDB_DATABASE:-classroom_activity}?authSource=admin
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+      SPRING_DATA_MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-mongo_admin}:${MONGO_INITDB_ROOT_PASSWORD:?Set MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017/${MONGO_INITDB_DATABASE:-classroom_activity}?authSource=admin
       SPRING_NEO4J_URI: bolt://neo4j:7687
       SPRING_NEO4J_AUTHENTICATION_USERNAME: ${NEO4J_USER:-neo4j}
       SPRING_NEO4J_AUTHENTICATION_PASSWORD: ${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}
@@ -133,10 +133,20 @@ services:
       # Presigned URLs are consumed by the host browser, so use the published loopback endpoint.
       MINIO_EXTERNAL_ENDPOINT: ${MINIO_EXTERNAL_ENDPOINT:-http://localhost:${MINIO_PORT:-9000}}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minio_admin}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minio_password}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: ${MINIO_BUCKET:-classroom-media}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env to a unique value (see .env.example)}
-      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
+      # R19-07: access-token lifetime. 1 hour by default (the refresh cookie renews it silently); a value of 24 left
+      # in an older infra/.env keeps working but should be lowered to 1 - see docs/RUNBOOK.md.
+      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-1}
+      # R9-04: README §3.1 documents these as configurable via infra/.env; they were previously only
+      # readable from application.properties defaults and never actually reached the container.
+      JWT_REFRESH_TOKEN_TTL_DAYS: ${JWT_REFRESH_TOKEN_TTL_DAYS:-30}
+      JWT_REFRESH_TOKEN_GRACE_WINDOW_SECONDS: ${JWT_REFRESH_TOKEN_GRACE_WINDOW_SECONDS:-60}
+      APP_COOKIE_SECURE: ${APP_COOKIE_SECURE:-false}
+      # R18-02: the ingress whose X-Real-IP the auth rate limiter trusts is the `frontend` service (nginx). Only
+      # names that exist on classroom-net belong here: an unresolvable name is skipped (logged once) but is dead weight.
+      APP_SECURITY_TRUSTED_PROXIES: ${APP_SECURITY_TRUSTED_PROXIES:-127.0.0.1,0:0:0:0:0:0:0:1,frontend}
       MOCK_PAYMENT_WEBHOOK_SECRET: ${MOCK_PAYMENT_WEBHOOK_SECRET:?Set MOCK_PAYMENT_WEBHOOK_SECRET in .env to a unique value (see .env.example)}
       # Demo-only switches, all fail-closed here (Finding 1). The local Docker stack is the
       # documented way to exercise the purchase -> entitlement flow, so infra/.env turns these on
@@ -146,7 +156,70 @@ services:
       PAYMENT_SANDBOX_ENABLED: ${PAYMENT_SANDBOX_ENABLED:-false}
       MOCK_PAYMENT_CHECKOUT_ENABLED: ${MOCK_PAYMENT_CHECKOUT_ENABLED:-false}
       DEMO_SEED_ENABLED: ${DEMO_SEED_ENABLED:-false}
-      APP_CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:80,http://127.0.0.1:3000
+      # R19-02: origins allowed to make CROSS-origin browser calls (comma-separated, exact origins or patterns).
+      # Same-origin calls through the bundled nginx need no entry at all: nginx forwards the real Host/port and
+      # the backend only honours those X-Forwarded-* values from the trusted proxy (TrustedForwardedHeaderFilter).
+      # The default follows FRONTEND_PORT so a custom port keeps working; behind a domain (or any public origin
+      # that differs from localhost:<FRONTEND_PORT>) set APP_CORS_ALLOWED_ORIGINS=https://your.domain in infra/.env.
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:${FRONTEND_PORT:-3000},http://127.0.0.1:${FRONTEND_PORT:-3000}}
+      # R20-01: JDBC connection pool (HikariCP) - see backend application.properties. The pool must be larger than the number of
+      # requests that can hold a connection at once but far below MySQL's max_connections; leak detection logs a stack trace
+      # for a connection held longer than the given ms (0 = off).
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-20}
+      DB_POOL_MIN_IDLE: ${DB_POOL_MIN_IDLE:-5}
+      DB_POOL_CONNECTION_TIMEOUT_MS: ${DB_POOL_CONNECTION_TIMEOUT_MS:-10000}
+      DB_POOL_LEAK_DETECTION_MS: ${DB_POOL_LEAK_DETECTION_MS:-0}
+      # R20-02: rate limits of the public auth endpoints. Attached to (IP, account) / failed logins / refresh session instead of the source
+      # address alone, so a whole class behind ONE school NAT can sign in within seconds while brute force and credential stuffing stay
+      # throttled. Counters are per backend instance. Meaning of every value: docs/RUNBOOK.md ("Giới hạn tốc độ xác thực") and .env.example.
+      AUTH_RL_LOGIN_PER_ACCOUNT_PER_MINUTE: ${AUTH_RL_LOGIN_PER_ACCOUNT_PER_MINUTE:-10}
+      AUTH_RL_LOGIN_PER_IP_FAILURES_PER_MINUTE: ${AUTH_RL_LOGIN_PER_IP_FAILURES_PER_MINUTE:-200}
+      AUTH_RL_LOGIN_PER_IP_ATTEMPTS_PER_MINUTE: ${AUTH_RL_LOGIN_PER_IP_ATTEMPTS_PER_MINUTE:-1000}
+      AUTH_RL_LOGIN_LOCK_THRESHOLD: ${AUTH_RL_LOGIN_LOCK_THRESHOLD:-5}
+      AUTH_RL_LOGIN_LOCK_BASE_SECONDS: ${AUTH_RL_LOGIN_LOCK_BASE_SECONDS:-60}
+      AUTH_RL_LOGIN_LOCK_MAX_SECONDS: ${AUTH_RL_LOGIN_LOCK_MAX_SECONDS:-900}
+      AUTH_RL_LOGIN_ACCOUNT_LOCK_THRESHOLD: ${AUTH_RL_LOGIN_ACCOUNT_LOCK_THRESHOLD:-30}
+      AUTH_RL_REGISTER_PER_IP_PER_MINUTE: ${AUTH_RL_REGISTER_PER_IP_PER_MINUTE:-300}
+      AUTH_RL_REGISTER_PER_EMAIL_PER_MINUTE: ${AUTH_RL_REGISTER_PER_EMAIL_PER_MINUTE:-10}
+      AUTH_RL_REFRESH_PER_SESSION_PER_MINUTE: ${AUTH_RL_REFRESH_PER_SESSION_PER_MINUTE:-60}
+      AUTH_RL_REFRESH_PER_IP_PER_MINUTE: ${AUTH_RL_REFRESH_PER_IP_PER_MINUTE:-600}
+      AUTH_RL_MAX_TRACKED_KEYS: ${AUTH_RL_MAX_TRACKED_KEYS:-20000}
+      APP_SECURITY_RATE_LIMIT_STORE: ${APP_SECURITY_RATE_LIMIT_STORE:-mysql}
+      # D-19: per-client-address limits of the invite-code endpoints (GET /classes/invites/{code} preview, POST .../join): all calls per minute
+      # (database work) and "no such usable code" answers per minute (enumeration). Meaning: docs/RUNBOOK.md (Lớp riêng tư, mã mời).
+      AUTH_RL_INVITE_PER_IP_PER_MINUTE: ${AUTH_RL_INVITE_PER_IP_PER_MINUTE:-600}
+      AUTH_RL_INVITE_PER_IP_FAILURES_PER_MINUTE: ${AUTH_RL_INVITE_PER_IP_FAILURES_PER_MINUTE:-30}
+      # D-19: the sweeper that moves paid members whose access ended from ACTIVE to EXPIRED (own thread; seconds between runs, rows per transaction).
+      MEMBERSHIP_EXPIRY_ENABLED: ${MEMBERSHIP_EXPIRY_ENABLED:-true}
+      MEMBERSHIP_EXPIRY_INTERVAL_SECONDS: ${MEMBERSHIP_EXPIRY_INTERVAL_SECONDS:-60}
+      MEMBERSHIP_EXPIRY_BATCH_SIZE: ${MEMBERSHIP_EXPIRY_BATCH_SIZE:-200}
+      # R20-12: object-store client timeouts (ms) - the SDK default is 5 MINUTES each, so a dead MinIO used to pin request threads. A MinIO
+      # outage is answered with a retryable 503 (+Retry-After) within about MINIO_CONNECT_TIMEOUT_MS instead.
+      MINIO_CONNECT_TIMEOUT_MS: ${MINIO_CONNECT_TIMEOUT_MS:-3000}
+      MINIO_READ_TIMEOUT_MS: ${MINIO_READ_TIMEOUT_MS:-30000}
+      MINIO_WRITE_TIMEOUT_MS: ${MINIO_WRITE_TIMEOUT_MS:-30000}
+      # R20-12: JVM DNS cache lifetimes in seconds (JVM defaults: 10 for a FAILED lookup, 30 for a successful one). Short, so a restarted
+      # dependency container is reachable again a few seconds after it is back instead of after the cached "UnknownHost minio" expires.
+      DNS_NEGATIVE_TTL_SECONDS: ${DNS_NEGATIVE_TTL_SECONDS:-5}
+      DNS_POSITIVE_TTL_SECONDS: ${DNS_POSITIVE_TTL_SECONDS:-10}
+      # R20-04 / R20-05: a MongoDB / Neo4j outage must not reach the core features. Shared scheduler pool (it was ONE thread), short client
+      # timeouts (driver defaults 30 s / 60 s), and the outbox pipeline (own executor, per-store circuit breaker, retention, auto re-drive).
+      # Defaults equal application.properties; meaning of each value: docs/RUNBOOK.md ("Outbox" and "Mongo/Neo4j gián đoạn").
+      SCHEDULER_POOL_SIZE: ${SCHEDULER_POOL_SIZE:-10}
+      MONGO_SERVER_SELECTION_TIMEOUT_MS: ${MONGO_SERVER_SELECTION_TIMEOUT_MS:-3000}
+      MONGO_CONNECT_TIMEOUT_MS: ${MONGO_CONNECT_TIMEOUT_MS:-2000}
+      MONGO_SOCKET_TIMEOUT_MS: ${MONGO_SOCKET_TIMEOUT_MS:-10000}
+      NEO4J_CONNECT_TIMEOUT: ${NEO4J_CONNECT_TIMEOUT:-2s}
+      NEO4J_ACQUIRE_TIMEOUT: ${NEO4J_ACQUIRE_TIMEOUT:-3s}
+      NEO4J_MAX_TX_RETRY_TIME: ${NEO4J_MAX_TX_RETRY_TIME:-3s}
+      NEO4J_IDLE_TEST: ${NEO4J_IDLE_TEST:-5s}
+      OUTBOX_POLL_MS: ${OUTBOX_POLL_MS:-500}
+      OUTBOX_WORKERS: ${OUTBOX_WORKERS:-4}
+      OUTBOX_BREAKER_MAX_MS: ${OUTBOX_BREAKER_MAX_MS:-15000}
+      OUTBOX_RETENTION_DAYS: ${OUTBOX_RETENTION_DAYS:-7}
+      OUTBOX_REDRIVE_ENABLED: ${OUTBOX_REDRIVE_ENABLED:-true}
+      # R20-08: refuse to run V30 (TIMESTAMP -> DATETIME) on a MySQL server that is not in UTC. Override ONLY after verifying the data.
+      APP_DB_ALLOW_NON_UTC_MIGRATION: ${APP_DB_ALLOW_NON_UTC_MIGRATION:-false}
     depends_on:
       mysql:
         condition: service_healthy
@@ -160,11 +233,18 @@ services:
         condition: service_completed_successfully
     networks:
       - classroom-net
+    # R20-12: the container is `healthy` only while /health/readiness answers 200, i.e. while a database connection can actually be
+    # obtained (liveness would stay green with MySQL down). Readiness itself answers within ~2 s (classroom.health.readiness.timeout-ms),
+    # so a check never hangs. A failing check takes ~2 s plus the 5 s interval, so four consecutive failures flip the container to
+    # `unhealthy` ~30 s into an outage (it was 15 retries = ~105 s, so a 40 s MySQL outage was never reported; 6 retries measured 39.5 s);
+    # the first success flips it back. `unhealthy` does NOT restart the container (restart policies only react to exit) - it is a signal
+    # for monitoring / `depends_on: service_healthy`, so a transient database outage cannot cause a restart loop. start_period failures
+    # do not count while the backend boots (Flyway on a cold DB).
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/api/v1/health/readiness || exit 1"]
       interval: 5s
       timeout: 5s
-      retries: 15
+      retries: 4
       start_period: 40s
 
   frontend:
@@ -177,6 +257,13 @@ services:
         VITE_ENABLE_DEMO_LOGIN: ${VITE_ENABLE_DEMO_LOGIN:-false}
     container_name: classroom-frontend
     restart: unless-stopped
+    environment:
+      # R9-03: the CSP's allowed MinIO origin is derived from the same values the backend uses to
+      # issue presigned URLs (MINIO_EXTERNAL_ENDPOINT/MINIO_PORT above), so the two can never drift
+      # apart. Substituted into nginx.conf.template at container start (see frontend/Dockerfile).
+      # Both schemes are allowed, matching the previous hardcoded CSP, since MINIO_EXTERNAL_ENDPOINT
+      # may be http or https depending on how the operator configured it.
+      MINIO_PUBLIC_ORIGIN: ${MINIO_EXTERNAL_ENDPOINT:-http://localhost:${MINIO_PORT:-9000}} https://localhost:${MINIO_PORT:-9000}
     ports:
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-3000}:80"
     depends_on:

@@ -20,6 +20,9 @@ import com.classroom.modules.exam.repository.AttemptAnswerRepository;
 import com.classroom.modules.exam.repository.ExamAttemptRepository;
 import com.classroom.modules.exam.repository.ExamRepository;
 import com.classroom.modules.exam.repository.QuestionRepository;
+import com.classroom.modules.identity.model.User;
+import com.classroom.modules.identity.policy.ProfileVisibilityPolicy;
+import com.classroom.modules.identity.repository.UserRepository;
 import com.classroom.modules.learning.model.Course;
 import com.classroom.modules.learning.repository.CourseRepository;
 import com.classroom.modules.outbox.service.OutboxService;
@@ -77,6 +80,10 @@ public class ExamSecurityTest {
     private AuditService auditService;
     @Mock
     private OutboxService outboxService;
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private ProfileVisibilityPolicy profileVisibilityPolicy;
 
     @InjectMocks
     private ExamService examService;
@@ -117,8 +124,8 @@ public class ExamSecurityTest {
         QuestionDto qDto = new QuestionDto();
         qDto.setId("q-1");
 
-        when(examRepository.findByIdForUpdate("exam-1")).thenReturn(Optional.of(exam));
-        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
                 .thenReturn(Optional.of(activeAttempt));
         when(objectMapper.readValue(eq(activeAttempt.getQuestionSnapshotJson()), any(TypeReference.class)))
                 .thenReturn(List.of(qDto));
@@ -135,6 +142,35 @@ public class ExamSecurityTest {
     }
 
     @Test
+    @DisplayName("R2-04: student path never resumes the caller's own leftover preview attempt")
+    void testStudentPathIgnoresOwnLeftoverPreviewAttempt() {
+        // A former staff member, now demoted to plain student, previously left an in-progress
+        // PREVIEW attempt on this exam. The student (non-preview) path must not find or resume
+        // it via the preview-including query - only the isPreview=false lookup - otherwise the
+        // demoted user would be routed into resuming a preview attempt and rejected by the
+        // audience policy for it (EXAM_AUDIENCE_REJECTED) instead of starting a fresh attempt.
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        when(accessPolicy.isOwner("former-staff-1", "class-1")).thenReturn(false);
+        when(accessPolicy.isActiveStaff("former-staff-1", "class-1")).thenReturn(false);
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc(
+                        "exam-1", "former-staff-1", "IN_PROGRESS"))
+                .thenReturn(Optional.empty());
+        when(attemptRepository.countAttemptsTowardLimit("exam-1", "former-staff-1")).thenReturn(0L);
+        when(questionRepository.findByExamIdOrderByPositionAsc("exam-1")).thenReturn(List.of(q1));
+        when(attemptRepository.save(any(ExamAttempt.class))).thenAnswer(i -> i.getArgument(0));
+
+        ExamAttemptDto result = examService.startAttempt("exam-1", "former-staff-1", false);
+
+        assertNotNull(result);
+        assertEquals("IN_PROGRESS", result.getStatus());
+        verify(audiencePolicy).enforceEnterExam(eq("former-staff-1"), eq(exam), any(), eq(false), eq(false));
+        verify(audiencePolicy, never()).enforceResumeAttempt(anyString(), any(), any(), any());
+        // The preview-including lookup must never be consulted from the student path.
+        verify(attemptRepository, never())
+                .findFirstByExamIdAndUserIdAndStatusOrderByStartedAtDesc(anyString(), anyString(), anyString());
+    }
+
+    @Test
     @DisplayName("Course-scoped exam staff can discover drafts for their assigned course")
     void scopedStaffCanListCourseExamDraft() {
         exam.setStatus("DRAFT");
@@ -142,9 +178,6 @@ public class ExamSecurityTest {
         exam.setTargetCourseId("course-A");
         when(accessPolicy.canManage("staff-1", "class-1", "EXAM", "VIEW", "course-A")).thenReturn(true);
         when(examRepository.findByClassIdOrderByCreatedAtDesc("class-1")).thenReturn(List.of(exam));
-        when(questionRepository.countByExamId("exam-1")).thenReturn(0L);
-        when(audiencePolicy.canEnterExam(eq("staff-1"), eq(exam), any(), eq(false))).thenReturn(false);
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("exam-1", "staff-1")).thenReturn(0L);
 
         var results = examService.getExamsByClass("class-1", "staff-1");
 
@@ -155,9 +188,64 @@ public class ExamSecurityTest {
     }
 
     @Test
+    @DisplayName("R7-02: staff with only EXAM:CREATE (no VIEW) still discovers their own course-scoped draft in the list")
+    void createOnlyStaffCanListCourseExamDraft() {
+        exam.setStatus("DRAFT");
+        exam.setAudienceScope("COURSE");
+        exam.setTargetCourseId("course-A");
+        when(accessPolicy.canManage("staff-create", "class-1", "EXAM", "VIEW", "course-A")).thenReturn(false);
+        when(accessPolicy.canManage("staff-create", "class-1", "EXAM", "EDIT", "course-A")).thenReturn(false);
+        when(accessPolicy.canManage("staff-create", "class-1", "EXAM", "CREATE", "course-A")).thenReturn(true);
+        when(examRepository.findByClassIdOrderByCreatedAtDesc("class-1")).thenReturn(List.of(exam));
+
+        var results = examService.getExamsByClass("class-1", "staff-create");
+
+        assertEquals(1, results.size());
+        assertEquals("exam-1", results.get(0).getId());
+    }
+
+    @Test
+    @DisplayName("R7-02: staff with only EXAM:PUBLISH (no VIEW/EDIT) can still open their draft exam's details")
+    void publishOnlyStaffCanViewDraftExamDetails() {
+        exam.setStatus("DRAFT");
+        when(examRepository.findById("exam-1")).thenReturn(Optional.of(exam));
+        when(accessPolicy.isOwner("staff-publish", "class-1")).thenReturn(false);
+        when(accessPolicy.canManage("staff-publish", "class-1", "EXAM", "VIEW", null)).thenReturn(false);
+        when(accessPolicy.canManage("staff-publish", "class-1", "EXAM", "EDIT", null)).thenReturn(false);
+        when(accessPolicy.canManage("staff-publish", "class-1", "EXAM", "CREATE", null)).thenReturn(false);
+        when(accessPolicy.canManage("staff-publish", "class-1", "EXAM", "PUBLISH", null)).thenReturn(true);
+        when(accessPolicy.canAccessAnswerKey("staff-publish", "class-1", null)).thenReturn(false);
+        when(questionRepository.countByExamId("exam-1")).thenReturn(1L);
+
+        com.classroom.modules.exam.dto.ExamDto dto = examService.getExamDetails("exam-1", "staff-publish");
+
+        assertNotNull(dto);
+        assertEquals("exam-1", dto.getId());
+        // PUBLISH alone does not also grant EDIT, so questions/answer keys remain hidden — only
+        // draft *visibility* is broadened, not authoring or answer-key access.
+        assertNull(dto.getQuestions());
+    }
+
+    @Test
+    @DisplayName("R7-02: staff with only EXAM:VIEW (no CREATE/EDIT/PUBLISH) still sees drafts (baseline unchanged)")
+    void viewOnlyStaffStillSeesDraftExamDetails() {
+        exam.setStatus("DRAFT");
+        when(examRepository.findById("exam-1")).thenReturn(Optional.of(exam));
+        when(accessPolicy.isOwner("staff-view-only", "class-1")).thenReturn(false);
+        when(accessPolicy.canManage("staff-view-only", "class-1", "EXAM", "VIEW", null)).thenReturn(true);
+        when(accessPolicy.canManage("staff-view-only", "class-1", "EXAM", "EDIT", null)).thenReturn(false);
+        when(questionRepository.countByExamId("exam-1")).thenReturn(1L);
+
+        com.classroom.modules.exam.dto.ExamDto dto = examService.getExamDetails("exam-1", "staff-view-only");
+
+        assertNotNull(dto);
+        assertEquals("exam-1", dto.getId());
+    }
+
+    @Test
     @DisplayName("OWNER and active STAFF cannot create normal ranked attempts")
     void classroomPersonnelMustUsePreviewForExamAttempts() {
-        when(examRepository.findByIdForUpdate("exam-1")).thenReturn(Optional.of(exam));
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
         when(accessPolicy.isOwner("owner-1", "class-1")).thenReturn(true);
         when(accessPolicy.isOwner("staff-1", "class-1")).thenReturn(false);
         when(accessPolicy.isActiveStaff("staff-1", "class-1")).thenReturn(true);
@@ -171,7 +259,7 @@ public class ExamSecurityTest {
     @Test
     @DisplayName("Finding 4: startAttempt rejects preview flag when caller is not OWNER or staff with EXAM:PREVIEW")
     void testStudentPreviewRejected() {
-        when(examRepository.findByIdForUpdate("exam-1")).thenReturn(Optional.of(exam));
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
         when(accessPolicy.isOwner("student-1", "class-1")).thenReturn(false);
         when(accessPolicy.canManage("student-1", "class-1", "EXAM", "PREVIEW", null)).thenReturn(false);
         when(accessPolicy.canManage("student-1", "class-1", "EXAM", "EDIT", null)).thenReturn(false);
@@ -191,8 +279,8 @@ public class ExamSecurityTest {
         timedOutAttempt.setId("att-timed-out");
         timedOutAttempt.setStatus("IN_PROGRESS");
 
-        when(examRepository.findByIdForUpdate("exam-1")).thenReturn(Optional.of(exam));
-        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
                 .thenReturn(Optional.of(timedOutAttempt));
         when(attemptAnswerRepository.findByAttemptId("att-timed-out")).thenReturn(List.of());
 
@@ -212,8 +300,8 @@ public class ExamSecurityTest {
         activeAttempt.setStatus("IN_PROGRESS");
         activeAttempt.setAudienceEligibleAtStart(true);
 
-        when(examRepository.findByIdForUpdate("exam-1")).thenReturn(Optional.of(exam));
-        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
                 .thenReturn(Optional.of(activeAttempt));
         doThrow(new AppException(com.classroom.common.ErrorCode.EXAM_AUDIENCE_REJECTED, "Không đủ điều kiện"))
                 .when(audiencePolicy).enforceResumeAttempt(eq("student-1"), eq(exam), eq(activeAttempt), any());
@@ -287,10 +375,12 @@ public class ExamSecurityTest {
     @Test
     @DisplayName("Finding 4: startAttempt enforces attempt limit when prior attempts are submitted")
     void testEnforceAttemptLimit() {
-        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
                 .thenReturn(Optional.empty());
-        when(examRepository.findByIdForUpdate("exam-1")).thenReturn(Optional.of(exam));
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("exam-1", "student-1")).thenReturn(1L);
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        // R19-05: the exam must have questions for the attempt-limit check to be reached at all.
+        when(questionRepository.findByExamIdOrderByPositionAsc("exam-1")).thenReturn(List.of(q1));
+        when(attemptRepository.countAttemptsTowardLimit("exam-1", "student-1")).thenReturn(1L);
 
         assertThrows(AppException.class, () -> examService.startAttempt("exam-1", "student-1", false));
     }
@@ -473,7 +563,7 @@ public class ExamSecurityTest {
         when(accessPolicy.canManage("student-1", "class-1", "EXAM", "VIEW", null)).thenReturn(false);
         when(questionRepository.countByExamId("exam-1")).thenReturn(1L);
         when(audiencePolicy.canEnterExam(eq("student-1"), eq(exam), any(), eq(false))).thenReturn(true);
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("exam-1", "student-1")).thenReturn(0L);
+        when(attemptRepository.countAttemptsTowardLimit("exam-1", "student-1")).thenReturn(0L);
 
         com.classroom.modules.exam.dto.ExamDto dto = examService.getExamDetails("exam-1", "student-1");
 
@@ -571,7 +661,7 @@ public class ExamSecurityTest {
     @Test
     @DisplayName("Finding 4: startAttempt fails closed when lock lookup returns empty")
     void testStartAttemptFailsClosedOnLockLookupError() {
-        when(examRepository.findByIdForUpdate("exam-1")).thenReturn(Optional.empty());
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.empty());
 
         AppException ex = assertThrows(AppException.class, () ->
                 examService.startAttempt("exam-1", "student-1", false)
@@ -584,10 +674,10 @@ public class ExamSecurityTest {
     @Test
     @DisplayName("Finding 4: startAttempt sets sequential attempt number on created attempt")
     void testStartAttemptSetsAttemptNumber() {
-        when(examRepository.findByIdForUpdate("exam-1")).thenReturn(Optional.of(exam));
-        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
                 .thenReturn(Optional.empty());
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("exam-1", "student-1")).thenReturn(0L);
+        when(attemptRepository.countAttemptsTowardLimit("exam-1", "student-1")).thenReturn(0L);
         when(questionRepository.findByExamIdOrderByPositionAsc("exam-1")).thenReturn(List.of(q1));
         when(attemptRepository.save(any(ExamAttempt.class))).thenAnswer(i -> i.getArgument(0));
 
@@ -599,11 +689,11 @@ public class ExamSecurityTest {
     @Test
     @DisplayName("Finding 4: startAttempt handles concurrent unique constraint violation by resuming active attempt")
     void testStartAttemptHandlesConstraintViolationByResuming() {
-        when(examRepository.findByIdForUpdate("exam-1")).thenReturn(Optional.of(exam));
-        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
                 .thenReturn(Optional.empty()) // First check before insert: no attempt yet
                 .thenReturn(Optional.of(new ExamAttempt("exam-1", "student-1", "class-1", Instant.now().plusSeconds(600), false))); // Check after collision
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("exam-1", "student-1")).thenReturn(0L);
+        when(attemptRepository.countAttemptsTowardLimit("exam-1", "student-1")).thenReturn(0L);
         when(questionRepository.findByExamIdOrderByPositionAsc("exam-1")).thenReturn(List.of(q1));
 
         // Simulate concurrent insert race throwing DataIntegrityViolationException
@@ -630,8 +720,8 @@ public class ExamSecurityTest {
         QuestionDto qDto = new QuestionDto();
         qDto.setId("q-1");
 
-        when(examRepository.findByIdForUpdate("exam-1")).thenReturn(Optional.of(exam));
-        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
                 .thenReturn(Optional.of(activeAttempt));
         when(objectMapper.readValue(eq(activeAttempt.getQuestionSnapshotJson()), any(TypeReference.class)))
                 .thenReturn(List.of(qDto));
@@ -657,8 +747,8 @@ public class ExamSecurityTest {
         activeAttempt.setStatus("IN_PROGRESS");
         activeAttempt.setGradingSnapshotJson("[{\"id\":\"" + q1.getId() + "\",\"examId\":\"exam-1\",\"questionText\":\"1 + 1 = ?\",\"type\":\"MULTIPLE_CHOICE\",\"points\":10,\"position\":1,\"answerKey\":\"2\"}]");
 
-        when(examRepository.findByIdForUpdate("exam-1")).thenReturn(Optional.of(exam));
-        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
                 .thenReturn(Optional.of(activeAttempt));
         when(attemptAnswerRepository.findByAttemptId("att-schedule-passed")).thenReturn(List.of());
 
@@ -832,6 +922,7 @@ public class ExamSecurityTest {
 
         GradeAttemptRequest req = new GradeAttemptRequest();
         req.setScores(Map.of("essay-q-correct", java.math.BigDecimal.valueOf(19)));
+        req.setReason("Học viên khiếu nại, chấm lại theo đáp án chi tiết");
 
         ExamAttemptDto dto = examService.gradeAttempt("att-correct", "teacher-1", req);
 
@@ -843,6 +934,33 @@ public class ExamSecurityTest {
         verify(attemptRepository, never()).findById("att-correct");
         verify(leaderboardService).scheduleRecalculation("class-1", "student-1");
         verify(outboxService).recordEvent(eq("EXAM"), eq("att-correct"), eq("EXAM_RESULT_CORRECTED"), anyMap());
+    }
+
+    @Test
+    @DisplayName("R13-07: correcting a PUBLISHED attempt requires a non-blank reason")
+    void correctingPublishedAttemptRequiresReason() {
+        Question essayQ = new Question("exam-1", "Trình bày", "ESSAY", 20, 2, null);
+        essayQ.setId("essay-q-reason");
+
+        ExamAttempt attempt = new ExamAttempt("exam-1", "student-1", "class-1", Instant.now().minus(30, ChronoUnit.MINUTES), false);
+        attempt.setId("att-reason");
+        attempt.setStatus("PUBLISHED");
+        attempt.setScore(java.math.BigDecimal.valueOf(60));
+        attempt.setGradingSnapshotJson("[{\"id\":\"essay-q-reason\",\"examId\":\"exam-1\",\"questionText\":\"Trình bày\",\"type\":\"ESSAY\",\"points\":20,\"position\":2}]");
+
+        when(attemptRepository.findByIdForUpdate("att-reason")).thenReturn(Optional.of(attempt));
+        when(examRepository.findById("exam-1")).thenReturn(Optional.of(exam));
+
+        GradeAttemptRequest noReason = new GradeAttemptRequest();
+        noReason.setScores(Map.of("essay-q-reason", java.math.BigDecimal.valueOf(19)));
+        assertThrows(AppException.class, () -> examService.gradeAttempt("att-reason", "teacher-1", noReason));
+
+        GradeAttemptRequest blankReason = new GradeAttemptRequest();
+        blankReason.setScores(Map.of("essay-q-reason", java.math.BigDecimal.valueOf(19)));
+        blankReason.setReason("   ");
+        assertThrows(AppException.class, () -> examService.gradeAttempt("att-reason", "teacher-1", blankReason));
+
+        verify(attemptRepository, never()).save(any());
     }
 
     @Test
@@ -859,5 +977,136 @@ public class ExamSecurityTest {
 
         assertThrows(AppException.class, () -> examService.gradeAttempt("attempt-course", "grader-1", new GradeAttemptRequest()));
         verify(accessPolicy).enforceManage("grader-1", "class-1", "EXAM", "GRADE", "course-a");
+    }
+
+    // --- R13-07: score correction ---
+
+    @Test
+    @DisplayName("R13-07: getGradingAttempt loads a PUBLISHED attempt for an authorized grader")
+    void getGradingAttemptAllowsPublished() throws Exception {
+        ExamAttempt attempt = new ExamAttempt("exam-1", "student-1", "class-1", Instant.now(), false);
+        attempt.setId("att-published");
+        attempt.setStatus("PUBLISHED");
+        attempt.setGradingSnapshotJson("[]");
+        when(attemptRepository.findById("att-published")).thenReturn(Optional.of(attempt));
+        when(examRepository.findById("exam-1")).thenReturn(Optional.of(exam));
+        when(objectMapper.readValue(eq("[]"), any(TypeReference.class))).thenReturn(List.of());
+
+        ExamAttemptDto dto = examService.getGradingAttempt("att-published", "teacher-1");
+
+        assertEquals("PUBLISHED", dto.getStatus());
+        verify(accessPolicy).enforceManage("teacher-1", "class-1", "EXAM", "GRADE", null);
+    }
+
+    @Test
+    @DisplayName("R13-07: getGradingAttempt still rejects a DRAFT-status / non-loadable attempt")
+    void getGradingAttemptRejectsInProgress() {
+        ExamAttempt attempt = new ExamAttempt("exam-1", "student-1", "class-1", Instant.now(), false);
+        attempt.setId("att-in-progress");
+        attempt.setStatus("IN_PROGRESS");
+        when(attemptRepository.findById("att-in-progress")).thenReturn(Optional.of(attempt));
+        when(examRepository.findById("exam-1")).thenReturn(Optional.of(exam));
+
+        assertThrows(AppException.class, () -> examService.getGradingAttempt("att-in-progress", "teacher-1"));
+    }
+
+    @Test
+    @DisplayName("R13-13: getPublishedAttempts batch-loads exams/users and anonymizes a hidden learner")
+    void getPublishedAttemptsBatchesAndAnonymizes() {
+        ExamAttempt attempt1 = new ExamAttempt("exam-1", "student-visible", "class-1", Instant.now(), false);
+        attempt1.setId("att-visible");
+        attempt1.setStatus("PUBLISHED");
+        ExamAttempt attempt2 = new ExamAttempt("exam-1", "student-hidden", "class-1", Instant.now(), false);
+        attempt2.setId("att-hidden");
+        attempt2.setStatus("PUBLISHED");
+
+        when(examRepository.findById("exam-1")).thenReturn(Optional.of(exam));
+        when(attemptRepository.findByExamIdAndStatusAndIsPreviewFalseOrderBySubmittedAtDesc(eq("exam-1"), eq("PUBLISHED"), any()))
+                .thenReturn(List.of(attempt1, attempt2));
+        when(examRepository.findAllById(any())).thenReturn(List.of(exam));
+        // toGradingDtos re-checks canManage per row (course-scoped staff filtering); this test's
+        // exam has no course scope (ALL audience), so the scope argument is null.
+        when(accessPolicy.canManage("teacher-1", "class-1", "EXAM", "GRADE", null)).thenReturn(true);
+
+        User visibleUser = new User("student-visible", "v@test.com", "hash", "Nguyễn Văn A", "STUDENT");
+        User hiddenUser = new User("student-hidden", "h@test.com", "hash", "Trần Thị B", "STUDENT");
+        when(userRepository.findAllById(any())).thenReturn(List.of(visibleUser, hiddenUser));
+        when(profileVisibilityPolicy.isIdentityVisible(eq(visibleUser), eq("teacher-1"), eq("class-1"))).thenReturn(true);
+        when(profileVisibilityPolicy.isIdentityVisible(eq(hiddenUser), eq("teacher-1"), eq("class-1"))).thenReturn(false);
+        when(attemptAnswerRepository.findByAttemptId(any())).thenReturn(List.of());
+
+        List<ExamAttemptDto> results = examService.getPublishedAttempts("exam-1", "teacher-1", 50);
+
+        assertEquals(2, results.size());
+        assertEquals("Nguyễn Văn A", results.get(0).getLearnerDisplayName());
+        assertEquals("Học viên ẩn danh #1", results.get(1).getLearnerDisplayName());
+        // exams were batch-loaded once via findAllById, never a per-attempt findById
+        verify(examRepository, never()).findById("exam-1-should-not-be-called-per-row");
+        verify(examRepository).findAllById(any());
+    }
+
+    // --- R8-02: resumeOnly must never create a new attempt ---
+
+    @Test
+    @DisplayName("R8-02: resumeOnly=true resumes an existing IN_PROGRESS attempt without creating one")
+    void resumeOnlyResumesExistingAttempt() throws Exception {
+        ExamAttempt activeAttempt = new ExamAttempt("exam-1", "student-1", "class-1", Instant.now().plus(30, ChronoUnit.MINUTES), false);
+        activeAttempt.setId("att-1");
+        activeAttempt.setStatus("IN_PROGRESS");
+        activeAttempt.setAudienceEligibleAtStart(true);
+        activeAttempt.setQuestionSnapshotJson("[{\"id\":\"q-1\"}]");
+
+        QuestionDto qDto = new QuestionDto();
+        qDto.setId("q-1");
+
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc("exam-1", "student-1", "IN_PROGRESS"))
+                .thenReturn(Optional.of(activeAttempt));
+        when(objectMapper.readValue(eq(activeAttempt.getQuestionSnapshotJson()), any(TypeReference.class)))
+                .thenReturn(List.of(qDto));
+
+        ExamAttemptDto dto = examService.startAttempt("exam-1", "student-1", false, true);
+
+        assertEquals("att-1", dto.getId());
+        assertEquals("IN_PROGRESS", dto.getStatus());
+        verify(attemptRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("R8-02: resumeOnly=true 404s instead of creating a new attempt when nothing is in progress")
+    void resumeOnlyThrowsNotFoundInsteadOfCreating() {
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        when(accessPolicy.isOwner("student-1", "class-1")).thenReturn(false);
+        when(accessPolicy.isActiveStaff("student-1", "class-1")).thenReturn(false);
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc(
+                        "exam-1", "student-1", "IN_PROGRESS"))
+                .thenReturn(Optional.empty());
+
+        AppException ex = assertThrows(AppException.class,
+                () -> examService.startAttempt("exam-1", "student-1", false, true));
+
+        assertEquals(ErrorCode.NOT_FOUND, ex.getErrorCode());
+        verify(attemptRepository, never()).save(any());
+        verify(attemptRepository, never()).countAttemptsTowardLimit(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("R8-02: resumeOnly=false (explicit start) still creates a new attempt when none is in progress")
+    void explicitStartStillCreatesNewAttempt() {
+        when(examRepository.findByIdForShare("exam-1")).thenReturn(Optional.of(exam));
+        when(accessPolicy.isOwner("student-1", "class-1")).thenReturn(false);
+        when(accessPolicy.isActiveStaff("student-1", "class-1")).thenReturn(false);
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc(
+                        "exam-1", "student-1", "IN_PROGRESS"))
+                .thenReturn(Optional.empty());
+        when(attemptRepository.countAttemptsTowardLimit("exam-1", "student-1")).thenReturn(0L);
+        when(questionRepository.findByExamIdOrderByPositionAsc("exam-1")).thenReturn(List.of(q1));
+        when(attemptRepository.save(any(ExamAttempt.class))).thenAnswer(i -> i.getArgument(0));
+
+        ExamAttemptDto result = examService.startAttempt("exam-1", "student-1", false, false);
+
+        assertNotNull(result);
+        assertEquals("IN_PROGRESS", result.getStatus());
+        verify(attemptRepository).save(any(ExamAttempt.class));
     }
 }

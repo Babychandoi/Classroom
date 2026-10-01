@@ -32,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Tag("integration")
 @SpringBootTest
 @ActiveProfiles("integration")
+@org.springframework.transaction.annotation.Transactional // Keep fixtures invisible to the scheduled live worker.
 public class OutboxSequenceOrderingIntegrationTest {
 
     @Autowired

@@ -6,6 +6,7 @@ import com.classroom.config.UserPrincipal;
 import com.classroom.modules.classroom.dto.StaffAssignmentDto;
 import com.classroom.modules.classroom.dto.StaffPermissionDto;
 import com.classroom.modules.classroom.service.StaffService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -35,7 +36,7 @@ public class StaffController {
             @PathVariable String classId,
             @PathVariable String userId,
             @CurrentUser UserPrincipal principal,
-            @RequestBody List<StaffPermissionDto> permissions) {
+            @Valid @RequestBody List<@Valid StaffPermissionDto> permissions) {
         StaffAssignmentDto dto = staffService.assignStaff(classId, userId, permissions, principal.getId());
         return ResponseEntity.ok(ApiResponse.ok(dto));
     }

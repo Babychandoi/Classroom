@@ -2,6 +2,7 @@ package com.classroom.seed;
 
 import com.classroom.modules.classroom.model.*;
 import com.classroom.modules.classroom.repository.*;
+import com.classroom.modules.classroom.service.InviteCodes;
 import com.classroom.modules.commerce.model.*;
 import com.classroom.modules.commerce.repository.*;
 import com.classroom.modules.community.model.*;
@@ -45,6 +46,23 @@ import java.util.List;
 public class DataSeedRunner implements CommandLineRunner {
     private static final Logger log = LoggerFactory.getLogger(DataSeedRunner.class);
 
+    // R19-05: titles of the seeded exams the repair step below recognises (it never touches other exams).
+    static final String PRO_EXAM_TITLE = "Kỳ Thi Đấu Trường PRO";
+    static final String COURSE_EXAM_TITLE = "Kiểm Tra Cuối Khóa Toán Chuyên Sâu";
+    // D-19: the demo classes for the private / paid class features. Everything below is created ONLY by this runner, which exists only when
+    // the demo opt-in is on (DEMO_SEED_ENABLED=true + a dev/test/docker/integration profile): a production deployment never has these classes
+    // and, above all, never has the fixed invite code - a real invite code is 192 random bits (InviteCodes.generate).
+    public static final String DEMO_PRIVATE_CLASS_SLUG = "lop-rieng-tu-ma-moi";
+    public static final String DEMO_PRIVATE_CLASS_TITLE = "Lớp Riêng Tư (mã mời)";
+    /** DEMO ONLY. Fixed so the README and the e2e suite can use it; 29 URL-safe characters, accepted by the same validation as a real code. */
+    public static final String DEMO_PRIVATE_INVITE_CODE = "demo-invite-lop-rieng-tu-2026";
+    public static final String DEMO_PAID_CLASS_SLUG = "lop-tra-phi";
+    public static final String DEMO_PAID_CLASS_TITLE = "Lớp Trả Phí";
+    public static final BigDecimal DEMO_PAID_PRICE = new BigDecimal("199000");
+    public static final int DEMO_PAID_DURATION_DAYS = 30;
+
+    private static final String PRO_EXAM_QUESTION_TEXT = "Cho hàm số f(x) = x³ - 3x. Tìm giá trị cực đại của f(x).";
+
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final ClassroomRepository classroomRepository;
@@ -67,6 +85,7 @@ public class DataSeedRunner implements CommandLineRunner {
     private final SegmentRepository segmentRepository;
     private final PostRepository postRepository;
     private final CommentRepository commentRepository;
+    private final ClassInviteRepository inviteRepository;
 
     public DataSeedRunner(UserRepository userRepository,
                           PasswordEncoder passwordEncoder,
@@ -89,7 +108,8 @@ public class DataSeedRunner implements CommandLineRunner {
                           LeaderboardEntryRepository leaderboardRepository,
                           SegmentRepository segmentRepository,
                           PostRepository postRepository,
-                          CommentRepository commentRepository) {
+                          CommentRepository commentRepository,
+                          ClassInviteRepository inviteRepository) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.classroomRepository = classroomRepository;
@@ -112,6 +132,7 @@ public class DataSeedRunner implements CommandLineRunner {
         this.segmentRepository = segmentRepository;
         this.postRepository = postRepository;
         this.commentRepository = commentRepository;
+        this.inviteRepository = inviteRepository;
     }
 
     @Override
@@ -283,16 +304,20 @@ public class DataSeedRunner implements CommandLineRunner {
             optionRepository.save(new AnswerOption(q3.getId(), "FALSE", "Sai", 2));
 
             // Exam for PRO
-            Exam proExam = new Exam(classroom.getId(), "Kỳ Thi Đấu Trường PRO", "PRO", 60);
+            Exam proExam = new Exam(classroom.getId(), PRO_EXAM_TITLE, "PRO", 60);
             proExam.setDescription("Kỳ thi tuyển chọn đội tuyển dành riêng cho học viên PRO.");
             proExam = examRepository.save(proExam);
-            questionRepository.save(new Question(proExam.getId(), "Cho hàm số f(x) = x³ - 3x. Tìm giá trị cực đại của f(x).", "MULTIPLE_CHOICE", 20, 1, "A"));
+            seedProExamQuestion(proExam);
 
             // Exam for COURSE OWNERS
-            Exam courseExam = new Exam(classroom.getId(), "Kiểm Tra Cuối Khóa Toán Chuyên Sâu", "COURSE", 60);
+            Exam courseExam = new Exam(classroom.getId(), COURSE_EXAM_TITLE, "COURSE", 60);
             courseExam.setTargetCourseId(paidCourse.getId());
-            examRepository.save(courseExam);
+            courseExam = examRepository.save(courseExam);
+            seedCourseExamQuestion(courseExam);
         }
+        // R19-05: databases seeded by an earlier version hold a PUBLISHED course exam with NO questions (and a PRO exam
+        // question with no options). The block above only runs on an empty class, so repair those rows here.
+        repairSeededExams(classroom.getId());
 
         // 10. Rank Tiers & Rewards
         if (rankTierRepository.findByClassIdOrderByMinPointsAsc(classroom.getId()).isEmpty()) {
@@ -317,7 +342,7 @@ public class DataSeedRunner implements CommandLineRunner {
         }
 
         // 12. Feed Posts
-        if (postRepository.findByClassIdAndStatusOrderByPinnedDescCreatedAtDesc(classroom.getId(), "PUBLISHED").isEmpty()) {
+        if (!postRepository.existsByClassIdAndStatus(classroom.getId(), "PUBLISHED")) {
             Post pinned = new Post(
                     classroom.getId(),
                     owner.getId(),
@@ -340,7 +365,113 @@ public class DataSeedRunner implements CommandLineRunner {
             postRepository.save(proPost);
         }
 
+        // 13. D-19: a PRIVATE free class (join by the fixed demo invite code) and a PUBLIC paid class (199.000 VND / 30 days).
+        seedPrivateAndPaidClasses(owner);
+
         log.info("Idempotent development seed completed successfully.");
+    }
+
+    /**
+     * D-19 demo data, idempotent: owner@classroom.local owns both classes; student.free / student.pro / expired have no access to either (they
+     * are not members), so the "join by invite" and "buy access" flows can be walked through from a clean slate.
+     */
+    private void seedPrivateAndPaidClasses(User owner) {
+        Classroom privateClass = classroomRepository.findBySlug(DEMO_PRIVATE_CLASS_SLUG).orElseGet(() -> {
+            Classroom c = new Classroom();
+            c.setOwnerId(owner.getId());
+            c.setSlug(DEMO_PRIVATE_CLASS_SLUG);
+            c.setTitle(DEMO_PRIVATE_CLASS_TITLE);
+            c.setDescription("Lớp học riêng tư: không hiện trong danh sách, chỉ vào được bằng mã mời.");
+            c.setStatus("ACTIVE");
+            c.setVisibility(Classroom.VISIBILITY_PRIVATE);
+            c.setAccessType(Classroom.ACCESS_FREE);
+            return classroomRepository.save(c);
+        });
+        ensureMember(privateClass.getId(), owner.getId(), "OWNER");
+        ensureAbout(privateClass, "## Lớp riêng tư\n\nBạn đang xem lớp học chỉ dành cho người có mã mời.");
+        String demoHash = InviteCodes.hash(DEMO_PRIVATE_INVITE_CODE);
+        if (inviteRepository.findByCodeHash(demoHash).isEmpty()) {
+            inviteRepository.save(new ClassInvite(privateClass.getId(), demoHash, InviteCodes.hint(DEMO_PRIVATE_INVITE_CODE),
+                    owner.getId(), null, null));
+        }
+
+        Classroom paidClass = classroomRepository.findBySlug(DEMO_PAID_CLASS_SLUG).orElseGet(() -> {
+            Classroom c = new Classroom();
+            c.setOwnerId(owner.getId());
+            c.setSlug(DEMO_PAID_CLASS_SLUG);
+            c.setTitle(DEMO_PAID_CLASS_TITLE);
+            c.setDescription("Lớp học trả phí: xem giới thiệu miễn phí, mua quyền truy cập để tham gia.");
+            c.setStatus("ACTIVE");
+            c.setVisibility(Classroom.VISIBILITY_PUBLIC);
+            c.setAccessType(Classroom.ACCESS_FREE);
+            return classroomRepository.save(c);
+        });
+        ensureMember(paidClass.getId(), owner.getId(), "OWNER");
+        ensureAbout(paidClass, "## Lớp trả phí\n\nMua quyền truy cập 30 ngày để học toàn bộ nội dung lớp.");
+        if (paidClass.getAccessProductId() == null) {
+            Product access = new Product(paidClass.getId(), null, "Quyền truy cập lớp học: " + paidClass.getTitle(),
+                    "Mua để trở thành thành viên của lớp học");
+            access.setKind(Product.KIND_CLASS_ACCESS);
+            access.setStatus("PUBLISHED");
+            access = productRepository.save(access);
+            priceRepository.save(new ProductPrice(access.getId(), DEMO_PAID_PRICE, "VND", DEMO_PAID_DURATION_DAYS, Instant.EPOCH));
+            paidClass.setAccessProductId(access.getId());
+            paidClass.setAccessType(Classroom.ACCESS_PAID);
+            classroomRepository.save(paidClass);
+        }
+    }
+
+    private void ensureAbout(Classroom classroom, String contentMarkdown) {
+        if (aboutRepository.findByClassId(classroom.getId()).isEmpty()) {
+            aboutRepository.save(new ClassAbout(classroom.getId(), contentMarkdown, "1. Tôn trọng giảng viên và bạn học."));
+        }
+    }
+
+    /** The PRO exam's question (f(x) = x^3 - 3x has its local maximum f(-1) = 2, option A) with its four options. */
+    private void seedProExamQuestion(Exam proExam) {
+        Question q = questionRepository.save(new Question(proExam.getId(), PRO_EXAM_QUESTION_TEXT, "MULTIPLE_CHOICE", 20, 1, "A"));
+        seedProExamOptions(q);
+    }
+
+    private void seedProExamOptions(Question q) {
+        optionRepository.save(new AnswerOption(q.getId(), "A", "2", 1));
+        optionRepository.save(new AnswerOption(q.getId(), "B", "-2", 2));
+        optionRepository.save(new AnswerOption(q.getId(), "C", "0", 3));
+        optionRepository.save(new AnswerOption(q.getId(), "D", "4", 4));
+    }
+
+    /** The course exam's question: a + b = 2, a, b > 0 gives ab <= 1 (AM-GM), so the maximum of ab is 1 (option B). */
+    private void seedCourseExamQuestion(Exam courseExam) {
+        Question q = questionRepository.save(new Question(courseExam.getId(),
+                "Cho a, b > 0 thỏa mãn a + b = 2. Giá trị lớn nhất của tích ab là bao nhiêu?", "MULTIPLE_CHOICE", 10, 1, "B"));
+        optionRepository.save(new AnswerOption(q.getId(), "A", "1/2", 1));
+        optionRepository.save(new AnswerOption(q.getId(), "B", "1", 2));
+        optionRepository.save(new AnswerOption(q.getId(), "C", "2", 3));
+        optionRepository.save(new AnswerOption(q.getId(), "D", "4", 4));
+    }
+
+    /**
+     * R19-05: idempotent repair of the seeded exams. The seed used to save a PUBLISHED course exam without any
+     * question (bypassing the publishExam rule), so starting it created an attempt that could not be answered or
+     * submitted. Only exams recognised by their seeded title are touched, and only when they are actually broken:
+     * a seeded exam that already has questions (and options) is left exactly as it is.
+     */
+    private void repairSeededExams(String classId) {
+        for (Exam exam : examRepository.findByClassIdOrderByCreatedAtDesc(classId)) {
+            if (COURSE_EXAM_TITLE.equals(exam.getTitle()) && questionRepository.countByExamId(exam.getId()) == 0) {
+                log.warn("Seeded exam '{}' has no questions; adding its question", exam.getTitle());
+                seedCourseExamQuestion(exam);
+            }
+            if (PRO_EXAM_TITLE.equals(exam.getTitle())) {
+                for (Question q : questionRepository.findByExamIdOrderByPositionAsc(exam.getId())) {
+                    if (PRO_EXAM_QUESTION_TEXT.equals(q.getQuestionText())
+                            && optionRepository.findByQuestionIdOrderByPositionAsc(q.getId()).isEmpty()) {
+                        log.warn("Seeded exam '{}' question has no answer options; adding them", exam.getTitle());
+                        seedProExamOptions(q);
+                    }
+                }
+            }
+        }
     }
 
     private User getOrCreateUser(String email, String fullName, String encodedPassword, String role) {

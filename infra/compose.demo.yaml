@@ -9,7 +9,10 @@
 # local stack. Never apply it to a persistent or internet-facing deployment, and never combine it
 # with a widened HOST_BIND_ADDRESS.
 #
-#   docker compose -f infra/compose.yaml -f infra/compose.demo.yaml --env-file infra/.env up -d --build
+# Recommended: run recreate-stacks.ps1 (it sets the demo project, prefix and isolated ports).
+# When invoking Compose manually, also use compose.drill.yaml and DRILL_PREFIX=classroom-demo.
+name: classroom-demo
+
 services:
   backend:
     environment:

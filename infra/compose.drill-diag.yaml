@@ -1,0 +1,9 @@
+# Optional diagnostics overlay - DRILL project only (R20-01).
+# Prints HikariCP pool statistics (total / active / idle / waiting, line "classroom-pool - Before cleanup stats") every 30 s in the backend log, which is how a pool deadlock shows up:
+# "active=N idle=0 waiting=M" with N == pool size and M growing while requests hang.
+#   docker compose -p classroom-drill -f infra/compose.yaml -f infra/compose.demo.yaml -f infra/compose.drill.yaml #       -f infra/compose.drill-diag.yaml --env-file infra/.env up -d --build --no-deps backend
+#   docker logs classroom-drill-backend 2>&1 | grep "cleanup stats"
+services:
+  backend:
+    environment:
+      SPRING_APPLICATION_JSON: '{"logging":{"level":{"com.zaxxer.hikari.pool.HikariPool":"DEBUG"}}}'

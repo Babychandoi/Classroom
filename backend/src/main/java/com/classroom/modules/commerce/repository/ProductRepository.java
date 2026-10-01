@@ -18,4 +18,7 @@ public interface ProductRepository extends JpaRepository<Product, String> {
     Optional<Product> findByIdForUpdate(@Param("id") String id);
     List<Product> findByClassIdAndStatusOrderByCreatedAtDesc(String classId, String status);
     List<Product> findByClassIdOrderByCreatedAtDesc(String classId);
+
+    /** R16-03: whether any product still targets the course (a course must not be deleted under one). */
+    boolean existsByTargetCourseId(String targetCourseId);
 }

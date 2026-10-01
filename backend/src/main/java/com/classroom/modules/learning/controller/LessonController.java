@@ -3,10 +3,14 @@ package com.classroom.modules.learning.controller;
 import com.classroom.common.ApiResponse;
 import com.classroom.config.CurrentUser;
 import com.classroom.config.UserPrincipal;
+import com.classroom.modules.learning.dto.AnswerQuestionRequest;
+import com.classroom.modules.learning.dto.AskQuestionRequest;
 import com.classroom.modules.learning.dto.LessonDto;
+import com.classroom.modules.learning.dto.LessonProgressRequest;
 import com.classroom.modules.learning.dto.QuestionAnswerDto;
 import com.classroom.modules.learning.model.Lesson;
 import com.classroom.modules.learning.service.LearningService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -40,12 +44,47 @@ public class LessonController {
         return ResponseEntity.ok(ApiResponse.ok(created));
     }
 
+    @PutMapping("/lessons/{lessonId}")
+    public ResponseEntity<ApiResponse<Lesson>> updateLesson(
+            @PathVariable String lessonId,
+            @CurrentUser UserPrincipal principal,
+            @RequestBody Lesson patch) {
+        Lesson updated = learningService.updateLesson(lessonId, patch, principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok(updated));
+    }
+
+    @DeleteMapping("/lessons/{lessonId}")
+    public ResponseEntity<ApiResponse<Void>> deleteLesson(
+            @PathVariable String lessonId,
+            @CurrentUser UserPrincipal principal) {
+        learningService.deleteLesson(lessonId, principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    @PostMapping("/lessons/{lessonId}/archive")
+    public ResponseEntity<ApiResponse<Lesson>> archiveLesson(
+            @PathVariable String lessonId,
+            @CurrentUser UserPrincipal principal,
+            @RequestParam(defaultValue = "true") boolean archived) {
+        Lesson result = learningService.archiveLesson(lessonId, archived, principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok(result));
+    }
+
+    @PutMapping("/sections/{sectionId}/lessons/reorder")
+    public ResponseEntity<ApiResponse<Void>> reorderLessons(
+            @PathVariable String sectionId,
+            @CurrentUser UserPrincipal principal,
+            @RequestBody List<String> orderedLessonIds) {
+        learningService.reorderLessons(sectionId, orderedLessonIds, principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
     @PutMapping("/lessons/{lessonId}/progress")
     public ResponseEntity<ApiResponse<Map<String, Object>>> updateProgress(
             @PathVariable String lessonId,
             @CurrentUser UserPrincipal principal,
-            @RequestBody Map<String, Boolean> body) {
-        boolean completed = body.getOrDefault("completed", true);
+            @RequestBody(required = false) LessonProgressRequest body) {
+        boolean completed = body == null || body.isCompletedOrDefault();
         learningService.markLessonProgress(lessonId, principal.getId(), completed);
         return ResponseEntity.ok(ApiResponse.ok(Map.of("lessonId", lessonId, "completed", completed)));
     }
@@ -62,9 +101,8 @@ public class LessonController {
     public ResponseEntity<ApiResponse<QuestionAnswerDto>> askQuestion(
             @PathVariable String lessonId,
             @CurrentUser UserPrincipal principal,
-            @RequestBody Map<String, String> body) {
-        String questionText = body.get("questionText");
-        QuestionAnswerDto dto = learningService.askQuestion(lessonId, principal.getId(), questionText);
+            @Valid @RequestBody AskQuestionRequest body) {
+        QuestionAnswerDto dto = learningService.askQuestion(lessonId, principal.getId(), body.getQuestionText());
         return ResponseEntity.ok(ApiResponse.ok(dto));
     }
 
@@ -72,9 +110,8 @@ public class LessonController {
     public ResponseEntity<ApiResponse<QuestionAnswerDto.AnswerDto>> answerQuestion(
             @PathVariable String questionId,
             @CurrentUser UserPrincipal principal,
-            @RequestBody Map<String, String> body) {
-        String answerText = body.get("answerText");
-        QuestionAnswerDto.AnswerDto dto = learningService.answerQuestion(questionId, principal.getId(), answerText);
+            @Valid @RequestBody AnswerQuestionRequest body) {
+        QuestionAnswerDto.AnswerDto dto = learningService.answerQuestion(questionId, principal.getId(), body.getAnswerText());
         return ResponseEntity.ok(ApiResponse.ok(dto));
     }
 }

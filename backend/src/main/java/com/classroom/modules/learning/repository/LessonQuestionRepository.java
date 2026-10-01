@@ -9,4 +9,5 @@ import java.util.List;
 @Repository
 public interface LessonQuestionRepository extends JpaRepository<LessonQuestion, String> {
     List<LessonQuestion> findByLessonIdOrderByCreatedAtDesc(String lessonId);
+    boolean existsByLessonId(String lessonId);
 }

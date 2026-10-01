@@ -1,9 +1,16 @@
 package com.classroom.modules.classroom.dto;
 
+import jakarta.validation.constraints.NotNull;
+
 public class StaffPermissionDto {
     private String id;
+
+    @NotNull(message = "Module quyền không được để trống")
     private String module;
+
+    @NotNull(message = "Hành động quyền không được để trống")
     private String action;
+
     private String scopeCourseId;
 
     public StaffPermissionDto() {}

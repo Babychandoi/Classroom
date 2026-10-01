@@ -8,6 +8,9 @@ public class GradeAttemptRequest {
     private Map<String, BigDecimal> scores;
     // Map of questionId -> teacherFeedback
     private Map<String, String> feedback;
+    // R13-07: mandatory, non-blank when correcting a PUBLISHED attempt's score (score correction
+    // audit trail). Optional otherwise (first-time grading of a SUBMITTED/GRADING attempt).
+    private String reason;
 
     public GradeAttemptRequest() {}
 
@@ -25,5 +28,13 @@ public class GradeAttemptRequest {
 
     public void setFeedback(Map<String, String> feedback) {
         this.feedback = feedback;
+    }
+
+    public String getReason() {
+        return reason;
+    }
+
+    public void setReason(String reason) {
+        this.reason = reason;
     }
 }

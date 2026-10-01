@@ -10,4 +10,7 @@ import java.util.List;
 public interface QuestionRepository extends JpaRepository<Question, String> {
     List<Question> findByExamIdOrderByPositionAsc(String examId);
     long countByExamId(String examId);
+    interface QuestionCount { String getExamId(); long getQuestions(); }
+    @org.springframework.data.jpa.repository.Query("SELECT q.examId AS examId, COUNT(q) AS questions FROM Question q WHERE q.examId IN :examIds GROUP BY q.examId")
+    List<QuestionCount> countByExamIds(@org.springframework.data.repository.query.Param("examIds") List<String> examIds);
 }

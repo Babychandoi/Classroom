@@ -1,8 +1,11 @@
 package com.classroom.modules.learning.controller;
 
 import com.classroom.common.ApiResponse;
+import com.classroom.common.AppException;
+import com.classroom.common.ErrorCode;
 import com.classroom.config.CurrentUser;
 import com.classroom.config.UserPrincipal;
+import com.classroom.modules.learning.dto.AssignmentSubmissionDto;
 import com.classroom.modules.learning.model.AssignmentSubmission;
 import com.classroom.modules.learning.service.AssignmentService;
 import org.springframework.http.ResponseEntity;
@@ -31,13 +34,19 @@ public class AssignmentController {
         return ResponseEntity.ok(ApiResponse.ok(service.queue(lessonId, principal.getId())));
     }
     @GetMapping("/classes/{classId}/assignment-queue")
-    public ResponseEntity<ApiResponse<List<AssignmentSubmission>>> classQueue(@PathVariable String classId, @CurrentUser UserPrincipal principal) {
+    public ResponseEntity<ApiResponse<List<AssignmentSubmissionDto>>> classQueue(@PathVariable String classId, @CurrentUser UserPrincipal principal) {
         return ResponseEntity.ok(ApiResponse.ok(service.classQueue(classId, principal.getId())));
     }
     @PutMapping("/assignment-submissions/{submissionId}/grade")
-    public ResponseEntity<ApiResponse<AssignmentSubmission>> grade(@PathVariable String submissionId,
+    public ResponseEntity<ApiResponse<AssignmentSubmissionDto>> grade(@PathVariable String submissionId,
             @CurrentUser UserPrincipal principal, @RequestBody Map<String, Object> body) {
-        BigDecimal score = body.get("score") == null ? null : new BigDecimal(body.get("score").toString());
+        BigDecimal score;
+        try {
+            score = body.get("score") == null ? null : new BigDecimal(body.get("score").toString());
+        } catch (NumberFormatException ex) {
+            // R4-05: a non-numeric score is a client error (400), not a 500 from BigDecimal's ctor.
+            throw new AppException(ErrorCode.BAD_REQUEST, "Điểm số không hợp lệ");
+        }
         return ResponseEntity.ok(ApiResponse.ok(service.grade(submissionId, principal.getId(), score,
                 body.get("feedback") == null ? null : body.get("feedback").toString())));
     }

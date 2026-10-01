@@ -20,6 +20,9 @@ public class Section {
     @Column(nullable = false)
     private int position = 0;
 
+    @Column(nullable = false)
+    private boolean archived = false;
+
     public Section() {
         this.id = UUID.randomUUID().toString();
     }
@@ -61,5 +64,13 @@ public class Section {
 
     public void setPosition(int position) {
         this.position = position;
+    }
+
+    public boolean isArchived() {
+        return archived;
+    }
+
+    public void setArchived(boolean archived) {
+        this.archived = archived;
     }
 }

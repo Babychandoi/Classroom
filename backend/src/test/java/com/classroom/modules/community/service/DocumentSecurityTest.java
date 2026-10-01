@@ -196,4 +196,45 @@ public class DocumentSecurityTest {
                 "class-1", "Free copy", "", "lesson-media", "FREE", "document-staff"));
         verify(documentRepository, never()).save(any());
     }
+
+    // --- R5-08/R4-05: a missing mediaAssetId is a 400 contract error, not an NPE ---
+
+    @Test
+    @DisplayName("R5-08: createDocument rejects a null mediaAssetId with 400, not an NPE")
+    void createDocumentRejectsNullMediaAssetId() {
+        AppException ex = assertThrows(AppException.class, () -> documentService.createDocument(
+                "class-1", "Title", "", null, "FREE", "document-staff"));
+        assertEquals(ErrorCode.BAD_REQUEST, ex.getErrorCode());
+        verify(mediaService, never()).getAssetForUpdate(any());
+        verify(documentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("R5-08: createDocument rejects a blank mediaAssetId with 400")
+    void createDocumentRejectsBlankMediaAssetId() {
+        AppException ex = assertThrows(AppException.class, () -> documentService.createDocument(
+                "class-1", "Title", "", "   ", "FREE", "document-staff"));
+        assertEquals(ErrorCode.BAD_REQUEST, ex.getErrorCode());
+        verify(mediaService, never()).getAssetForUpdate(any());
+        verify(documentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("R5-08/R4-08: createDocument stores mediaAssetId trimmed, matching what was validated")
+    void createDocumentStoresTrimmedIds() {
+        MediaAsset uploaded = new MediaAsset("class-1", "document-staff", "key", "notes.pdf", "application/pdf", 10L);
+        uploaded.setStatus("UPLOADED");
+        // The service looks up the asset by the raw (untrimmed) id it was given, but must persist
+        // the DocumentAsset with the trimmed id (R4-08) so the stored value matches what every
+        // same-class / same-uploader check above it actually validated.
+        when(mediaService.getAssetForUpdate("  media-42  ")).thenReturn(uploaded);
+        when(mediaService.isReferencedByLesson("  media-42  ")).thenReturn(false);
+        when(documentRepository.findByMediaAssetId("  media-42  ")).thenReturn(List.of());
+        when(documentRepository.save(any(DocumentAsset.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        DocumentAsset saved = documentService.createDocument(
+                "class-1", "Title", "", "  media-42  ", "FREE", null, null, "document-staff");
+
+        assertEquals("media-42", saved.getMediaAssetId());
+    }
 }

@@ -7,6 +7,7 @@ public class SectionDto {
     private String courseId;
     private String title;
     private int position;
+    private boolean archived;
     private List<LessonDto> lessons;
 
     public SectionDto() {}
@@ -57,5 +58,13 @@ public class SectionDto {
 
     public void setLessons(List<LessonDto> lessons) {
         this.lessons = lessons;
+    }
+
+    public boolean isArchived() {
+        return archived;
+    }
+
+    public void setArchived(boolean archived) {
+        this.archived = archived;
     }
 }

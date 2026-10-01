@@ -11,6 +11,10 @@ public class ExamAttemptDto {
     private String examId;
     private String examTitle;
     private String userId;
+    // R13-13: batch-resolved, visibility-safe display name for the grading queue / published
+    // results list ("Học viên ẩn danh #n" when the learner's identity is hidden from this grader) —
+    // populated only by the grading endpoints, mirroring AssignmentSubmissionDto's learner field.
+    private String learnerDisplayName;
     private String classId;
     private Instant startedAt;
     private Instant submittedAt;
@@ -21,6 +25,10 @@ public class ExamAttemptDto {
     private boolean isPreview;
     private List<QuestionDto> questions;
     private List<AttemptAnswerDto> answers;
+    // R19-04: set when the score / per-question points of a PREVIEW attempt were withheld because the viewer may not
+    // read the answer key; `notice` then carries the Vietnamese explanation to show instead of a score.
+    private boolean resultHidden;
+    private String notice;
 
     public ExamAttemptDto() {}
 
@@ -54,6 +62,14 @@ public class ExamAttemptDto {
 
     public void setUserId(String userId) {
         this.userId = userId;
+    }
+
+    public String getLearnerDisplayName() {
+        return learnerDisplayName;
+    }
+
+    public void setLearnerDisplayName(String learnerDisplayName) {
+        this.learnerDisplayName = learnerDisplayName;
     }
 
     public String getClassId() {
@@ -128,6 +144,22 @@ public class ExamAttemptDto {
 
     public void setQuestions(List<QuestionDto> questions) {
         this.questions = questions;
+    }
+
+    public boolean isResultHidden() {
+        return resultHidden;
+    }
+
+    public void setResultHidden(boolean resultHidden) {
+        this.resultHidden = resultHidden;
+    }
+
+    public String getNotice() {
+        return notice;
+    }
+
+    public void setNotice(String notice) {
+        this.notice = notice;
     }
 
     public List<AttemptAnswerDto> getAnswers() {

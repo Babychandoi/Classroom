@@ -6,6 +6,13 @@ import java.time.Instant;
 import java.util.List;
 
 public class ClassroomDto {
+    public static final String MEMBER_STATE_ACTIVE = "ACTIVE";
+    public static final String MEMBER_STATE_REMOVED = "REMOVED";
+    public static final String MEMBER_STATE_BLOCKED = "BLOCKED";
+    public static final String MEMBER_STATE_NONE = "NONE";
+    /** D-19: a member of a PAID class whose paid access has lapsed - may read About / Store / the paywall only, everything else 403 MEMBERSHIP_EXPIRED. */
+    public static final String MEMBER_STATE_EXPIRED = "EXPIRED";
+
     private String id;
     private String ownerId;
     private String ownerName;
@@ -19,10 +26,74 @@ public class ClassroomDto {
     private boolean isMember;
     private boolean isPro;
     private String userRole; // OWNER, STAFF, STUDENT, GUEST
+    /**
+     * R16-01: the caller's membership lifecycle in this class - {@link #MEMBER_STATE_ACTIVE},
+     * {@link #MEMBER_STATE_REMOVED} (may rejoin on their own), {@link #MEMBER_STATE_BLOCKED} (only a
+     * Studio unblock restores access), {@link #MEMBER_STATE_EXPIRED} (D-19: paid access lapsed - renew to come back) or
+     * {@link #MEMBER_STATE_NONE} (never joined / anonymous). Only ACTIVE (or the owner) makes {@code isMember} true, so a
+     * removed/blocked/expired person is no longer presented as a member with the STUDENT role.
+     */
+    private String memberState = MEMBER_STATE_NONE;
+    /** D-19: PUBLIC (listed, joinable) or PRIVATE (only visible to owner / staff / members; joined by invite). */
+    private String visibility = "PUBLIC";
+    /** D-19: FREE or PAID. A PAID class is joined by buying {@link #accessProduct}. */
+    private String accessType = "FREE";
+    /**
+     * D-19: when the CALLER's paid access ends ({@code null} = no expiry: free class, owner/staff, grandfathered or lifetime member, or not a
+     * member). For {@link #MEMBER_STATE_EXPIRED} it is the moment the access lapsed.
+     */
+    private Instant accessExpiresAt;
+    /** D-19: what a PAID class sells (price, currency, duration); {@code null} for a FREE class. */
+    private ClassAccessProductDto accessProduct;
     private Instant createdAt;
     private List<String> studioPermissions = List.of();
+    private List<StudioScopedPermission> studioScopedPermissions = List.of();
 
     public ClassroomDto() {}
+
+    /**
+     * R6-01: a course-scoped staff grant, kept separate from {@link #studioPermissions} (which is
+     * class-wide only, see {@link com.classroom.modules.classroom.service.ClassroomService}). The
+     * frontend uses this to authorize per-course actions (e.g. edit/publish course X) without
+     * mistaking a scoped grant for a class-wide one.
+     */
+    public static class StudioScopedPermission {
+        private String module;
+        private String action;
+        private String courseId;
+
+        public StudioScopedPermission() {}
+
+        public StudioScopedPermission(String module, String action, String courseId) {
+            this.module = module;
+            this.action = action;
+            this.courseId = courseId;
+        }
+
+        public String getModule() {
+            return module;
+        }
+
+        public void setModule(String module) {
+            this.module = module;
+        }
+
+        public String getAction() {
+            return action;
+        }
+
+        public void setAction(String action) {
+            this.action = action;
+        }
+
+        public String getCourseId() {
+            return courseId;
+        }
+
+        public void setCourseId(String courseId) {
+            this.courseId = courseId;
+        }
+    }
 
     public String getId() {
         return id;
@@ -134,6 +205,46 @@ public class ClassroomDto {
         this.userRole = userRole;
     }
 
+    public String getMemberState() {
+        return memberState;
+    }
+
+    public void setMemberState(String memberState) {
+        this.memberState = memberState;
+    }
+
+    public String getVisibility() {
+        return visibility;
+    }
+
+    public void setVisibility(String visibility) {
+        this.visibility = visibility;
+    }
+
+    public String getAccessType() {
+        return accessType;
+    }
+
+    public void setAccessType(String accessType) {
+        this.accessType = accessType;
+    }
+
+    public Instant getAccessExpiresAt() {
+        return accessExpiresAt;
+    }
+
+    public void setAccessExpiresAt(Instant accessExpiresAt) {
+        this.accessExpiresAt = accessExpiresAt;
+    }
+
+    public ClassAccessProductDto getAccessProduct() {
+        return accessProduct;
+    }
+
+    public void setAccessProduct(ClassAccessProductDto accessProduct) {
+        this.accessProduct = accessProduct;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -144,4 +255,7 @@ public class ClassroomDto {
 
     public List<String> getStudioPermissions() { return studioPermissions; }
     public void setStudioPermissions(List<String> studioPermissions) { this.studioPermissions = studioPermissions; }
+
+    public List<StudioScopedPermission> getStudioScopedPermissions() { return studioScopedPermissions; }
+    public void setStudioScopedPermissions(List<StudioScopedPermission> studioScopedPermissions) { this.studioScopedPermissions = studioScopedPermissions; }
 }

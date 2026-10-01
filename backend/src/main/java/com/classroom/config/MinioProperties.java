@@ -9,7 +9,7 @@ public class MinioProperties {
     private String endpoint = "http://localhost:9000";
     private String externalEndpoint = "http://localhost:9000";
     private String accessKey = "minio_admin";
-    private String secretKey = "minio_password";
+    private String secretKey = "";
     private String bucket = "classroom-media";
 
     public String getEndpoint() {
@@ -50,5 +50,34 @@ public class MinioProperties {
 
     public void setBucket(String bucket) {
         this.bucket = bucket;
+    }
+
+    /** R20-12: object-store client timeouts in milliseconds (the SDK's own default is 5 minutes each). */
+    private long connectTimeoutMs = 3000;
+    private long readTimeoutMs = 30000;
+    private long writeTimeoutMs = 30000;
+
+    public long getConnectTimeoutMs() {
+        return connectTimeoutMs;
+    }
+
+    public void setConnectTimeoutMs(long connectTimeoutMs) {
+        this.connectTimeoutMs = Math.max(1, connectTimeoutMs);
+    }
+
+    public long getReadTimeoutMs() {
+        return readTimeoutMs;
+    }
+
+    public void setReadTimeoutMs(long readTimeoutMs) {
+        this.readTimeoutMs = Math.max(1, readTimeoutMs);
+    }
+
+    public long getWriteTimeoutMs() {
+        return writeTimeoutMs;
+    }
+
+    public void setWriteTimeoutMs(long writeTimeoutMs) {
+        this.writeTimeoutMs = Math.max(1, writeTimeoutMs);
     }
 }

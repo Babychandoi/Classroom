@@ -45,6 +45,8 @@ public class CourseProductLinkTest {
     @Mock private OutboxService outboxService;
     @Mock private ProductRepository productRepository;
     @Mock private OrderItemRepository orderItemRepository;
+    @Mock private com.classroom.modules.classroom.repository.StaffAssignmentRepository staffAssignmentRepository;
+    @Mock private com.classroom.modules.classroom.repository.StaffPermissionRepository staffPermissionRepository;
 
     @InjectMocks
     private LearningService learningService;
@@ -212,5 +214,26 @@ public class CourseProductLinkTest {
                 () -> learningService.createSection("course-1", null, 0, "owner-1")).getErrorCode());
 
         verify(sectionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("R18-04: a new course is appended after the class's highest position (the client sends none)")
+    void createCourseAppendsAfterHighestPosition() {
+        when(courseRepository.findMaxPositionByClassId("class-1")).thenReturn(4);
+        when(courseRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Course input = new Course("class-1", "Khoa moi", "FREE");
+        input.setPosition(99); // client-supplied positions are ignored
+
+        assertEquals(5, learningService.createCourse("class-1", input, "owner-1").getPosition());
+    }
+
+    @Test
+    @DisplayName("R18-04: the first course in a class gets position 0")
+    void createFirstCourseGetsPositionZero() {
+        when(courseRepository.findMaxPositionByClassId("class-1")).thenReturn(-1);
+        when(courseRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        assertEquals(0, learningService.createCourse("class-1", new Course("class-1", "Dau tien", "FREE"), "owner-1").getPosition());
     }
 }

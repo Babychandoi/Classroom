@@ -44,7 +44,11 @@ class LearningQuestionPrivacyTest {
         LearningService service = new LearningService(courses, mock(SectionRepository.class), lessons,
                 mock(LessonProgressRepository.class), questions, answers, users, mock(LearningPolicy.class), access,
                 mock(MediaService.class), mock(OutboxService.class), mock(ProductRepository.class),
-                new ProfileVisibilityPolicy(access), mock(OrderItemRepository.class));
+                new ProfileVisibilityPolicy(access), mock(OrderItemRepository.class),
+                mock(com.classroom.modules.audit.service.AuditService.class),
+                mock(AssignmentSubmissionRepository.class),
+                mock(com.classroom.modules.classroom.repository.StaffAssignmentRepository.class),
+                mock(com.classroom.modules.classroom.repository.StaffPermissionRepository.class));
 
         var result = service.getLessonQuestions("lesson", "peer").get(0);
         assertNull(result.getUserId());

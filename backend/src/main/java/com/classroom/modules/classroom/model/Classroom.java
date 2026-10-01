@@ -8,6 +8,11 @@ import java.util.UUID;
 @Table(name = "classrooms")
 public class Classroom {
 
+    public static final String VISIBILITY_PUBLIC = "PUBLIC";
+    public static final String VISIBILITY_PRIVATE = "PRIVATE";
+    public static final String ACCESS_FREE = "FREE";
+    public static final String ACCESS_PAID = "PAID";
+
     @Id
     @Column(length = 36)
     private String id;
@@ -29,6 +34,18 @@ public class Classroom {
 
     @Column(nullable = false, length = 32)
     private String status = "ACTIVE";
+
+    /** D-19: PUBLIC (listed, joinable by anyone) or PRIVATE (hidden from non-members, joinable by invite only). */
+    @Column(nullable = false, length = 16)
+    private String visibility = VISIBILITY_PUBLIC;
+
+    /** D-19: FREE (joining gives an ACTIVE membership) or PAID (membership is bought through the class-access product). */
+    @Column(name = "access_type", nullable = false, length = 16)
+    private String accessType = ACCESS_FREE;
+
+    /** D-19: the class-access product of a PAID class; kept (ARCHIVED) after PAID -> FREE so a later FREE -> PAID re-uses it. */
+    @Column(name = "access_product_id", length = 36)
+    private String accessProductId;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -119,6 +136,41 @@ public class Classroom {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getVisibility() {
+        return visibility;
+    }
+
+    public void setVisibility(String visibility) {
+        this.visibility = visibility;
+    }
+
+    public String getAccessType() {
+        return accessType;
+    }
+
+    public void setAccessType(String accessType) {
+        this.accessType = accessType;
+    }
+
+    public String getAccessProductId() {
+        return accessProductId;
+    }
+
+    public void setAccessProductId(String accessProductId) {
+        this.accessProductId = accessProductId;
+    }
+
+    /** D-19: a missing/unknown stored value is PUBLIC (the behaviour every pre-V37 class has). */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isPrivate() {
+        return VISIBILITY_PRIVATE.equalsIgnoreCase(visibility);
+    }
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isPaid() {
+        return ACCESS_PAID.equalsIgnoreCase(accessType);
     }
 
     public Instant getCreatedAt() {

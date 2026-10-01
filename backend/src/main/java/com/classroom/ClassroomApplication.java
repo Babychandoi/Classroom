@@ -1,5 +1,6 @@
 package com.classroom;
 
+import com.classroom.config.DnsCacheTtl;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
@@ -23,6 +24,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class ClassroomApplication {
 
     public static void main(String[] args) {
+        // R20-12: must precede the first DNS lookup of the JVM (see DnsCacheTtl).
+        DnsCacheTtl.configure();
         SpringApplication.run(ClassroomApplication.class, args);
     }
 }

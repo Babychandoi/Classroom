@@ -47,6 +47,61 @@ public class ExamAudiencePolicyTest {
     private Exam examCourseA;
     private Exam examPro;
 
+    @Test void batchEligibilityMatchesIndividualPolicyAcrossLiveBoundaries() {
+        Instant now = Instant.parse("2026-10-02T00:00:00Z");
+        var exams = new java.util.ArrayList<Exam>();
+        var active = new java.util.ArrayList<ExamAttempt>();
+        var counts = new java.util.HashMap<String, Long>();
+        for (int i = 0; i < 8; i++) {
+            var exam = new Exam("class-1", "Boundary " + i, "ALL", 30);
+            exam.setId("exam-" + i); exam.setStatus("PUBLISHED"); exam.setAttemptLimit(1);
+            if (i == 1) exam.setStatus("DRAFT");
+            if (i == 2) exam.setScheduleStart(now.plusSeconds(1));
+            if (i == 3) exam.setScheduleEnd(now);
+            if (i == 4 || i == 5 || i == 6) { exam.setStatus("CLOSED"); exam.setClosedAt(now.minusSeconds(10)); }
+            if (i == 7) exam.setAudienceScope("PRO");
+            counts.put(exam.getId(), i == 0 || i == 7 ? 0L : 1L);
+            if (i >= 4 && i <= 6) {
+                var attempt = new ExamAttempt(exam.getId(), "user-1", "class-1", now.plusSeconds(60), i == 6);
+                attempt.setStartedAt(now.minusSeconds(20)); attempt.setAudienceEligibleAtStart(true);
+                if (i == 5) attempt.setEndsAt(now);
+                active.add(attempt);
+            }
+            exams.add(exam);
+        }
+        var grouped = counts.entrySet().stream().<ExamAttemptRepository.LimitCount>map(entry -> new ExamAttemptRepository.LimitCount() {
+            public String getExamId() { return entry.getKey(); }
+            public long getAttempts() { return entry.getValue(); }
+        }).toList();
+        when(attemptRepository.countAttemptsTowardLimitByClass("class-1", "user-1")).thenReturn(grouped);
+        when(attemptRepository.findByClassIdAndUserIdAndStatus("class-1", "user-1", "IN_PROGRESS")).thenReturn(active);
+        lenient().when(attemptRepository.countAttemptsTowardLimit(anyString(), eq("user-1")))
+                .thenAnswer(call -> counts.get(call.getArgument(0)));
+        lenient().when(attemptRepository.findFirstByExamIdAndUserIdAndStatusOrderByStartedAtDesc(anyString(), eq("user-1"), eq("IN_PROGRESS")))
+                .thenAnswer(call -> active.stream().filter(a -> a.getExamId().equals(call.getArgument(0))).findFirst());
+        lenient().when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc(anyString(), eq("user-1"), eq("IN_PROGRESS")))
+                .thenAnswer(call -> active.stream().filter(a -> !a.isPreview() && a.getExamId().equals(call.getArgument(0))).findFirst());
+        for (boolean member : new boolean[]{true, false}) for (boolean archived : new boolean[]{false, true}) {
+            when(accessPolicy.isMember("user-1", "class-1")).thenReturn(member);
+            lenient().when(accessPolicy.isClassArchived("class-1")).thenReturn(archived);
+            var batch = audiencePolicy.listingEligibility("user-1", "class-1", exams, now);
+            for (var exam : exams) {
+                assertEquals(audiencePolicy.canEnterExam("user-1", exam, now, false), batch.get(exam.getId()).canEnter(),
+                        exam.getId() + " member=" + member + " archived=" + archived);
+                assertEquals(counts.get(exam.getId()).longValue(), batch.get(exam.getId()).attempts());
+            }
+        }
+    }
+
+    @Test void batchContextCannotBeReusedAcrossClassesOrAnonymousViewers() {
+        assertThrows(IllegalArgumentException.class,
+                () -> audiencePolicy.listingEligibility("user-1", "foreign-class", java.util.List.of(examPro), Instant.now()));
+        var result = audiencePolicy.listingEligibility(null, "class-1", java.util.List.of(examPro), Instant.now());
+        assertFalse(result.get(examPro.getId()).canEnter());
+        assertEquals(0, result.get(examPro.getId()).attempts());
+        verifyNoInteractions(attemptRepository, accessPolicy);
+    }
+
     @BeforeEach
     void setUp() {
         examCourseA = new Exam("class-1", "Exam Course A", "COURSE", 45);
@@ -68,7 +123,7 @@ public class ExamAudiencePolicyTest {
         Instant now = Instant.now();
 
         when(accessPolicy.isMember(studentId, "class-1")).thenReturn(true);
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("exam-course-a", studentId)).thenReturn(0L);
+        when(attemptRepository.countAttemptsTowardLimit("exam-course-a", studentId)).thenReturn(0L);
         when(accessPolicy.isOwner(studentId, "class-1")).thenReturn(false);
 
         // Student has access to B, but NOT to course A
@@ -85,7 +140,7 @@ public class ExamAudiencePolicyTest {
         Instant now = Instant.now();
 
         when(accessPolicy.isMember(studentId, "class-1")).thenReturn(true);
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("exam-course-a", studentId)).thenReturn(0L);
+        when(attemptRepository.countAttemptsTowardLimit("exam-course-a", studentId)).thenReturn(0L);
 
         // Course belongs to class-2, but exam is in class-1
         Course crossClassCourse = new Course("class-2", "Course Other Class", "PURCHASE_REQUIRED");
@@ -102,7 +157,7 @@ public class ExamAudiencePolicyTest {
         Instant now = Instant.now();
 
         when(accessPolicy.isMember(proStudentId, "class-1")).thenReturn(true);
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("exam-pro", proStudentId)).thenReturn(0L);
+        when(attemptRepository.countAttemptsTowardLimit("exam-pro", proStudentId)).thenReturn(0L);
         when(proPolicy.isPro(proStudentId, "class-1")).thenReturn(true);
 
         assertTrue(audiencePolicy.canEnterExam(proStudentId, examPro, now, false));
@@ -116,7 +171,7 @@ public class ExamAudiencePolicyTest {
         Instant now = Instant.now();
 
         when(accessPolicy.isMember(proStudentId, "class-1")).thenReturn(true);
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("exam-pro", proStudentId)).thenReturn(2L); // Limit is 2
+        when(attemptRepository.countAttemptsTowardLimit("exam-pro", proStudentId)).thenReturn(2L); // Limit is 2
 
         assertFalse(audiencePolicy.canEnterExam(proStudentId, examPro, now, false));
         assertThrows(AppException.class, () -> audiencePolicy.enforceEnterExam(proStudentId, examPro, now, false));
@@ -153,7 +208,7 @@ public class ExamAudiencePolicyTest {
         Instant now = Instant.now();
 
         when(accessPolicy.isMember(proStudentId, "class-1")).thenReturn(true);
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("exam-pro", proStudentId)).thenReturn(2L);
+        when(attemptRepository.countAttemptsTowardLimit("exam-pro", proStudentId)).thenReturn(2L);
         com.classroom.modules.exam.model.ExamAttempt activeAttempt = new com.classroom.modules.exam.model.ExamAttempt("exam-pro", proStudentId, "class-1", now.plusSeconds(1800), false);
         when(attemptRepository.findFirstByExamIdAndUserIdAndStatusOrderByStartedAtDesc("exam-pro", proStudentId, "IN_PROGRESS"))
                 .thenReturn(Optional.of(activeAttempt));
@@ -172,7 +227,7 @@ public class ExamAudiencePolicyTest {
         malformed.setStatus("PUBLISHED");
 
         when(accessPolicy.isMember(studentId, "class-1")).thenReturn(true);
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("exam-unknown", studentId)).thenReturn(0L);
+        when(attemptRepository.countAttemptsTowardLimit("exam-unknown", studentId)).thenReturn(0L);
 
         assertFalse(audiencePolicy.canEnterExam(studentId, malformed, now, false));
         assertThrows(AppException.class, () -> audiencePolicy.enforceEnterExam(studentId, malformed, now, false));
@@ -187,7 +242,7 @@ public class ExamAudiencePolicyTest {
         course.setId("course-a");
         course.setProductId("product-a");
         when(accessPolicy.isMember(student, "class-1")).thenReturn(true);
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("exam-course-a", student)).thenReturn(0L);
+        when(attemptRepository.countAttemptsTowardLimit("exam-course-a", student)).thenReturn(0L);
         when(courseRepository.findById("course-a")).thenReturn(Optional.of(course));
         when(accessPolicy.isOwner(student, "class-1")).thenReturn(false);
         when(entitlementRepository.hasCourseAccess(student, "class-1", "course-a", "product-a", now)).thenReturn(true);
@@ -206,7 +261,7 @@ public class ExamAudiencePolicyTest {
         combined.setTargetCourseId("course-a");
         combined.setTargetSegmentId("segment-a");
         when(accessPolicy.isMember(student, "class-1")).thenReturn(true);
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("combined", student)).thenReturn(0L);
+        when(attemptRepository.countAttemptsTowardLimit("combined", student)).thenReturn(0L);
         Course course = new Course("class-1", "Course A", "PURCHASE_REQUIRED");
         course.setId("course-a"); course.setProductId("product-a");
         when(courseRepository.findById("course-a")).thenReturn(Optional.of(course));
@@ -283,10 +338,177 @@ public class ExamAudiencePolicyTest {
         examAll.setScheduleEnd(scheduleEnd);
 
         when(accessPolicy.isMember(studentId, "class-1")).thenReturn(true);
-        when(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse("exam-all", studentId)).thenReturn(0L);
+        when(attemptRepository.countAttemptsTowardLimit("exam-all", studentId)).thenReturn(0L);
 
         Instant justBefore = scheduleEnd.minusSeconds(1);
         assertTrue(audiencePolicy.canEnterExam(studentId, examAll, justBefore, false));
         assertDoesNotThrow(() -> audiencePolicy.enforceEnterExam(studentId, examAll, justBefore, false));
+    }
+
+    // ----- R14-05 / R14-13: closing an exam or archiving a class stops NEW attempts only -----
+
+    private static final String STUDENT = "student-close";
+    private static final Instant CLOSED_AT = Instant.parse("2026-03-01T10:00:00Z");
+
+    private Exam closedExam(String status) {
+        Exam exam = new Exam("class-1", "Exam Closed", "ALL", 60);
+        exam.setId("exam-closed");
+        exam.setStatus(status);
+        exam.setAttemptLimit(1);
+        exam.setClosedAt(CLOSED_AT);
+        return exam;
+    }
+
+    private ExamAttempt attemptStartedAt(Instant startedAt, Instant endsAt) {
+        ExamAttempt attempt = new ExamAttempt("exam-closed", STUDENT, "class-1", endsAt, false);
+        attempt.setStartedAt(startedAt);
+        attempt.setAudienceEligibleAtStart(true);
+        return attempt;
+    }
+
+    @Test
+    @DisplayName("R14-05: an IN_PROGRESS attempt started before closedAt can still be resumed on a CLOSED exam")
+    void resumeAllowedOnClosedExamForAttemptStartedBeforeClose() {
+        Exam exam = closedExam("CLOSED");
+        ExamAttempt attempt = attemptStartedAt(CLOSED_AT.minusSeconds(300), CLOSED_AT.plusSeconds(1800));
+        when(accessPolicy.isMember(STUDENT, "class-1")).thenReturn(true);
+
+        assertDoesNotThrow(() -> audiencePolicy.enforceResumeAttempt(STUDENT, exam, attempt, CLOSED_AT.plusSeconds(60)));
+        assertTrue(audiencePolicy.canResumeAfterClose(exam, attempt));
+    }
+
+    @Test
+    @DisplayName("R14-05: the same attempt also survives the exam being ARCHIVED after the close")
+    void resumeAllowedOnArchivedExamForAttemptStartedBeforeClose() {
+        Exam exam = closedExam("ARCHIVED");
+        ExamAttempt attempt = attemptStartedAt(CLOSED_AT.minusSeconds(300), CLOSED_AT.plusSeconds(1800));
+        when(accessPolicy.isMember(STUDENT, "class-1")).thenReturn(true);
+
+        assertDoesNotThrow(() -> audiencePolicy.enforceResumeAttempt(STUDENT, exam, attempt, CLOSED_AT.plusSeconds(60)));
+    }
+
+    @Test
+    @DisplayName("R14-05: an attempt that started AFTER closedAt (or a closed exam without closedAt) cannot be resumed")
+    void resumeRejectedForAttemptStartedAfterClose() {
+        Exam exam = closedExam("CLOSED");
+        ExamAttempt late = attemptStartedAt(CLOSED_AT.plusSeconds(5), CLOSED_AT.plusSeconds(1800));
+        when(accessPolicy.isMember(STUDENT, "class-1")).thenReturn(true);
+
+        AppException ex = assertThrows(AppException.class,
+                () -> audiencePolicy.enforceResumeAttempt(STUDENT, exam, late, CLOSED_AT.plusSeconds(60)));
+        assertEquals(com.classroom.common.ErrorCode.EXAM_NOT_OPEN, ex.getErrorCode());
+
+        Exam noClosedAt = closedExam("CLOSED");
+        noClosedAt.setClosedAt(null);
+        ExamAttempt early = attemptStartedAt(CLOSED_AT.minusSeconds(300), CLOSED_AT.plusSeconds(1800));
+        assertThrows(AppException.class,
+                () -> audiencePolicy.enforceResumeAttempt(STUDENT, noClosedAt, early, CLOSED_AT.plusSeconds(60)));
+    }
+
+    @Test
+    @DisplayName("R14-05: resume on a CLOSED exam still respects membership and a finished/preview attempt")
+    void resumeOnClosedExamStillChecksMembershipAndAttemptState() {
+        Exam exam = closedExam("CLOSED");
+        ExamAttempt attempt = attemptStartedAt(CLOSED_AT.minusSeconds(300), CLOSED_AT.plusSeconds(1800));
+
+        when(accessPolicy.isMember(STUDENT, "class-1")).thenReturn(false);
+        AppException ex = assertThrows(AppException.class,
+                () -> audiencePolicy.enforceResumeAttempt(STUDENT, exam, attempt, CLOSED_AT.plusSeconds(60)));
+        assertEquals(com.classroom.common.ErrorCode.FORBIDDEN, ex.getErrorCode());
+
+        ExamAttempt submitted = attemptStartedAt(CLOSED_AT.minusSeconds(300), CLOSED_AT.plusSeconds(1800));
+        submitted.setStatus("SUBMITTED");
+        assertFalse(audiencePolicy.canResumeAfterClose(exam, submitted));
+        ExamAttempt preview = new ExamAttempt("exam-closed", STUDENT, "class-1", CLOSED_AT.plusSeconds(1800), true);
+        preview.setStartedAt(CLOSED_AT.minusSeconds(300));
+        assertFalse(audiencePolicy.canResumeAfterClose(exam, preview));
+    }
+
+    @Test
+    @DisplayName("R14-05: a PUBLISHED exam resume is unchanged, and a DRAFT exam still cannot be resumed")
+    void resumeOnOpenStatusesUnchanged() {
+        ExamAttempt attempt = attemptStartedAt(CLOSED_AT.minusSeconds(300), CLOSED_AT.plusSeconds(1800));
+        when(accessPolicy.isMember(STUDENT, "class-1")).thenReturn(true);
+
+        assertDoesNotThrow(() -> audiencePolicy.enforceResumeAttempt(STUDENT, closedExam("PUBLISHED"), attempt, CLOSED_AT.minusSeconds(60)));
+        assertThrows(AppException.class,
+                () -> audiencePolicy.enforceResumeAttempt(STUDENT, closedExam("DRAFT"), attempt, CLOSED_AT.minusSeconds(60)));
+    }
+
+    @Test
+    @DisplayName("R14-05: NEW attempts stay blocked on CLOSED and ARCHIVED exams")
+    void newAttemptsBlockedOnClosedAndArchivedExams() {
+        when(accessPolicy.isMember(STUDENT, "class-1")).thenReturn(true);
+
+        for (String status : new String[]{"CLOSED", "ARCHIVED"}) {
+            Exam exam = closedExam(status);
+            AppException ex = assertThrows(AppException.class,
+                    () -> audiencePolicy.enforceEnterExam(STUDENT, exam, CLOSED_AT.plusSeconds(60), false));
+            assertEquals(com.classroom.common.ErrorCode.EXAM_NOT_OPEN, ex.getErrorCode());
+        }
+    }
+
+    @Test
+    @DisplayName("R14-05: canEnterExam is true on a CLOSED exam only while the learner has a running pre-close attempt")
+    void canEnterClosedExamOnlyWithRunningAttempt() {
+        Exam exam = closedExam("CLOSED");
+        Instant now = CLOSED_AT.plusSeconds(60);
+        when(accessPolicy.isMember(STUDENT, "class-1")).thenReturn(true);
+
+        // No attempt at all -> cannot enter.
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc(
+                "exam-closed", STUDENT, "IN_PROGRESS")).thenReturn(Optional.empty());
+        assertFalse(audiencePolicy.canEnterExam(STUDENT, exam, now, false));
+
+        // Running attempt started before the close -> can continue.
+        ExamAttempt running = attemptStartedAt(CLOSED_AT.minusSeconds(300), CLOSED_AT.plusSeconds(1800));
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc(
+                "exam-closed", STUDENT, "IN_PROGRESS")).thenReturn(Optional.of(running));
+        assertTrue(audiencePolicy.canEnterExam(STUDENT, exam, now, false));
+
+        // Its own deadline has passed -> no longer.
+        assertFalse(audiencePolicy.canEnterExam(STUDENT, exam, CLOSED_AT.plusSeconds(1800), false));
+    }
+
+    @Test
+    @DisplayName("R14-13: an ARCHIVED class accepts no NEW exam attempt (clear Vietnamese message) but a running one may continue")
+    void archivedClassBlocksNewAttemptsOnly() {
+        Exam exam = new Exam("class-1", "Exam All", "ALL", 30);
+        exam.setId("exam-all");
+        exam.setStatus("PUBLISHED");
+        exam.setAttemptLimit(2);
+        Instant now = Instant.parse("2026-03-02T10:00:00Z");
+        when(accessPolicy.isMember(STUDENT, "class-1")).thenReturn(true);
+        when(accessPolicy.isClassArchived("class-1")).thenReturn(true);
+
+        AppException ex = assertThrows(AppException.class,
+                () -> audiencePolicy.enforceEnterExam(STUDENT, exam, now, false));
+        assertEquals(com.classroom.common.ErrorCode.EXAM_NOT_OPEN, ex.getErrorCode());
+        assertTrue(ex.getMessage().contains("Lớp học đã được lưu trữ"));
+
+        // Resuming an existing attempt is not "entering" (isResume=true) and is unaffected.
+        assertDoesNotThrow(() -> audiencePolicy.enforceEnterExam(STUDENT, exam, now, false, true));
+
+        // canEnterExam: nothing running -> false; a running attempt -> true.
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc(
+                "exam-all", STUDENT, "IN_PROGRESS")).thenReturn(Optional.empty());
+        assertFalse(audiencePolicy.canEnterExam(STUDENT, exam, now, false));
+        ExamAttempt running = new ExamAttempt("exam-all", STUDENT, "class-1", now.plusSeconds(600), false);
+        running.setAudienceEligibleAtStart(true);
+        when(attemptRepository.findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc(
+                "exam-all", STUDENT, "IN_PROGRESS")).thenReturn(Optional.of(running));
+        assertTrue(audiencePolicy.canEnterExam(STUDENT, exam, now, false));
+    }
+
+    @Test
+    @DisplayName("R14-13: staff preview is not blocked by an ARCHIVED class")
+    void staffPreviewNotBlockedByArchivedClass() {
+        Exam exam = new Exam("class-1", "Exam All", "ALL", 30);
+        exam.setId("exam-all");
+        exam.setStatus("DRAFT");
+        when(accessPolicy.isOwner("owner-1", "class-1")).thenReturn(true);
+
+        assertDoesNotThrow(() -> audiencePolicy.enforceEnterExam("owner-1", exam, Instant.now(), true));
+        verify(accessPolicy, never()).isClassArchived(any());
     }
 }

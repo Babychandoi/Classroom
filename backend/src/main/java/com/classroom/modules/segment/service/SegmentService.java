@@ -105,8 +105,9 @@ public class SegmentService {
         if (classId != null && !classId.equals(segment.getClassId())) {
             return false;
         }
+        java.time.Instant now = java.time.Instant.now();
         if (classId == null || memberRepository.findByClassIdAndUserId(classId, userId)
-                .filter(member -> "ACTIVE".equalsIgnoreCase(member.getState())).isEmpty()) return false;
+                .filter(member -> member.isActiveAt(now)).isEmpty()) return false;
 
         List<SegmentRule> rules = parseRules(segment.getRulesJson());
         // Finding 4: Empty-rule segment must not evaluate to true (reject by default)
@@ -132,13 +133,30 @@ public class SegmentService {
     public Map<String, Object> previewSegment(String segmentId, String classId, String currentUserId) {
         accessPolicy.enforceManage(currentUserId, classId, "SEGMENT", "VIEW", null);
 
+        java.time.Instant previewNow = java.time.Instant.now();
         List<ClassMember> members = memberRepository.findByClassId(classId).stream()
-                .filter(member -> "ACTIVE".equalsIgnoreCase(member.getState())).toList();
-        int matched = 0;
+                .filter(member -> member.isActiveAt(previewNow)).toList();
 
-        for (ClassMember m : members) {
-            if (isUserInSegment(segmentId, m.getUserId(), classId)) {
-                matched++;
+        // R3-08: isUserInSegment re-fetches and re-parses the segment on every call; for a preview
+        // over an entire class's membership that means the same segment row and rules JSON are
+        // loaded and parsed once per member instead of once per request. Resolve them a single time
+        // and evaluate the parsed rules directly against each member's context.
+        Segment segment = segmentRepository.findById(segmentId).orElse(null);
+        int matched = 0;
+        if (segment != null && classId.equals(segment.getClassId())) {
+            List<SegmentRule> rules = parseRules(segment.getRulesJson());
+            boolean isOr = "OR".equalsIgnoreCase(segment.getLogicOperator());
+            if (!rules.isEmpty()) {
+                for (ClassMember m : members) {
+                    Map<String, Object> context = buildUserContext(m.getUserId(), classId);
+                    boolean isMatch;
+                    if (isOr) {
+                        isMatch = rules.stream().anyMatch(rule -> segmentParser.evaluate(rule, context));
+                    } else {
+                        isMatch = rules.stream().allMatch(rule -> segmentParser.evaluate(rule, context));
+                    }
+                    if (isMatch) matched++;
+                }
             }
         }
 
@@ -155,7 +173,9 @@ public class SegmentService {
         boolean isPro = proPolicy.isPro(userId, classId);
         context.put("IS_PRO", isPro);
 
-        long completedCount = progressRepository.countByUserIdAndClassIdAndCompletedTrue(userId, classId);
+        // R14-03: count completions only on learner-visible lessons (non-archived lesson in a
+        // non-archived section) so the segment criterion agrees with the progress shown to the learner.
+        long completedCount = progressRepository.countCompletedVisibleByUserIdAndClassId(userId, classId);
         context.put("COMPLETED_LESSONS_COUNT", completedCount);
 
         memberRepository.findByClassIdAndUserId(classId, userId).ifPresent(m -> {
@@ -173,18 +193,28 @@ public class SegmentService {
                 .collect(Collectors.toSet()) : Collections.emptySet();
         context.put("COURSE_OWNED", ownedCourses);
 
-        // Authoritative AVG_EXAM_SCORE population (Finding 10)
+        // R8-08/D-04: AVG_EXAM_SCORE must be the average of the learner's BEST published attempt
+        // per exam (mirroring LeaderboardService.recalculateUserPoints' "highest published score
+        // per exam" rule), not an average over every published attempt (which would let a poor
+        // resit drag the average down even though only the best result ever counts anywhere else).
+        // And per the segment parser's "missing value -> no match" rule, a learner with no published
+        // attempts at all must have NO entry for this criterion (SegmentParser.evaluate treats a
+        // missing key as non-match for every operator, including NOT_EQUALS) — populating it with
+        // 0.0 would wrongly make e.g. "AVG_EXAM_SCORE <= 50" match someone with no exam history.
         List<ExamAttempt> publishedAttempts = examAttemptRepository.findByClassIdAndUserIdAndStatusAndIsPreviewFalse(classId, userId, "PUBLISHED");
         if (publishedAttempts != null && !publishedAttempts.isEmpty()) {
-            double avgScore = publishedAttempts.stream()
-                    .map(ExamAttempt::getScore)
-                    .filter(Objects::nonNull)
-                    .mapToDouble(BigDecimal::doubleValue)
-                    .average()
-                    .orElse(0.0);
-            context.put("AVG_EXAM_SCORE", avgScore);
-        } else {
-            context.put("AVG_EXAM_SCORE", 0.0);
+            Map<String, BigDecimal> bestScoreByExam = new HashMap<>();
+            for (ExamAttempt attempt : publishedAttempts) {
+                BigDecimal score = attempt.getScore() != null ? attempt.getScore() : BigDecimal.ZERO;
+                bestScoreByExam.merge(attempt.getExamId(), score, BigDecimal::max);
+            }
+            if (!bestScoreByExam.isEmpty()) {
+                double avgScore = bestScoreByExam.values().stream()
+                        .mapToDouble(BigDecimal::doubleValue)
+                        .average()
+                        .orElse(0.0);
+                context.put("AVG_EXAM_SCORE", avgScore);
+            }
         }
 
         return context;

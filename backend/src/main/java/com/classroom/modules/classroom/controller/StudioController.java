@@ -9,6 +9,7 @@ import com.classroom.modules.classroom.repository.ClassMemberRepository;
 import com.classroom.modules.classroom.repository.ClassroomRepository;
 import com.classroom.modules.exam.repository.ExamRepository;
 import com.classroom.modules.learning.repository.CourseRepository;
+import com.classroom.modules.outbox.worker.OutboxMonitor;
 import com.classroom.modules.outbox.worker.OutboxWorker;
 import com.classroom.modules.audit.service.AuditService;
 import com.classroom.common.AppException;
@@ -29,6 +30,7 @@ public class StudioController {
     private final ExamRepository examRepository;
     private final AccessPolicy accessPolicy;
     private final OutboxWorker outboxWorker;
+    private final OutboxMonitor outboxMonitor;
     private final AuditService auditService;
 
     public StudioController(ClassroomRepository classroomRepository,
@@ -37,6 +39,7 @@ public class StudioController {
                             ExamRepository examRepository,
                             AccessPolicy accessPolicy,
                             OutboxWorker outboxWorker,
+                            OutboxMonitor outboxMonitor,
                             AuditService auditService) {
         this.classroomRepository = classroomRepository;
         this.memberRepository = memberRepository;
@@ -44,6 +47,7 @@ public class StudioController {
         this.examRepository = examRepository;
         this.accessPolicy = accessPolicy;
         this.outboxWorker = outboxWorker;
+        this.outboxMonitor = outboxMonitor;
         this.auditService = auditService;
     }
 
@@ -62,11 +66,24 @@ public class StudioController {
         overview.put("classId", classId);
         overview.put("slug", classroom.getSlug());
         overview.put("title", classroom.getTitle());
-        overview.put("memberCount", memberRepository.countByClassId(classId));
+        overview.put("memberCount", memberRepository.countByClassIdAndState(classId, "ACTIVE"));
         overview.put("courseCount", courseRepository.findByClassIdOrderByPositionAsc(classId).size());
         overview.put("examCount", examRepository.findByClassIdOrderByCreatedAtDesc(classId).size());
 
         return ResponseEntity.ok(ApiResponse.ok(overview));
+    }
+
+    /**
+     * R20-04: what is waiting in the projection outbox for this class - pending / processing / failed / dead-lettered events and whether
+     * MongoDB and Neo4j are currently reachable. Same permission as the replay it informs; platform-wide figures are in the OPS health
+     * details, not here.
+     */
+    @GetMapping("/classes/{classId}/outbox/status")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getOutboxStatus(
+            @PathVariable String classId,
+            @CurrentUser UserPrincipal principal) {
+        accessPolicy.enforceManage(principal.getId(), classId, "OUTBOX", "REPLAY", null);
+        return ResponseEntity.ok(ApiResponse.ok(outboxMonitor.classStatus(classId)));
     }
 
     @PostMapping("/classes/{classId}/outbox/replay")

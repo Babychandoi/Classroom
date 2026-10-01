@@ -43,6 +43,13 @@ public class Order {
     @Column(name = "paid_at")
     private Instant paidAt;
 
+    @Column(name = "refunded_at")
+    private Instant refundedAt;
+
+    /** D-19: the invite that opened the checkout of a PRIVATE paid class (one use reserved while the order is PENDING/PAID); null otherwise. */
+    @Column(name = "invite_id", length = 36)
+    private String inviteId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -154,6 +161,22 @@ public class Order {
 
     public void setPaidAt(Instant paidAt) {
         this.paidAt = paidAt;
+    }
+
+    public Instant getRefundedAt() {
+        return refundedAt;
+    }
+
+    public void setRefundedAt(Instant refundedAt) {
+        this.refundedAt = refundedAt;
+    }
+
+    public String getInviteId() {
+        return inviteId;
+    }
+
+    public void setInviteId(String inviteId) {
+        this.inviteId = inviteId;
     }
 
     public Instant getCreatedAt() {

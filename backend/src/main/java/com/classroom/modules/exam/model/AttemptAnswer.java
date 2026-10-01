@@ -1,12 +1,16 @@
 package com.classroom.modules.exam.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
+import org.springframework.data.domain.Persistable;
 import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
-@Table(name = "attempt_answers")
-public class AttemptAnswer {
+@Table(name = "attempt_answers", uniqueConstraints = {
+        @UniqueConstraint(name = "uq_aa_attempt_question", columnNames = {"attempt_id", "question_id"})
+})
+public class AttemptAnswer implements Persistable<String> {
 
     @Id
     @Column(length = 36)
@@ -29,6 +33,25 @@ public class AttemptAnswer {
 
     @Column(name = "graded_by", length = 36)
     private String gradedBy;
+
+    /**
+     * R20-06: the id is assigned in the constructor, so without this Spring Data would treat every new answer as a detached
+     * entity and {@code save()} would issue a {@code SELECT} by id (merge) before the INSERT - one wasted statement per answer.
+     */
+    @Transient
+    private boolean newEntity = true;
+
+    @PostLoad
+    @PostPersist
+    void markNotNew() {
+        this.newEntity = false;
+    }
+
+    @Override
+    @JsonIgnore
+    public boolean isNew() {
+        return newEntity;
+    }
 
     public AttemptAnswer() {
         this.id = UUID.randomUUID().toString();

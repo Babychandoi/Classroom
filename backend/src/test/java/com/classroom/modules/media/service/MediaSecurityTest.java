@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -185,6 +186,44 @@ public class MediaSecurityTest {
     }
 
     @Test
+    @DisplayName("R4-10: post-copy re-stat rejects and removes a final object whose size drifted from the registered size")
+    void completeUploadRejectsAndCleansUpSizeMismatchAfterCopy() throws Exception {
+        when(minioProperties.getBucket()).thenReturn("classroom-media");
+        StatObjectResponse stagingStat = mock(StatObjectResponse.class);
+        when(stagingStat.size()).thenReturn(1024L); // matches asset.getSizeBytes(), passes pre-copy check
+        when(stagingStat.contentType()).thenReturn("application/pdf");
+
+        // Staging object mismatches the registered size at the final-object re-stat: staging
+        // exists (pre-copy check passes), the final object does not yet exist (forcing a copy),
+        // and the freshly-copied final object comes back with a different size than registered —
+        // simulating bytes swapped in at the staging key between the pre-copy check and the copy.
+        StatObjectResponse driftedFinalStat = mock(StatObjectResponse.class);
+        when(driftedFinalStat.size()).thenReturn(2048L); // != asset.getSizeBytes() (1024L)
+
+        java.util.concurrent.atomic.AtomicInteger finalKeyStatCalls = new java.util.concurrent.atomic.AtomicInteger(0);
+        when(minioClient.statObject(any(StatObjectArgs.class))).thenAnswer(invocation -> {
+            StatObjectArgs args = invocation.getArgument(0);
+            if (asset.getUploadObjectKey().equals(args.object())) {
+                return stagingStat;
+            }
+            // First stat of the final key (inside the promotion try) finds nothing yet, forcing a
+            // copy; the post-copy re-stat (this test's R4-10 path) then returns the drifted size.
+            if (finalKeyStatCalls.getAndIncrement() == 0) {
+                throw new RuntimeException("NoSuchKey: final object not yet promoted");
+            }
+            return driftedFinalStat;
+        });
+
+        assertThrows(AppException.class, () -> mediaService.completeUpload("asset-1", "uploader-1"));
+
+        verify(minioClient).copyObject(any());
+        // The size-mismatched object this call just created must be cleaned up.
+        verify(minioClient).removeObject(argThat((RemoveObjectArgs args) -> asset.getObjectKey().equals(args.object())));
+        assertEquals("PENDING", asset.getStatus());
+        verify(mediaAssetRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
     @DisplayName("Finding 2: generateAuthorizedDownloadUrl denies download for non-purchased course media")
     void testDownloadDeniedForUnpurchasedCourse() {
         asset.setStatus("UPLOADED");
@@ -236,11 +275,33 @@ public class MediaSecurityTest {
         when(lessonRepository.findByMediaAssetId("asset-1")).thenReturn(List.of(lesson));
         when(courseRepository.findById("course-1")).thenReturn(Optional.of(course));
         when(learningPolicy.canLearn("student-1", course)).thenReturn(true);
+        stubPresignedGetUrl();
 
         DownloadUrlResponse res = mediaService.generateAuthorizedDownloadUrl("asset-1", "student-1");
         assertNotNull(res);
-        assertEquals("/api/v1/media/asset-1/download", res.getDownloadUrl());
-        assertNull(res.getExpiresAt());
+        assertPresignedGetUrl(res);
+    }
+
+    @Test
+    @DisplayName("R14-02: media of an archived lesson / archived section is refused to a learner even with course access")
+    void testDownloadDeniedForLessonHiddenFromLearner() throws Exception {
+        asset.setStatus("UPLOADED");
+        when(mediaAssetRepository.findById("asset-1")).thenReturn(Optional.of(asset));
+        when(accessPolicy.isOwner("student-1", "class-1")).thenReturn(false);
+
+        Lesson lesson = new Lesson("sec-1", "course-1", "Lesson 1", "VIDEO", 1);
+        lesson.setMediaAssetId("asset-1");
+        Course course = new Course("class-1", "Free Course", "FREE");
+
+        when(documentAssetRepository.findByMediaAssetId("asset-1")).thenReturn(List.of());
+        when(lessonRepository.findByMediaAssetId("asset-1")).thenReturn(List.of(lesson));
+        when(courseRepository.findById("course-1")).thenReturn(Optional.of(course));
+        when(learningPolicy.isLessonHiddenFromLearner(lesson, course, "student-1")).thenReturn(true);
+        lenient().when(learningPolicy.canLearn("student-1", course)).thenReturn(true);
+
+        AppException ex = assertThrows(AppException.class, () -> mediaService.generateAuthorizedDownloadUrl("asset-1", "student-1"));
+        assertEquals(com.classroom.common.ErrorCode.FORBIDDEN, ex.getErrorCode());
+        verify(minioPresigningClient, never()).getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class));
     }
 
     @Test
@@ -272,11 +333,11 @@ public class MediaSecurityTest {
         DocumentAsset doc = new DocumentAsset("class-1", "Doc A", "Desc", "asset-1", "PRODUCT_OWNER", "prod-A", null);
         when(documentAssetRepository.findByMediaAssetId("asset-1")).thenReturn(List.of(doc));
         when(entitlementRepository.hasProductAccess(eq("student-1"), eq("class-1"), eq("prod-A"), any())).thenReturn(true);
+        stubPresignedGetUrl();
 
         DownloadUrlResponse res = mediaService.generateAuthorizedDownloadUrl("asset-1", "student-1");
         assertNotNull(res);
-        assertEquals("/api/v1/media/asset-1/download", res.getDownloadUrl());
-        assertNull(res.getExpiresAt());
+        assertPresignedGetUrl(res);
     }
 
     @Test
@@ -404,11 +465,76 @@ public class MediaSecurityTest {
 
         when(documentAssetRepository.findByMediaAssetId("asset-1")).thenReturn(List.of());
         when(lessonRepository.findByMediaAssetId("asset-1")).thenReturn(List.of());
+        stubPresignedGetUrl();
 
         DownloadUrlResponse res = mediaService.generateAuthorizedDownloadUrl("asset-1", "uploader-1");
         assertNotNull(res);
-        assertEquals("/api/v1/media/asset-1/download", res.getDownloadUrl());
-        assertNull(res.getExpiresAt());
+        assertPresignedGetUrl(res);
+    }
+
+    @Test
+    @DisplayName("R8-01: the presigned GET URL is signed with a bounded TTL, and a content-disposition/type override for the true filename and MIME type")
+    void presignedDownloadUrlUsesShortTtlAndContentOverrides() throws Exception {
+        asset.setStatus("UPLOADED");
+        asset.setOriginalFilename("Bài giảng \"1\".pdf");
+        when(mediaAssetRepository.findById("asset-1")).thenReturn(Optional.of(asset));
+        when(accessPolicy.isOwner("uploader-1", "class-1")).thenReturn(false);
+        when(accessPolicy.canManage("uploader-1", "class-1", "MEDIA", "CREATE", null)).thenReturn(true);
+        when(documentAssetRepository.findByMediaAssetId("asset-1")).thenReturn(List.of());
+        when(lessonRepository.findByMediaAssetId("asset-1")).thenReturn(List.of());
+        when(minioProperties.getBucket()).thenReturn("classroom-media");
+        stubPresignedGetUrl();
+
+        Instant before = Instant.now();
+        DownloadUrlResponse res = mediaService.generateAuthorizedDownloadUrl("asset-1", "uploader-1");
+        Instant after = Instant.now();
+
+        assertNotNull(res.getExpiresAt());
+        assertFalse(res.getExpiresAt().isBefore(before.plus(MediaService.PRESIGNED_DOWNLOAD_TTL_MINUTES, ChronoUnit.MINUTES).minusSeconds(5)));
+        assertFalse(res.getExpiresAt().isAfter(after.plus(MediaService.PRESIGNED_DOWNLOAD_TTL_MINUTES, ChronoUnit.MINUTES).plusSeconds(5)));
+
+        ArgumentCaptor<GetPresignedObjectUrlArgs> captor = ArgumentCaptor.forClass(GetPresignedObjectUrlArgs.class);
+        verify(minioPresigningClient).getPresignedObjectUrl(captor.capture());
+        GetPresignedObjectUrlArgs args = captor.getValue();
+        assertEquals(io.minio.http.Method.GET, args.method());
+        assertEquals(asset.getObjectKey(), args.object());
+        assertEquals("classroom-media", args.bucket());
+        String extraQuery = args.extraQueryParams().toString();
+        assertTrue(extraQuery.contains("response-content-disposition"));
+        assertTrue(extraQuery.contains("attachment"));
+        assertTrue(extraQuery.contains("response-content-type"));
+        assertTrue(extraQuery.contains("application/pdf"));
+        // The filename is sanitized before it reaches the header value (no raw quotes/newlines).
+        assertFalse(extraQuery.contains("\"1\""));
+    }
+
+    @Test
+    @DisplayName("R9-08: a Vietnamese filename is carried as RFC 5987 filename*=UTF-8''... with an ASCII fallback")
+    void presignedDownloadUrlEncodesVietnameseFilenameCorrectly() throws Exception {
+        asset.setStatus("UPLOADED");
+        asset.setOriginalFilename("Bài giảng tiếng Việt.pdf");
+        when(mediaAssetRepository.findById("asset-1")).thenReturn(Optional.of(asset));
+        when(accessPolicy.isOwner("uploader-1", "class-1")).thenReturn(false);
+        when(accessPolicy.canManage("uploader-1", "class-1", "MEDIA", "CREATE", null)).thenReturn(true);
+        when(documentAssetRepository.findByMediaAssetId("asset-1")).thenReturn(List.of());
+        when(lessonRepository.findByMediaAssetId("asset-1")).thenReturn(List.of());
+        when(minioProperties.getBucket()).thenReturn("classroom-media");
+        stubPresignedGetUrl();
+
+        mediaService.generateAuthorizedDownloadUrl("asset-1", "uploader-1");
+
+        ArgumentCaptor<GetPresignedObjectUrlArgs> captor = ArgumentCaptor.forClass(GetPresignedObjectUrlArgs.class);
+        verify(minioPresigningClient).getPresignedObjectUrl(captor.capture());
+        String extraQuery = captor.getValue().extraQueryParams().toString();
+
+        assertTrue(extraQuery.contains("attachment"));
+        // RFC 5987 extended notation: percent-encoded UTF-8 bytes of the real filename.
+        assertTrue(extraQuery.contains("filename*=UTF-8''"));
+        String expectedEncoded = java.net.URLEncoder.encode("Bài giảng tiếng Việt.pdf", java.nio.charset.StandardCharsets.UTF_8)
+                .replace("+", "%20");
+        assertTrue(extraQuery.contains(expectedEncoded), "expected encoded filename in: " + extraQuery);
+        // No raw non-ASCII bytes leak into the plain filename="..." fallback form.
+        assertFalse(extraQuery.contains("filename=\"Bài giảng tiếng Việt.pdf\""));
     }
 
     @Test
@@ -458,6 +584,162 @@ public class MediaSecurityTest {
     }
 
     @Test
+    @DisplayName("R1-08: magic-byte validation runs against the promoted final object, not staging (TOCTOU hardening)")
+    void completeUploadValidatesMagicBytesAgainstFinalObjectAfterCopy() throws Exception {
+        when(minioProperties.getBucket()).thenReturn("classroom-media");
+        StatObjectResponse stagingStat = mock(StatObjectResponse.class);
+        when(stagingStat.size()).thenReturn(1024L);
+        when(stagingStat.contentType()).thenReturn("application/pdf");
+        // Staging exists; the final key does not yet exist, forcing the copy path rather than the
+        // already-promoted short-circuit.
+        when(minioClient.statObject(any(StatObjectArgs.class))).thenAnswer(invocation -> {
+            StatObjectArgs args = invocation.getArgument(0);
+            if (asset.getObjectKey().equals(args.object())) {
+                throw new RuntimeException("NoSuchKey: final object not promoted yet");
+            }
+            return stagingStat;
+        });
+        stubPdfBytes();
+        when(mediaAssetRepository.saveAndFlush(any(MediaAsset.class))).thenAnswer(i -> i.getArgument(0));
+
+        mediaService.completeUpload("asset-1", "uploader-1");
+
+        // The object is copied to its final key before content is inspected, and inspection reads
+        // from the final key - closing the window where a fresh PUT to the still-valid staging
+        // presigned URL could swap the bytes out between validation and promotion.
+        var inOrder = inOrder(minioClient);
+        inOrder.verify(minioClient).copyObject(any(io.minio.CopyObjectArgs.class));
+        inOrder.verify(minioClient).getObject(argThat(args -> asset.getObjectKey().equals(args.object())));
+    }
+
+    @Test
+    @DisplayName("R1-08: a final object that fails magic-byte validation is deleted when THIS call created it by copy")
+    void completeUploadRemovesFinalObjectWhenValidationFails() throws Exception {
+        when(minioProperties.getBucket()).thenReturn("classroom-media");
+        StatObjectResponse stat = mock(StatObjectResponse.class);
+        when(stat.size()).thenReturn(1024L);
+        when(stat.contentType()).thenReturn("application/pdf");
+        // Staging exists; the final object does not yet exist, so this call promotes it via
+        // copyObject (R2-03: only an object THIS call created by copy may be deleted below).
+        when(minioClient.statObject(any(StatObjectArgs.class))).thenAnswer(invocation -> {
+            StatObjectArgs args = invocation.getArgument(0);
+            if (asset.getObjectKey().equals(args.object())) {
+                throw new RuntimeException("NoSuchKey");
+            }
+            return stat;
+        });
+        // Bytes at the final key do not match the declared PDF mime type (e.g. swapped after the
+        // presigned staging PUT was reused).
+        when(minioClient.getObject(any(io.minio.GetObjectArgs.class)))
+                .thenReturn(new io.minio.GetObjectResponse(new okhttp3.Headers.Builder().build(), "", "", "",
+                        new java.io.ByteArrayInputStream("MZ-not-a-real-pdf".getBytes())));
+
+        assertThrows(AppException.class, () -> mediaService.completeUpload("asset-1", "uploader-1"));
+
+        verify(minioClient).copyObject(any());
+
+        verify(minioClient).removeObject(argThat((RemoveObjectArgs args) -> asset.getObjectKey().equals(args.object())));
+        verify(mediaAssetRepository, never()).saveAndFlush(any());
+        assertEquals("PENDING", asset.getStatus());
+    }
+
+    @Test
+    @DisplayName("R2-03: a genuine content mismatch on an object promoted by an earlier call is reported but not deleted")
+    void completeUploadDoesNotDeletePreviouslyPromotedObjectEvenOnGenuineMismatch() throws Exception {
+        // Staging is already gone and the final object already exists (an earlier call promoted
+        // it): this call performs no copyObject. Its magic-byte check still genuinely fails, but
+        // since this call did not create the final object, it must not delete bytes another
+        // request (or a previous completed call) may already be relying on.
+        when(minioProperties.getBucket()).thenReturn("classroom-media");
+        StatObjectResponse finalStat = mock(StatObjectResponse.class);
+        when(finalStat.size()).thenReturn(1024L);
+        when(finalStat.contentType()).thenReturn("application/pdf");
+        when(minioClient.statObject(any(StatObjectArgs.class))).thenAnswer(invocation -> {
+            StatObjectArgs args = invocation.getArgument(0);
+            if (asset.getUploadObjectKey().equals(args.object())) {
+                throw new RuntimeException("NoSuchKey: staging object already removed");
+            }
+            return finalStat;
+        });
+        when(minioClient.getObject(any(io.minio.GetObjectArgs.class)))
+                .thenReturn(new io.minio.GetObjectResponse(new okhttp3.Headers.Builder().build(), "", "", "",
+                        new java.io.ByteArrayInputStream("MZ-not-a-real-pdf".getBytes())));
+
+        assertThrows(AppException.class, () -> mediaService.completeUpload("asset-1", "uploader-1"));
+
+        verify(minioClient, never()).copyObject(any());
+        verify(minioClient, never()).removeObject(any(RemoveObjectArgs.class));
+        assertEquals("PENDING", asset.getStatus());
+    }
+
+    @Test
+    @DisplayName("R2-03: completeUpload on an already-UPLOADED asset is idempotent and touches no MinIO calls")
+    void completeUploadOnAlreadyUploadedAssetReturnsEarlyWithoutRevalidating() throws Exception {
+        asset.setStatus("UPLOADED");
+
+        MediaAsset result = mediaService.completeUpload("asset-1", "uploader-1");
+
+        assertEquals("UPLOADED", result.getStatus());
+        verifyNoInteractions(minioClient);
+        verify(mediaAssetRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("R2-03: a transient MinIO read error validating an already-promoted final object does not delete it")
+    void completeUploadDoesNotDeleteFinalObjectOnTransientReadErrorWhenNotCreatedThisCall() throws Exception {
+        // Staging is already gone and the final object stat succeeds (a previous call already
+        // promoted it) - this call must not have copied anything - but the magic-byte read then
+        // fails with a transient I/O error rather than a genuine content mismatch.
+        when(minioProperties.getBucket()).thenReturn("classroom-media");
+        StatObjectResponse finalStat = mock(StatObjectResponse.class);
+        when(finalStat.size()).thenReturn(1024L);
+        when(finalStat.contentType()).thenReturn("application/pdf");
+        when(minioClient.statObject(any(StatObjectArgs.class))).thenAnswer(invocation -> {
+            StatObjectArgs args = invocation.getArgument(0);
+            if (asset.getUploadObjectKey().equals(args.object())) {
+                throw new RuntimeException("NoSuchKey: staging object already removed");
+            }
+            return finalStat;
+        });
+        when(minioClient.getObject(any(io.minio.GetObjectArgs.class)))
+                .thenThrow(new RuntimeException("connection reset"));
+
+        assertThrows(AppException.class, () -> mediaService.completeUpload("asset-1", "uploader-1"));
+
+        verify(minioClient, never()).copyObject(any());
+        verify(minioClient, never()).removeObject(any(RemoveObjectArgs.class));
+        verify(mediaAssetRepository, never()).saveAndFlush(any());
+        assertEquals("PENDING", asset.getStatus());
+    }
+
+    @Test
+    @DisplayName("R2-03: a transient read error on a final object copied by this same call still leaves it in place")
+    void completeUploadDoesNotDeleteFinalObjectOnTransientReadErrorEvenWhenCreatedThisCall() throws Exception {
+        when(minioProperties.getBucket()).thenReturn("classroom-media");
+        StatObjectResponse stat = mock(StatObjectResponse.class);
+        when(stat.size()).thenReturn(1024L);
+        when(stat.contentType()).thenReturn("application/pdf");
+        when(minioClient.statObject(any(StatObjectArgs.class))).thenAnswer(invocation -> {
+            StatObjectArgs args = invocation.getArgument(0);
+            if (asset.getObjectKey().equals(args.object())) {
+                // Final object does not exist yet: this call promotes it via copyObject.
+                throw new RuntimeException("NoSuchKey");
+            }
+            return stat;
+        });
+        when(minioClient.getObject(any(io.minio.GetObjectArgs.class)))
+                .thenThrow(new RuntimeException("connection reset"));
+
+        assertThrows(AppException.class, () -> mediaService.completeUpload("asset-1", "uploader-1"));
+
+        verify(minioClient).copyObject(any());
+        // Even though this call created the final object, a transient read error is not a genuine
+        // content mismatch, so the freshly-promoted object must not be deleted.
+        verify(minioClient, never()).removeObject(any(RemoveObjectArgs.class));
+        assertEquals("PENDING", asset.getStatus());
+    }
+
+    @Test
     @DisplayName("Abandoned upload cleanup removes expired staging object and metadata")
     void cleanupRemovesOnlyExpiredPendingUploads() throws Exception {
         asset.setCreatedAt(Instant.now().minus(3, ChronoUnit.HOURS));
@@ -474,5 +756,18 @@ public class MediaSecurityTest {
         when(minioClient.getObject(any(io.minio.GetObjectArgs.class)))
                 .thenReturn(new io.minio.GetObjectResponse(new okhttp3.Headers.Builder().build(), "", "", "",
                         new java.io.ByteArrayInputStream("%PDF-1.4".getBytes())));
+    }
+
+    /** R8-01: authorized downloads are now issued as a presigned MinIO GET URL, not a proxy path. */
+    private void stubPresignedGetUrl() throws Exception {
+        lenient().when(minioProperties.getBucket()).thenReturn("classroom-media");
+        lenient().when(minioPresigningClient.getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class)))
+                .thenReturn("http://localhost:9000/classroom-media/" + asset.getObjectKey() + "?X-Amz-Signature=stub");
+    }
+
+    private void assertPresignedGetUrl(DownloadUrlResponse res) {
+        assertTrue(res.getDownloadUrl().startsWith("http://localhost:9000/"));
+        assertNotNull(res.getExpiresAt());
+        assertTrue(res.getExpiresAt().isAfter(Instant.now()));
     }
 }

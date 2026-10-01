@@ -1,0 +1,39 @@
+# HTTPS server on this Windows machine. Keep the demo stack loopback-only.
+services:
+  caddy:
+    image: caddy:2.11-alpine
+    container_name: classroom-caddy
+    restart: unless-stopped
+    ports:
+      - "${SERVER_BIND_ADDRESS:-0.0.0.0}:80:80"
+      - "${SERVER_BIND_ADDRESS:-0.0.0.0}:443:443"
+      - "${SERVER_BIND_ADDRESS:-0.0.0.0}:9443:9443"
+    environment:
+      SERVER_ADDRESS: ${SERVER_ADDRESS:-192.168.1.7}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - classroom-net
+  backend:
+    environment:
+      APP_COOKIE_SECURE: "true"
+      APP_CORS_ALLOWED_ORIGINS: https://${SERVER_ADDRESS:-192.168.1.7},https://localhost
+      MINIO_EXTERNAL_ENDPOINT: https://${SERVER_ADDRESS:-192.168.1.7}:9443
+      DEMO_SEED_ENABLED: "false"
+      PAYMENT_SANDBOX_ENABLED: "false"
+      MOCK_PAYMENT_CHECKOUT_ENABLED: "false"
+      APP_SECURITY_RATE_LIMIT_STORE: mysql
+  frontend:
+    build:
+      args:
+        VITE_ENABLE_DEMO_LOGIN: "false"
+    environment:
+      REAL_IP_TRUSTED_PROXY: caddy
+      APP_PUBLIC_SCHEME: https
+      APP_PUBLIC_PORT: "443"
+      MINIO_PUBLIC_ORIGIN: https://${SERVER_ADDRESS:-192.168.1.7}:9443
+volumes:
+  caddy-data:
+  caddy-config:

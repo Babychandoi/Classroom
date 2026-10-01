@@ -148,6 +148,43 @@ public class MockPaymentSecurityTest {
     }
 
     @Test
+    @DisplayName("R4-07: staff with STORE:EDIT cannot settle their own order even though they pass canManage")
+    void testStaffWithStoreEditCannotSettleOwnOrder() {
+        // The order's buyer is "buyer-1"; this staff member is also that buyer, but holds a
+        // legitimate STORE:EDIT grant over the class (e.g. they are also a paying member).
+        UserPrincipal principal = new UserPrincipal("buyer-1", "buyer@test.local", "", "Buyer", "USER", "ACTIVE");
+        when(orderRepository.findByOrderNumber("ORD-1234")).thenReturn(Optional.of(order));
+        when(accessPolicy.isOwner("buyer-1", "class-1")).thenReturn(false);
+        when(accessPolicy.canManage("buyer-1", "class-1", "STORE", "EDIT", null)).thenReturn(true);
+
+        WebhookPayload payload = new WebhookPayload("ORD-1234", "TX-1", "PAYMENT_SUCCESS", new BigDecimal("199000"), "VND");
+
+        AppException ex = assertThrows(AppException.class, () -> controller.simulateWebhook(principal, payload));
+        assertEquals(com.classroom.common.ErrorCode.FORBIDDEN, ex.getErrorCode());
+        verifyNoInteractions(commerceService);
+    }
+
+    @Test
+    @DisplayName("R4-07: the class owner may still settle an order where they happen to be the buyer")
+    void testOwnerCanSettleEvenAsBuyer() throws Exception {
+        Order ownerOrder = new Order("ORD-5678", "owner-1", "class-1", new BigDecimal("50000"), "VND", "MOCK");
+        ownerOrder.setStatus("PENDING");
+        UserPrincipal principal = new UserPrincipal("owner-1", "owner@test.local", "", "Owner", "USER", "ACTIVE");
+        when(orderRepository.findByOrderNumber("ORD-5678")).thenReturn(Optional.of(ownerOrder));
+        when(accessPolicy.isOwner("owner-1", "class-1")).thenReturn(true);
+        when(mockPaymentProvider.generateSignature(any())).thenReturn("mock-sig");
+        OrderDto orderDto = new OrderDto();
+        orderDto.setStatus("PAID");
+        when(commerceService.handlePaymentWebhook(eq("MOCK"), any(), any(), eq("mock-sig"))).thenReturn(orderDto);
+
+        WebhookPayload payload = new WebhookPayload("ORD-5678", "TX-1", "PAYMENT_SUCCESS", new BigDecimal("50000"), "VND");
+
+        ResponseEntity<ApiResponse<OrderDto>> response = controller.simulateWebhook(principal, payload);
+        assertNotNull(response.getBody());
+        assertEquals("PAID", response.getBody().getData().getStatus());
+    }
+
+    @Test
     @DisplayName("Finding 1 & 7: simulateWebhook constructs safe payload from DB and signs server-side when called by OWNER")
     void testSimulateConstructsSafePayload() throws Exception {
         UserPrincipal principal = new UserPrincipal("owner-1", "owner@test.local", "", "Owner", "USER", "ACTIVE");

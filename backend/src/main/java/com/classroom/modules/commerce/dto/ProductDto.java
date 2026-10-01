@@ -11,11 +11,18 @@ public class ProductDto {
     private String title;
     private String description;
     private String status;
+    /** D-19: STANDARD (PRO package / course product) or CLASS_ACCESS (the product that sells membership of a PAID class). */
+    private String kind = "STANDARD";
     private BigDecimal price;
     private String currency;
     private int durationDays;
     private Instant accessStartsAt;
     private boolean userHasActiveEntitlement;
+    // R19-06: the viewer already paid for this product but every entitlement starts in the future (pre-sale
+    // purchase / product accessStartsAt ahead of now). userHasActiveEntitlement stays false (no access yet);
+    // entitlementStartsAt is when the earliest one begins, entitlementExpiresAt the end of the paid chain.
+    private boolean userOwnsUpcoming;
+    private Instant entitlementStartsAt;
     private Instant entitlementExpiresAt;
     private Instant createdAt;
 
@@ -77,6 +84,14 @@ public class ProductDto {
         this.status = status;
     }
 
+    public String getKind() {
+        return kind;
+    }
+
+    public void setKind(String kind) {
+        this.kind = kind;
+    }
+
     public BigDecimal getPrice() {
         return price;
     }
@@ -111,6 +126,22 @@ public class ProductDto {
 
     public void setUserHasActiveEntitlement(boolean userHasActiveEntitlement) {
         this.userHasActiveEntitlement = userHasActiveEntitlement;
+    }
+
+    public boolean isUserOwnsUpcoming() {
+        return userOwnsUpcoming;
+    }
+
+    public void setUserOwnsUpcoming(boolean userOwnsUpcoming) {
+        this.userOwnsUpcoming = userOwnsUpcoming;
+    }
+
+    public Instant getEntitlementStartsAt() {
+        return entitlementStartsAt;
+    }
+
+    public void setEntitlementStartsAt(Instant entitlementStartsAt) {
+        this.entitlementStartsAt = entitlementStartsAt;
     }
 
     public Instant getEntitlementExpiresAt() {

@@ -1,0 +1,10 @@
+# Include after compose.server.yaml and compose.multinode.yaml so the second node has the same HTTPS policy.
+services:
+  backend-second:
+    environment:
+      APP_COOKIE_SECURE: "true"
+      APP_CORS_ALLOWED_ORIGINS: https://${SERVER_ADDRESS:-192.168.1.7},https://localhost
+      MINIO_EXTERNAL_ENDPOINT: https://${SERVER_ADDRESS:-192.168.1.7}:9443
+      DEMO_SEED_ENABLED: "false"
+      PAYMENT_SANDBOX_ENABLED: "false"
+      MOCK_PAYMENT_CHECKOUT_ENABLED: "false"

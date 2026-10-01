@@ -1,5 +1,6 @@
 package com.classroom.modules.media.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
@@ -45,7 +46,11 @@ public class MediaAsset {
     public void setScopeCourseId(String scopeCourseId) { this.scopeCourseId = scopeCourseId; }
 
     @Column(nullable = false, length = 32)
-    private String status = "PENDING"; // PENDING, UPLOADED, FAILED
+    private String status = "PENDING"; // PENDING, UPLOADING (completion in progress, R20-06), UPLOADED, FAILED
+
+    /** R20-06: lease timestamp of the request that is validating/promoting this upload (status UPLOADING); never exposed. */
+    @Column(name = "completion_claimed_at")
+    private Instant completionClaimedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -133,6 +138,15 @@ public class MediaAsset {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    @JsonIgnore
+    public Instant getCompletionClaimedAt() {
+        return completionClaimedAt;
+    }
+
+    public void setCompletionClaimedAt(Instant completionClaimedAt) {
+        this.completionClaimedAt = completionClaimedAt;
     }
 
     public Instant getCreatedAt() {

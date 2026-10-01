@@ -2,6 +2,7 @@ package com.classroom.modules.exam.service;
 
 import com.classroom.common.AppException;
 import com.classroom.common.ErrorCode;
+import com.classroom.common.ReorderRequests;
 import com.classroom.modules.audit.service.AuditService;
 import com.classroom.modules.classroom.policy.AccessPolicy;
 import com.classroom.modules.exam.dto.*;
@@ -9,18 +10,24 @@ import com.classroom.modules.exam.model.*;
 import com.classroom.modules.exam.policy.ExamAudiencePolicy;
 import com.classroom.modules.exam.policy.ExamScoringPolicy;
 import com.classroom.modules.exam.repository.*;
+import com.classroom.modules.identity.model.User;
+import com.classroom.modules.identity.policy.ProfileVisibilityPolicy;
+import com.classroom.modules.identity.repository.UserRepository;
 import com.classroom.modules.learning.model.Course;
 import com.classroom.modules.learning.repository.CourseRepository;
 import com.classroom.modules.outbox.service.OutboxService;
 import com.classroom.modules.ranking.service.LeaderboardService;
 import com.classroom.modules.segment.model.Segment;
 import com.classroom.modules.segment.repository.SegmentRepository;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.scheduling.annotation.Scheduled;
 
@@ -37,6 +44,13 @@ public class ExamService {
     public static final int MAX_QUESTION_POINTS = 10_000;
     public static final int MAX_EXAM_TOTAL_POINTS = 100_000;
 
+    /**
+     * R19-04: what a previewer without answer-key access is told instead of a score. A preview attempt has no
+     * attempt limit, so revealing its score / per-question points to someone who may not read the answer key would
+     * let them recover the key by resubmitting (an oracle); result surfaces show this notice instead.
+     */
+    public static final String PREVIEW_RESULT_HIDDEN_NOTICE = "Chế độ xem thử: không hiển thị điểm/đáp án cho quyền của bạn";
+
     private final ExamRepository examRepository;
     private final QuestionRepository questionRepository;
     private final AnswerOptionRepository optionRepository;
@@ -51,6 +65,8 @@ public class ExamService {
     private final SegmentRepository segmentRepository;
     private final AuditService auditService;
     private final OutboxService outboxService;
+    private final UserRepository userRepository;
+    private final ProfileVisibilityPolicy profileVisibilityPolicy;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     @org.springframework.context.annotation.Lazy
@@ -69,7 +85,9 @@ public class ExamService {
                        CourseRepository courseRepository,
                        SegmentRepository segmentRepository,
                        AuditService auditService,
-                       OutboxService outboxService) {
+                       OutboxService outboxService,
+                       UserRepository userRepository,
+                       ProfileVisibilityPolicy profileVisibilityPolicy) {
         this.examRepository = examRepository;
         this.questionRepository = questionRepository;
         this.optionRepository = optionRepository;
@@ -84,6 +102,8 @@ public class ExamService {
         this.segmentRepository = segmentRepository;
         this.auditService = auditService;
         this.outboxService = outboxService;
+        this.userRepository = userRepository;
+        this.profileVisibilityPolicy = profileVisibilityPolicy;
     }
 
     @Transactional(readOnly = true)
@@ -96,23 +116,28 @@ public class ExamService {
         List<ExamDto> dtos = new ArrayList<>();
         Instant now = Instant.now();
 
+        var eligibility = audiencePolicy.listingEligibility(userId, classId, exams, now);
+        Map<String, Long> questionCounts = new HashMap<>();
+        if (!exams.isEmpty()) for (var count : questionRepository.countByExamIds(exams.stream().map(Exam::getId).toList()))
+            questionCounts.put(count.getExamId(), count.getQuestions());
         for (Exam e : exams) {
-            boolean canManageThisExam = userId != null
-                    && accessPolicy.canManage(userId, classId, "EXAM", "VIEW", resolveRbacCourseScope(e));
+            // R7-02: draft visibility mirrors LearningPolicy.canViewUnpublished — staff holding
+            // EXAM:CREATE/EDIT/PUBLISH (class-wide, or scoped to this exam's targetCourseId) must
+            // see their own draft exams in the list, not just staff with EXAM:VIEW.
             // Hide unpublished / draft exams from regular students (Finding 3)
-            if (!canManageThisExam && "DRAFT".equalsIgnoreCase(e.getStatus())) {
+            // Published metadata does not use authoring grants. Avoid several permission queries
+            // per published exam while keeping the exact same draft visibility boundary.
+            if ("DRAFT".equalsIgnoreCase(e.getStatus())
+                    && (userId == null || !canViewDraftExam(userId, classId, e))) {
                 continue;
             }
 
-            boolean canEnter = (userId != null) && audiencePolicy.canEnterExam(userId, e, now, false);
-            long attemptsCount = (userId != null)
-                    ? attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse(e.getId(), userId)
-                    : 0;
+            var entry = eligibility.getOrDefault(e.getId(), new ExamAudiencePolicy.EntryState(false, 0));
 
             // Safe metadata only, omit question inventory from list (Finding 1, 3)
-            ExamDto dto = toExamDto(e, false, false);
-            dto.setCanEnter(canEnter);
-            dto.setUserAttemptsCount(attemptsCount);
+            ExamDto dto = toExamDto(e, false, false, questionCounts.getOrDefault(e.getId(), 0L));
+            dto.setCanEnter(entry.canEnter());
+            dto.setUserAttemptsCount(entry.attempts());
             dtos.add(dto);
         }
 
@@ -129,7 +154,10 @@ public class ExamService {
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
 
         boolean isOwner = accessPolicy.isOwner(userId, exam.getClassId());
-        boolean canViewManage = isOwner || accessPolicy.canManage(userId, exam.getClassId(), "EXAM", "VIEW", exam.getTargetCourseId());
+        // R7-02: mirrors LearningPolicy.canViewUnpublished — VIEW alone must not be the only grant
+        // that unlocks a staff member's own draft exam; CREATE/EDIT/PUBLISH (class-wide or scoped
+        // to this exam's targetCourseId) authors it and must also see it.
+        boolean canViewManage = isOwner || canViewDraftExam(userId, exam.getClassId(), exam);
 
         // Security boundary: non-staff must be class members and cannot access unpublished exams (Finding 1, Finding 3)
         if (!canViewManage) {
@@ -152,18 +180,48 @@ public class ExamService {
 
         Instant now = Instant.now();
         dto.setCanEnter(audiencePolicy.canEnterExam(userId, exam, now, false));
-        dto.setUserAttemptsCount(attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse(examId, userId));
+        dto.setUserAttemptsCount(attemptRepository.countAttemptsTowardLimit(examId, userId));
 
         return dto;
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public ExamAttemptDto startAttempt(String examId, String userId, boolean isPreview) {
+        return startAttempt(examId, userId, isPreview, false);
+    }
+
+    /**
+     * R8-02: {@code resumeOnly} lets the attempt page's mount-time check resume an existing
+     * IN_PROGRESS attempt without ever creating a new one. A student who reloads the attempt page
+     * after already submitting (or with no attempt at all) must see a 404 here rather than silently
+     * burning a fresh attempt — the page falls back to an explicit "Bắt đầu làm bài" action that
+     * calls this same endpoint with {@code resumeOnly=false}.
+     */
+    /**
+     * R20-06: READ_COMMITTED + two narrow locks instead of one exclusive lock on the exam row for the whole start.
+     *
+     * <p>The exam row used to be taken {@code FOR UPDATE}, so N students pressing "Bắt đầu" at the same moment
+     * queued behind each other <em>while every one of them held a pooled connection</em> (200 simultaneous starts:
+     * p95 8.1 s, 70 s of cumulative lock wait). Now:</p>
+     * <ul>
+     *   <li>the exam row is read {@code FOR SHARE}: starts do not exclude each other, but an author's close / edit / publish
+     *   (exclusive) still waits for in-flight starts and the next start re-reads the new status, exactly as before;</li>
+     *   <li>the attempt-limit / attempt-number / "resume the running attempt" decision is serialised per <b>(exam, user)</b>
+     *   through one row of {@code exam_user_locks} (see {@link ExamAttemptRepository#lockUserScope}), so a double click, two
+     *   tabs or a retry from the same student cannot create two attempts or exceed the limit, while different students never
+     *   contend. {@code uq_ea_exam_user_attempt} stays as the last line of defence;</li>
+     *   <li>READ_COMMITTED makes every read after the locks see what the previous holder of the per-user lock committed.</li>
+     * </ul>
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public ExamAttemptDto startAttempt(String examId, String userId, boolean isPreview, boolean resumeOnly) {
         Instant now = Instant.now();
 
-        // Pessimistic write lock on exam row: serialize attempt creation and fail closed on lookup errors (Review 19 Finding 4)
-        Exam exam = examRepository.findByIdForUpdate(examId)
+        // Shared (not exclusive) lock on the exam row; fails closed on lookup errors (Review 19 Finding 4).
+        Exam exam = examRepository.findByIdForShare(examId)
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
+        // Serialise this learner's starts of this exam (and only theirs).
+        attemptRepository.lockUserScope(examId, userId);
 
         // If preview is requested, strictly validate caller is OWNER or staff with EXAM:PREVIEW or EXAM:EDIT
         if (isPreview) {
@@ -174,6 +232,17 @@ public class ExamService {
                 throw new AppException(ErrorCode.STAFF_PERMISSION_DENIED, "Chỉ chủ lớp hoặc nhân sự có quyền xem trước kỳ thi mới được thực hiện preview");
             }
             audiencePolicy.enforceEnterExam(userId, exam, now, true, false);
+
+            // R14-15: "Chạy thử" must produce exactly ONE preview attempt per user+exam at a time.
+            // The Studio button and the attempt page used to each call this endpoint, creating two
+            // (the first one stranded IN_PROGRESS). An existing, unexpired IN_PROGRESS preview
+            // attempt is resumed instead - as long as the exam content it snapshotted is still what
+            // the exam contains now (an author editing a DRAFT question and re-running the preview
+            // must see the edit, so a stale snapshot is retired and a fresh preview is started).
+            Optional<ExamAttemptDto> resumedPreview = resumeExistingPreviewAttempt(exam, userId, now);
+            if (resumedPreview.isPresent()) {
+                return resumedPreview.get();
+            }
         } else {
             // Classroom personnel must use the isolated preview path. Otherwise OWNER/STAFF
             // membership in an ALL audience would create a normal ranked student attempt.
@@ -182,8 +251,10 @@ public class ExamService {
                 throw new AppException(ErrorCode.FORBIDDEN, "Nhân sự lớp học chỉ có thể làm bài thi ở chế độ xem trước");
             }
             // Check for existing active IN_PROGRESS attempt first before enforcing attempt limit (Round 8 Finding 1)
+            // R2-04: exclude preview attempts so a former staff member demoted to student cannot
+            // resume their own old preview attempt here (it would then fail audience checks).
             Optional<ExamAttempt> inProgressOpt = attemptRepository
-                    .findFirstByExamIdAndUserIdAndStatusOrderByStartedAtDesc(examId, userId, "IN_PROGRESS");
+                    .findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc(examId, userId, "IN_PROGRESS");
             if (inProgressOpt.isPresent()) {
                 ExamAttempt existing = inProgressOpt.get();
                 boolean withinAttemptDuration = now.isBefore(existing.getEndsAt());
@@ -199,12 +270,19 @@ public class ExamService {
 
                     // Return immutable question snapshot taken at start of attempt
                     List<QuestionDto> questionDtos = parseQuestionSnapshot(existing.getQuestionSnapshotJson());
-                    if (questionDtos == null || questionDtos.isEmpty()) {
-                        log.error("Failed to parse question snapshot for attempt {}", existing.getId());
-                        throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR, "Không thể tải bản chụp câu hỏi của bài thi đã lưu");
+                    if (questionDtos != null && !questionDtos.isEmpty()) {
+                        dto.setQuestions(questionDtos);
+                        return dto;
                     }
-                    dto.setQuestions(questionDtos);
-                    return dto;
+                    // R19-05: an attempt with no usable question snapshot (created while the exam had no questions)
+                    // can never be answered or submitted - it used to sit IN_PROGRESS answering every call with a
+                    // 500. Retire it instead of stranding the learner: CANCELLED attempts do not count toward the
+                    // limit, so the checks below either start a proper attempt or refuse with a clear message.
+                    log.warn("Cancelling attempt {} of user {} on exam {}: it has no usable question snapshot",
+                            existing.getId(), userId, examId);
+                    existing.setStatus("CANCELLED");
+                    existing.setCancelReason("Lượt làm bài không có câu hỏi; đã được hủy và không tính vào số lượt");
+                    attemptRepository.save(existing);
                 } else {
                     // Past deadline or past schedule end: finalize, auto-grade and publish deterministically
                     finalizeTimeoutAttempt(existing, exam);
@@ -214,23 +292,39 @@ public class ExamService {
                 }
             }
 
-            // No active attempt to resume: verify full eligibility to start a NEW attempt (including attempt limit)
-            if (inProgressOpt.isPresent()
-                    && attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse(examId, userId) >= exam.getAttemptLimit()) {
-                // Keep timeout finalization in this transaction; returning lets it commit instead of
-                // rolling it back via an attempt-limit exception.
-                return studentSafeDto(toAttemptDto(inProgressOpt.get(), exam.getTitle()));
+            // R8-02: resumeOnly must never create a new attempt. No IN_PROGRESS attempt was found
+            // to resume (or finalize) above, so there is nothing to return — surface a 404 and let
+            // the caller fall back to the explicit "Bắt đầu làm bài" action.
+            if (resumeOnly) {
+                throw new AppException(ErrorCode.NOT_FOUND, "Không có lượt làm bài đang diễn ra để tiếp tục");
             }
+
+            // No active attempt to resume (both branches above always return when one exists):
+            // verify full eligibility to start a NEW attempt.
             audiencePolicy.enforceEnterExam(userId, exam, now, false, false);
+        }
+
+        // R19-05: never create an attempt (student OR preview) for an exam without questions. Such an attempt has
+        // an empty snapshot, so autosave/submit/resume all fail with a 500 and it stays IN_PROGRESS until it times
+        // out - burning the learner's try. publishExam already requires >= 1 question; this also covers exams that
+        // reach PUBLISHED without it (seed data, imports, questions deleted afterwards). Checked before anything
+        // is written, so a refusal leaves no attempt behind.
+        List<Question> questions = questionRepository.findByExamIdOrderByPositionAsc(examId);
+        if (questions.isEmpty()) {
+            throw new AppException(ErrorCode.UNPROCESSABLE_ENTITY,
+                    "Kỳ thi chưa có câu hỏi nên chưa thể bắt đầu làm bài. Vui lòng liên hệ giảng viên của lớp.");
         }
 
         int attemptNumber = 1;
         if (!isPreview) {
-            long existingAttempts = attemptRepository.countByExamIdAndUserIdAndIsPreviewFalse(examId, userId);
+            // R14-14: CANCELLED attempts do not count against the limit ...
+            long existingAttempts = attemptRepository.countAttemptsTowardLimit(examId, userId);
             if (existingAttempts >= exam.getAttemptLimit()) {
                 throw new AppException(ErrorCode.BAD_REQUEST, "Bạn đã hết lượt tham gia kỳ thi này (tối đa " + exam.getAttemptLimit() + " lượt)");
             }
-            attemptNumber = (int) existingAttempts + 1;
+            // ... but they keep their attempt_number (unique per exam+user), so the next number
+            // continues after the highest one ever used rather than after the counted attempts.
+            attemptNumber = (int) Math.max(existingAttempts, attemptRepository.findMaxAttemptNumber(examId, userId)) + 1;
         }
 
         Instant endsAt = now.plus(exam.getDurationMinutes(), ChronoUnit.MINUTES);
@@ -250,11 +344,8 @@ public class ExamService {
             attempt.setAttemptNumber(attemptNumber);
         }
 
-        // Snapshot question set
-        List<Question> questions = questionRepository.findByExamIdOrderByPositionAsc(examId);
-        List<QuestionDto> questionDtos = questions.stream()
-                .map(q -> toQuestionDto(q, false))
-                .toList();
+        // Snapshot question set (loaded and checked non-empty above)
+        List<QuestionDto> questionDtos = toQuestionDtos(questions, false);
 
         try {
             attempt.setQuestionSnapshotJson(objectMapper.writeValueAsString(questionDtos));
@@ -269,8 +360,10 @@ public class ExamService {
             saved = attemptRepository.save(attempt);
         } catch (DataIntegrityViolationException e) {
             log.warn("Database constraint prevented duplicate attempt creation for user {} on exam {}", userId, examId);
+            // R2-04: same preview exclusion as the initial lookup above - this fallback only ever
+            // runs on the non-preview (student) path.
             Optional<ExamAttempt> inProgressOpt = attemptRepository
-                    .findFirstByExamIdAndUserIdAndStatusOrderByStartedAtDesc(examId, userId, "IN_PROGRESS");
+                    .findFirstByExamIdAndUserIdAndStatusAndIsPreviewFalseOrderByStartedAtDesc(examId, userId, "IN_PROGRESS");
             if (inProgressOpt.isPresent() && now.isBefore(inProgressOpt.get().getEndsAt())) {
                 ExamAttempt existing = inProgressOpt.get();
                 audiencePolicy.enforceResumeAttempt(userId, exam, existing, now);
@@ -281,9 +374,64 @@ public class ExamService {
             throw new AppException(ErrorCode.BAD_REQUEST, "Bạn đã hết lượt tham gia kỳ thi này hoặc lượt thi đang được khởi tạo");
         }
 
-        ExamAttemptDto dto = toAttemptDto(saved, exam.getTitle());
+        // a brand-new attempt has no answers yet: no read-back query
+        ExamAttemptDto dto = toAttemptDto(saved, exam.getTitle(), List.of());
         dto.setQuestions(questionDtos);
         return dto;
+    }
+
+    /**
+     * R14-15: returns the caller's still-running preview attempt for {@code exam} (with its question
+     * snapshot and autosaved answers) when it can be reused, otherwise empty so the caller creates a
+     * new one. A preview attempt is reusable when it is IN_PROGRESS, has not reached its own
+     * deadline / the exam's schedule end, and the questions it snapshotted equal the exam's current
+     * questions. An expired one is finalized (like the student timeout path); one whose snapshot
+     * went stale because the DRAFT exam was edited is CANCELLED so exactly one live preview remains.
+     *
+     * <p>R15-05: staleness is judged on BOTH snapshots - the learner-safe one (what the previewer
+     * sees) and the grading one (the questions serialized with their answer keys, which is what the
+     * preview is scored against). Comparing only the learner-safe view missed an answer-key-only
+     * edit: the old preview was resumed and graded against the outdated key.</p>
+     */
+    private Optional<ExamAttemptDto> resumeExistingPreviewAttempt(Exam exam, String userId, Instant now) {
+        Optional<ExamAttempt> existingOpt = attemptRepository
+                .findFirstByExamIdAndUserIdAndStatusAndIsPreviewTrueOrderByStartedAtDesc(exam.getId(), userId, "IN_PROGRESS");
+        if (existingOpt.isEmpty()) return Optional.empty();
+        ExamAttempt existing = existingOpt.get();
+
+        boolean withinAttemptDuration = existing.getEndsAt() != null && now.isBefore(existing.getEndsAt());
+        boolean withinExamSchedule = exam.getScheduleEnd() == null || now.isBefore(exam.getScheduleEnd());
+        if (!withinAttemptDuration || !withinExamSchedule) {
+            finalizeTimeoutAttempt(existing, exam);
+            return Optional.empty();
+        }
+
+        List<Question> currentQuestions = questionRepository.findByExamIdOrderByPositionAsc(exam.getId());
+        List<QuestionDto> current = toQuestionDtos(currentQuestions, false);
+        List<QuestionDto> snapshot = parseQuestionSnapshot(existing.getQuestionSnapshotJson());
+        String currentJson;
+        String currentGradingJson;
+        try {
+            currentJson = objectMapper.writeValueAsString(current);
+            // Same serialization as the snapshot taken in startAttempt (entities incl. answerKey).
+            currentGradingJson = objectMapper.writeValueAsString(currentQuestions);
+        } catch (Exception e) {
+            currentJson = null;
+            currentGradingJson = null;
+        }
+        if (snapshot == null || currentJson == null || currentGradingJson == null
+                || !currentJson.equals(existing.getQuestionSnapshotJson())
+                || !currentGradingJson.equals(existing.getGradingSnapshotJson())) {
+            existing.setStatus("CANCELLED");
+            existing.setCancelReason("Đề thi đã thay đổi; lượt xem thử cũ được thay bằng lượt mới");
+            attemptRepository.save(existing);
+            return Optional.empty();
+        }
+
+        log.info("Resuming existing preview attempt {} for user {} on exam {}", existing.getId(), userId, exam.getId());
+        ExamAttemptDto dto = toAttemptDto(existing, exam.getTitle());
+        dto.setQuestions(snapshot);
+        return Optional.of(dto);
     }
 
     @Transactional
@@ -298,6 +446,9 @@ public class ExamService {
 
         if (!attempt.isPreview()) {
             accessPolicy.enforceMember(userId, attempt.getClassId());
+        } else {
+            // R19-04: a preview attempt outlives the staff grant that created it - re-check at use time.
+            enforcePreviewStillAllowed(examRepository.findById(attempt.getExamId()).orElse(null), userId);
         }
 
         if (!"IN_PROGRESS".equalsIgnoreCase(attempt.getStatus())) {
@@ -309,26 +460,68 @@ public class ExamService {
             throw new AppException(ErrorCode.BAD_REQUEST, "Thời gian làm bài thi đã kết thúc");
         }
 
+        // R20-06: the attempt's answers are loaded ONCE and upserted in memory (was: one SELECT per submitted question,
+        // ~17 statements per autosave). The attempt row is locked FOR UPDATE above, so concurrent saves/submits of the same
+        // attempt are serialised and uq_aa_attempt_question (V32) is only a backstop.
+        List<AttemptAnswer> stored = attemptAnswerRepository.findByAttemptId(attempt.getId());
         if (answers != null && !answers.isEmpty()) {
             // Validate question membership against immutable attempt snapshot
             Set<String> validQuestionIds = getValidQuestionIdsForAttempt(attempt);
-
-            for (Map.Entry<String, String> entry : answers.entrySet()) {
-                String qId = entry.getKey();
-                if (!validQuestionIds.contains(qId)) {
-                    throw new AppException(ErrorCode.BAD_REQUEST, "Câu hỏi không hợp lệ cho đề thi này: " + qId);
-                }
-
-                Optional<AttemptAnswer> existingAns = attemptAnswerRepository.findByAttemptIdAndQuestionId(attempt.getId(), qId);
-                AttemptAnswer ans = existingAns.orElseGet(() -> new AttemptAnswer(attempt.getId(), qId, entry.getValue()));
-                ans.setStudentAnswer(entry.getValue());
-                attemptAnswerRepository.save(ans);
-            }
+            validateAnswerPayload(answers, validQuestionIds, "Câu hỏi không hợp lệ cho đề thi này: ");
+            stored = upsertAnswers(attempt.getId(), answers, stored);
         }
 
         Exam exam = examRepository.findById(attempt.getExamId()).orElse(null);
         String title = (exam != null) ? exam.getTitle() : "Kỳ thi";
-        return toAttemptDto(attempt, title);
+        return toAttemptDto(attempt, title, stored);
+    }
+
+    /** Upper bound for one answer (essay text). 10 000 characters stay under the TEXT column limit even at 4 bytes per character. */
+    public static final int MAX_ANSWER_CHARS = 10_000;
+
+    /**
+     * Size/authorisation limits shared by autosave and the answers carried by the submit request: every key must be a question
+     * of THIS attempt's immutable snapshot (so the map can never exceed the exam's question count) and no value may exceed
+     * {@link #MAX_ANSWER_CHARS}.
+     */
+    private void validateAnswerPayload(Map<String, String> answers, Set<String> validQuestionIds, String invalidQuestionMessage) {
+        if (answers.size() > validQuestionIds.size()) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Số câu trả lời vượt quá số câu hỏi của đề thi");
+        }
+        for (Map.Entry<String, String> entry : answers.entrySet()) {
+            String qId = entry.getKey();
+            if (qId == null || !validQuestionIds.contains(qId)) {
+                throw new AppException(ErrorCode.BAD_REQUEST, invalidQuestionMessage + qId);
+            }
+            if (entry.getValue() != null && entry.getValue().length() > MAX_ANSWER_CHARS) {
+                throw new AppException(ErrorCode.BAD_REQUEST,
+                        "Câu trả lời quá dài (tối đa " + MAX_ANSWER_CHARS + " ký tự): " + qId);
+            }
+        }
+    }
+
+    /**
+     * Applies {@code incoming} (questionId -> answer) on top of the attempt's stored answers without a query per question:
+     * an existing row is updated in place (dirty checking writes it only when the text changed), a missing one is inserted.
+     * Returns the attempt's full answer list afterwards, so the caller does not have to read it back.
+     */
+    private List<AttemptAnswer> upsertAnswers(String attemptId, Map<String, String> incoming, List<AttemptAnswer> stored) {
+        Map<String, AttemptAnswer> byQuestion = new LinkedHashMap<>();
+        for (AttemptAnswer a : stored) {
+            byQuestion.putIfAbsent(a.getQuestionId(), a); // legacy duplicate rows (pre V32): the first one wins, like grading does
+        }
+        for (Map.Entry<String, String> entry : incoming.entrySet()) {
+            AttemptAnswer existing = byQuestion.get(entry.getKey());
+            if (existing == null) {
+                AttemptAnswer created = new AttemptAnswer(attemptId, entry.getKey(), entry.getValue());
+                attemptAnswerRepository.save(created);
+                byQuestion.put(entry.getKey(), created);
+            } else if (!Objects.equals(existing.getStudentAnswer(), entry.getValue())) {
+                existing.setStudentAnswer(entry.getValue());
+                attemptAnswerRepository.save(existing);
+            }
+        }
+        return new ArrayList<>(byQuestion.values());
     }
 
     @Transactional
@@ -343,13 +536,16 @@ public class ExamService {
 
         if (!attempt.isPreview()) {
             accessPolicy.enforceMember(userId, attempt.getClassId());
+        } else {
+            // R19-04: a preview attempt outlives the staff grant that created it - re-check at use time.
+            enforcePreviewStillAllowed(examRepository.findById(attempt.getExamId()).orElse(null), userId);
         }
 
         // Idempotency: if already submitted, return the existing state without repeating grading or scores
         if (!"IN_PROGRESS".equalsIgnoreCase(attempt.getStatus())) {
             Exam exam = examRepository.findById(attempt.getExamId()).orElse(null);
             String title = (exam != null) ? exam.getTitle() : "Kỳ thi";
-            return studentSafeDto(toAttemptDto(attempt, title));
+            return withPreviewScoringHiddenIfNeeded(studentSafeDto(toAttemptDto(attempt, title)), attempt, exam, userId);
         }
 
         Instant now = Instant.now();
@@ -359,7 +555,8 @@ public class ExamService {
             log.warn("Attempt {} submitted after deadline {}", attemptId, attempt.getEndsAt());
             Exam exam = examRepository.findById(attempt.getExamId()).orElse(null);
             finalizeTimeoutAttempt(attempt, exam);
-            return studentSafeDto(toAttemptDto(attempt, exam != null ? exam.getTitle() : "Kỳ thi"));
+            return withPreviewScoringHiddenIfNeeded(
+                    studentSafeDto(toAttemptDto(attempt, exam != null ? exam.getTitle() : "Kỳ thi")), attempt, exam, userId);
         }
 
         attempt.setSubmittedAt(now);
@@ -367,20 +564,12 @@ public class ExamService {
         List<Question> questions = gradingQuestionsFor(attempt);
         Set<String> validQuestionIds = getValidQuestionIdsForAttempt(attempt);
 
-        if (now.isBefore(attempt.getEndsAt()) && request != null && request.getAnswers() != null) {
-            for (Map.Entry<String, String> entry : request.getAnswers().entrySet()) {
-                String qId = entry.getKey();
-                if (!validQuestionIds.contains(qId)) {
-                    throw new AppException(ErrorCode.BAD_REQUEST, "Câu hỏi không thuộc đề thi này: " + qId);
-                }
-                Optional<AttemptAnswer> existingAns = attemptAnswerRepository.findByAttemptIdAndQuestionId(attempt.getId(), qId);
-                AttemptAnswer ans = existingAns.orElseGet(() -> new AttemptAnswer(attempt.getId(), qId, entry.getValue()));
-                ans.setStudentAnswer(entry.getValue());
-                attemptAnswerRepository.save(ans);
-            }
-        }
-
+        // R20-06: one read of the stored answers, request-body answers upserted in memory (see saveAnswers).
         List<AttemptAnswer> allAnswers = attemptAnswerRepository.findByAttemptId(attempt.getId());
+        if (now.isBefore(attempt.getEndsAt()) && request != null && request.getAnswers() != null) {
+            validateAnswerPayload(request.getAnswers(), validQuestionIds, "Câu hỏi không thuộc đề thi này: ");
+            allAnswers = upsertAnswers(attempt.getId(), request.getAnswers(), allAnswers);
+        }
 
         // Auto grade objective questions; scoring policy sets status to GRADING if any ESSAY has
         // no pointsAwarded, or PUBLISHED when all questions are graded.
@@ -417,7 +606,7 @@ public class ExamService {
 
         Exam exam = examRepository.findById(attempt.getExamId()).orElse(null);
         String title = (exam != null) ? exam.getTitle() : "Kỳ thi";
-        return studentSafeDto(toAttemptDto(saved, title));
+        return withPreviewScoringHiddenIfNeeded(studentSafeDto(toAttemptDto(saved, title, allAnswers)), saved, exam, userId);
     }
 
     @Transactional
@@ -436,6 +625,20 @@ public class ExamService {
         // permission check above, and retain the complete before/after score audit below.
         if (!Set.of("SUBMITTED", "GRADING", "PUBLISHED").contains(attempt.getStatus().toUpperCase(Locale.ROOT))) {
             throw new AppException(ErrorCode.BAD_REQUEST, "Chỉ có thể chấm hoặc hiệu chỉnh bài thi đã nộp/công bố. Trạng thái hiện tại: " + attempt.getStatus());
+        }
+
+        // R13-07: correcting an already-PUBLISHED result requires an explicit, non-blank reason —
+        // recorded in the audit trail alongside the before/after scores below. First-time grading of
+        // a SUBMITTED/GRADING attempt (not yet published) does not require one.
+        boolean isCorrectingPublished = "PUBLISHED".equalsIgnoreCase(attempt.getStatus());
+        String reason = request.getReason() == null ? null : request.getReason().trim();
+        if (isCorrectingPublished) {
+            if (reason == null || reason.isBlank()) {
+                throw new AppException(ErrorCode.BAD_REQUEST, "Sửa điểm bài thi đã công bố cần nêu rõ lý do");
+            }
+            if (reason.length() > 1000) {
+                throw new AppException(ErrorCode.BAD_REQUEST, "Lý do sửa điểm tối đa 1000 ký tự");
+            }
         }
 
         List<AttemptAnswer> answers = attemptAnswerRepository.findByAttemptId(attemptId);
@@ -514,7 +717,7 @@ public class ExamService {
 
             Exam partialExam = examRepository.findById(attempt.getExamId()).orElse(null);
             String partialTitle = (partialExam != null) ? partialExam.getTitle() : "Kỳ thi";
-            return toAttemptDto(saved, partialTitle);
+            return withPreviewScoringHiddenIfNeeded(toAttemptDto(saved, partialTitle), saved, partialExam, currentUserId);
         }
 
         // All essays are graded (or there are no essay questions) — proceed to final scoring
@@ -536,6 +739,9 @@ public class ExamService {
             auditDetails.put("afterQuestionScores", afterQuestionScores);
             auditDetails.put("totalPoints", saved.getTotalPoints());
             auditDetails.put("gradedBy", currentUserId);
+            if (isCorrectingPublished) {
+                auditDetails.put("reason", reason);
+            }
             auditService.record(
                     saved.getClassId(),
                     currentUserId,
@@ -570,7 +776,7 @@ public class ExamService {
 
         Exam exam = examRepository.findById(attempt.getExamId()).orElse(null);
         String title = (exam != null) ? exam.getTitle() : "Kỳ thi";
-        return toAttemptDto(saved, title);
+        return withPreviewScoringHiddenIfNeeded(toAttemptDto(saved, title), saved, exam, currentUserId);
     }
 
     @Transactional(readOnly = true)
@@ -582,14 +788,71 @@ public class ExamService {
             throw new AppException(ErrorCode.STAFF_PERMISSION_DENIED,
                     "Không có quyền xem hàng đợi chấm bài của lớp học");
         }
-        List<ExamAttemptDto> queue = new ArrayList<>();
-        for (ExamAttempt attempt : attemptRepository.findByClassIdAndStatusInAndIsPreviewFalseOrderBySubmittedAtAsc(
-                classId, List.of("SUBMITTED", "GRADING"))) {
-            Exam exam = examRepository.findById(attempt.getExamId()).orElse(null);
+        List<ExamAttempt> attempts = attemptRepository.findByClassIdAndStatusInAndIsPreviewFalseOrderBySubmittedAtAsc(
+                classId, List.of("SUBMITTED", "GRADING"));
+        return toGradingDtos(attempts, currentUserId, classId);
+    }
+
+    /**
+     * R13-07 "Kết quả đã công bố": PUBLISHED attempts for one exam, so StudioGrading can offer a
+     * "Sửa điểm" action on an already-published result. Scoped to the caller's EXAM:GRADE grant on
+     * this exam exactly like every other grading endpoint, capped to a page so a long-running exam
+     * cannot return an unbounded list.
+     */
+    @Transactional(readOnly = true)
+    public List<ExamAttemptDto> getPublishedAttempts(String examId, String currentUserId, int limit) {
+        Exam exam = examRepository.findById(examId)
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
+        accessPolicy.enforceManage(currentUserId, exam.getClassId(), "EXAM", "GRADE", resolveRbacCourseScope(exam));
+        int safeLimit = Math.max(1, Math.min(limit, 200));
+        Pageable page = PageRequest.of(0, safeLimit);
+        List<ExamAttempt> attempts = attemptRepository
+                .findByExamIdAndStatusAndIsPreviewFalseOrderBySubmittedAtDesc(examId, "PUBLISHED", page);
+        return toGradingDtos(attempts, currentUserId, exam.getClassId());
+    }
+
+    /**
+     * R13-13: batch-loads the distinct exams referenced by a page of attempts (one findAllById
+     * query, never one findById per row) and resolves each learner's display name through
+     * {@link ProfileVisibilityPolicy} — mirrors AssignmentService.toDtos's batching/anonymization
+     * pattern for the assignment grading queue. The caller has already been authorized (by
+     * getGradingQueue/getPublishedAttempts) as a class administrator, so ProfileVisibilityPolicy
+     * grants them visibility into a PRIVATE learner's name for this class; when it still denies
+     * visibility for some other reason, a stable per-batch ordinal label is used instead of the
+     * shared generic string, so distinct anonymized learners remain distinguishable in the queue.
+     */
+    private List<ExamAttemptDto> toGradingDtos(List<ExamAttempt> attempts, String currentUserId, String classId) {
+        if (attempts.isEmpty()) return List.of();
+
+        List<String> examIds = attempts.stream().map(ExamAttempt::getExamId).distinct().toList();
+        Map<String, Exam> examById = new HashMap<>();
+        examRepository.findAllById(examIds).forEach(e -> examById.put(e.getId(), e));
+
+        List<String> userIds = attempts.stream().map(ExamAttempt::getUserId).distinct().toList();
+        Map<String, User> userById = new HashMap<>();
+        userRepository.findAllById(userIds).forEach(u -> userById.put(u.getId(), u));
+
+        Map<String, Integer> anonymousOrdinalByUserId = new HashMap<>();
+        int[] nextOrdinal = {1};
+
+        List<ExamAttemptDto> result = new ArrayList<>();
+        for (ExamAttempt attempt : attempts) {
+            Exam exam = examById.get(attempt.getExamId());
             if (exam == null || !accessPolicy.canManage(currentUserId, classId, "EXAM", "GRADE", exam.getTargetCourseId())) continue;
-            queue.add(toAttemptDto(attempt, exam.getTitle()));
+            ExamAttemptDto dto = toAttemptDto(attempt, exam.getTitle());
+
+            User learner = userById.get(attempt.getUserId());
+            String displayName;
+            if (learner != null && profileVisibilityPolicy.isIdentityVisible(learner, currentUserId, classId)) {
+                displayName = learner.getFullName();
+            } else {
+                int ordinal = anonymousOrdinalByUserId.computeIfAbsent(attempt.getUserId(), id -> nextOrdinal[0]++);
+                displayName = "Học viên ẩn danh #" + ordinal;
+            }
+            dto.setLearnerDisplayName(displayName);
+            result.add(dto);
         }
-        return queue;
+        return result;
     }
 
     @Transactional(readOnly = true)
@@ -599,7 +862,11 @@ public class ExamService {
         Exam exam = examRepository.findById(attempt.getExamId())
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
         accessPolicy.enforceManage(currentUserId, attempt.getClassId(), "EXAM", "GRADE", resolveRbacCourseScope(exam));
-        if (attempt.isPreview() || (!"SUBMITTED".equalsIgnoreCase(attempt.getStatus()) && !"GRADING".equalsIgnoreCase(attempt.getStatus()))) {
+        // R13-07: PUBLISHED is also loadable here so an authorized grader can open an already
+        // published result for correction ("Sửa điểm"), in addition to the original SUBMITTED/
+        // GRADING grading-queue flow.
+        Set<String> loadableStatuses = Set.of("SUBMITTED", "GRADING", "PUBLISHED");
+        if (attempt.isPreview() || !loadableStatuses.contains(attempt.getStatus().toUpperCase(Locale.ROOT))) {
             throw new AppException(ErrorCode.BAD_REQUEST, "Bài thi không nằm trong hàng đợi chấm");
         }
         ExamAttemptDto dto = toAttemptDto(attempt, exam.getTitle());
@@ -614,6 +881,14 @@ public class ExamService {
 
         boolean isOwner = attempt.getUserId().equals(userId);
         Exam exam = examRepository.findById(attempt.getExamId()).orElse(null);
+        if (attempt.isPreview()) {
+            // R19-04: a preview attempt belongs to the person who ran it and to nobody else, and only while they
+            // may still preview this exam (the grant that allowed it can have been removed since).
+            if (!isOwner) {
+                throw new AppException(ErrorCode.FORBIDDEN, "Bạn không có quyền xem kết quả bài thi này");
+            }
+            enforcePreviewStillAllowed(exam, userId);
+        }
         String targetCourseId = exam == null ? null : exam.getTargetCourseId();
         boolean canView = isOwner || accessPolicy.canManage(userId, attempt.getClassId(), "EXAM", "VIEW", targetCourseId);
         boolean canGrade = !isOwner && accessPolicy.canManage(userId, attempt.getClassId(), "EXAM", "GRADE", targetCourseId);
@@ -627,7 +902,7 @@ public class ExamService {
         }
 
         String title = (exam != null) ? exam.getTitle() : "Kỳ thi";
-        ExamAttemptDto dto = toAttemptDto(attempt, title);
+        ExamAttemptDto dto = withPreviewScoringHiddenIfNeeded(toAttemptDto(attempt, title), attempt, exam, userId);
 
         // Read-only staff with EXAM:VIEW receives only metadata/result summaries;
         // detailed answers, student responses, and teacher feedback require EXAM:GRADE or attempt ownership.
@@ -649,7 +924,13 @@ public class ExamService {
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
         accessPolicy.enforceMember(userId, exam.getClassId());
         List<ExamAttempt> attempts = attemptRepository.findByExamIdAndUserIdOrderByStartedAtDesc(examId, userId);
-        return attempts.stream().map(a -> {
+        // R19-04: preview attempts are listed only while the caller may still preview this exam (someone whose staff
+        // grant was removed no longer sees them), and their scoring is hidden unless the caller may read the
+        // answer key. Evaluated once per request, and only if the list actually contains a preview.
+        boolean hasPreview = attempts.stream().anyMatch(ExamAttempt::isPreview);
+        boolean previewAllowed = hasPreview && canPreviewExam(userId, exam);
+        boolean previewScoringVisible = previewAllowed && canSeePreviewScoring(userId, exam);
+        return attempts.stream().filter(a -> !a.isPreview() || previewAllowed).map(a -> {
             ExamAttemptDto dto = toAttemptDto(a, exam.getTitle());
             if (!"PUBLISHED".equalsIgnoreCase(a.getStatus())) {
                 dto.setScore(null);
@@ -661,8 +942,24 @@ public class ExamService {
                     });
                 }
             }
-            return dto;
+            return a.isPreview() && !previewScoringVisible ? hidePreviewScoring(dto) : dto;
         }).toList();
+    }
+
+    /**
+     * R7-02: whether {@code userId} may view/manage {@code exam} including while it is DRAFT —
+     * mirrors LearningPolicy.canViewUnpublished's reasoning for courses: any of the staff grants
+     * that let someone author or publish the exam (VIEW, EDIT, CREATE, PUBLISH) must also let them
+     * see it in list/detail views, evaluated at the same course-scope resolution used everywhere
+     * else for this exam (resolveRbacCourseScope: only COURSE/COURSE_SEGMENT audience exams carry
+     * a course scope, so a class-wide grant is required for ALL/PRO/SEGMENT exams).
+     */
+    private boolean canViewDraftExam(String userId, String classId, Exam exam) {
+        String scope = resolveRbacCourseScope(exam);
+        return accessPolicy.canManage(userId, classId, "EXAM", "VIEW", scope)
+                || accessPolicy.canManage(userId, classId, "EXAM", "EDIT", scope)
+                || accessPolicy.canManage(userId, classId, "EXAM", "CREATE", scope)
+                || accessPolicy.canManage(userId, classId, "EXAM", "PUBLISH", scope);
     }
 
     public String resolveRbacCourseScope(Exam exam) {
@@ -737,6 +1034,209 @@ public class ExamService {
         );
 
         return saved;
+    }
+
+    /**
+     * R13-03 (SRS §5 exam state machine): update exam config (title/description/schedule/
+     * duration/attempt limit/audience scope) is only allowed while DRAFT. After PUBLISH the spec
+     * says edits should follow the state machine — for this platform that means no config edits
+     * post-publish (only close/archive transitions and question answer-key corrections via
+     * gradeAttempt's regrade path), since audience eligibility and question snapshots are already
+     * frozen into every attempt at start time and silently changing them would desync attempts
+     * already in flight.
+     */
+    @Transactional
+    public Exam updateExam(String examId, Exam patch, String currentUserId) {
+        Exam exam = examRepository.findByIdForUpdate(examId)
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
+        accessPolicy.enforceManage(currentUserId, exam.getClassId(), "EXAM", "EDIT", resolveRbacCourseScope(exam));
+        if (!"DRAFT".equalsIgnoreCase(exam.getStatus())) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Chỉ có thể sửa cấu hình kỳ thi ở trạng thái DRAFT");
+        }
+        if (patch.getTitle() != null) {
+            if (patch.getTitle().isBlank()) throw new AppException(ErrorCode.BAD_REQUEST, "Tên kỳ thi không được để trống");
+            exam.setTitle(patch.getTitle());
+        }
+        if (patch.getDescription() != null) exam.setDescription(patch.getDescription());
+        // R16-06: the schedule is a full replace on a DRAFT exam - a null start/end means "unscheduled"
+        // (before, a null was ignored, so a schedule could never be cleared once set). The Studio form
+        // always sends both fields.
+        exam.setScheduleStart(patch.getScheduleStart());
+        exam.setScheduleEnd(patch.getScheduleEnd());
+        if (patch.getDurationMinutes() > 0) exam.setDurationMinutes(patch.getDurationMinutes());
+        if (patch.getAttemptLimit() > 0) exam.setAttemptLimit(patch.getAttemptLimit());
+        if (patch.getPassScore() > 0) exam.setPassScore(patch.getPassScore());
+
+        if (exam.getScheduleStart() != null && exam.getScheduleEnd() != null
+                && !exam.getScheduleEnd().isAfter(exam.getScheduleStart())) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Lịch thi không hợp lệ: kết thúc phải sau bắt đầu");
+        }
+
+        exam.setUpdatedAt(Instant.now());
+        Exam saved = examRepository.save(exam);
+        auditService.record(exam.getClassId(), currentUserId, "EXAM_UPDATE", "EXAM", examId,
+                String.format("{\"title\":\"%s\"}", saved.getTitle()));
+        return saved;
+    }
+
+    /**
+     * R13-03/R14-05: close a live exam early (PUBLISHED/OPEN -> CLOSED). No new attempts may start
+     * once closed. Any IN_PROGRESS attempt that started before {@code closedAt} is left alone: it
+     * can still be resumed (ExamAudiencePolicy.enforceResumeAttempt), autosaved and submitted, and
+     * finalizes normally at its own endsAt via the existing timeout scan, so a student mid-attempt
+     * is not cut off mid-answer by an administrative action (decision D-13).
+     */
+    @Transactional
+    public Exam closeExam(String examId, String currentUserId) {
+        Exam exam = examRepository.findByIdForUpdate(examId)
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
+        accessPolicy.enforceManage(currentUserId, exam.getClassId(), "EXAM", "PUBLISH", resolveRbacCourseScope(exam));
+        if (!Set.of("PUBLISHED", "OPEN").contains(exam.getStatus().toUpperCase(Locale.ROOT))) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Chỉ có thể đóng kỳ thi đang mở (PUBLISHED/OPEN)");
+        }
+        exam.setStatus("CLOSED");
+        exam.setClosedAt(Instant.now());
+        exam.setUpdatedAt(Instant.now());
+        Exam saved = examRepository.save(exam);
+        auditService.record(exam.getClassId(), currentUserId, "EXAM_CLOSE", "EXAM", examId, "{}");
+        return saved;
+    }
+
+    /** R13-03: archive a closed exam (CLOSED -> ARCHIVED); terminal, hides it from active listings. */
+    @Transactional
+    public Exam archiveExam(String examId, String currentUserId) {
+        Exam exam = examRepository.findByIdForUpdate(examId)
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
+        accessPolicy.enforceManage(currentUserId, exam.getClassId(), "EXAM", "PUBLISH", resolveRbacCourseScope(exam));
+        if (!"CLOSED".equalsIgnoreCase(exam.getStatus())) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Chỉ có thể lưu trữ kỳ thi đã đóng (CLOSED)");
+        }
+        exam.setStatus("ARCHIVED");
+        exam.setUpdatedAt(Instant.now());
+        Exam saved = examRepository.save(exam);
+        auditService.record(exam.getClassId(), currentUserId, "EXAM_ARCHIVE", "EXAM", examId, "{}");
+        return saved;
+    }
+
+    /**
+     * R13-03: edit a DRAFT question's text/type/points/options/answer key. Mirrors addQuestion's
+     * DRAFT-only guard and total-points cap; the row is locked via the parent exam lock plus a
+     * direct re-fetch so a concurrent addQuestion cannot race the total-points check.
+     */
+    // R19-01(c): READ_COMMITTED. The question must be read to learn which exam to lock, and at MySQL's default
+    // REPEATABLE READ that plain read froze the snapshot BEFORE the exam lock was taken - so the total-points sum
+    // below (and the "question still exists" check) came from data older than the authoring transaction we had just
+    // waited for, letting two concurrent edits each pass a cap they jointly exceed. With READ_COMMITTED every read
+    // after the lock sees what the previous holder committed.
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    public Question updateQuestion(String questionId, Question patch, List<AnswerOption> options, String currentUserId) {
+        Question question = questionRepository.findById(questionId)
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy câu hỏi"));
+        Exam exam = examRepository.findByIdForUpdate(question.getExamId())
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
+        if (!questionRepository.existsById(questionId)) { // deleted while we waited for the exam lock
+            throw new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy câu hỏi");
+        }
+        accessPolicy.enforceManage(currentUserId, exam.getClassId(), "EXAM", "EDIT", resolveRbacCourseScope(exam));
+        if (!"DRAFT".equalsIgnoreCase(exam.getStatus())) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Không thể sửa câu hỏi sau khi kỳ thi được công bố");
+        }
+        validateQuestion(patch, options);
+
+        long currentTotal = 0;
+        for (Question q : questionRepository.findByExamIdOrderByPositionAsc(exam.getId())) {
+            if (q.getId().equals(questionId)) continue;
+            currentTotal = Math.addExact(currentTotal, (long) q.getPoints());
+        }
+        if (Math.addExact(currentTotal, (long) patch.getPoints()) > MAX_EXAM_TOTAL_POINTS) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Tổng điểm kỳ thi sau khi sửa câu hỏi sẽ vượt quá giới hạn tối đa (" + MAX_EXAM_TOTAL_POINTS + ")");
+        }
+
+        question.setQuestionText(patch.getQuestionText());
+        question.setType(patch.getType());
+        question.setPoints(patch.getPoints());
+        question.setAnswerKey(patch.getAnswerKey());
+        Question saved = questionRepository.save(question);
+
+        optionRepository.deleteAll(optionRepository.findByQuestionIdOrderByPositionAsc(questionId));
+        if (options != null) {
+            for (AnswerOption opt : options) {
+                opt.setId(UUID.randomUUID().toString());
+                opt.setQuestionId(saved.getId());
+                optionRepository.save(opt);
+            }
+        }
+        auditService.record(exam.getClassId(), currentUserId, "EXAM_QUESTION_UPDATE", "QUESTION", questionId, "{}");
+        return saved;
+    }
+
+    // R19-01(c): READ_COMMITTED, same reason as updateQuestion (plain read of the question precedes the exam lock).
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    public void deleteQuestion(String questionId, String currentUserId) {
+        Question question = questionRepository.findById(questionId)
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy câu hỏi"));
+        Exam exam = examRepository.findByIdForUpdate(question.getExamId())
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
+        if (!questionRepository.existsById(questionId)) { // already deleted by the transaction we waited for
+            throw new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy câu hỏi");
+        }
+        accessPolicy.enforceManage(currentUserId, exam.getClassId(), "EXAM", "EDIT", resolveRbacCourseScope(exam));
+        if (!"DRAFT".equalsIgnoreCase(exam.getStatus())) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Không thể xóa câu hỏi sau khi kỳ thi được công bố");
+        }
+        questionRepository.delete(question);
+        auditService.record(exam.getClassId(), currentUserId, "EXAM_QUESTION_DELETE", "QUESTION", questionId, "{}");
+    }
+
+    @Transactional
+    public void reorderQuestions(String examId, List<String> orderedQuestionIds, String currentUserId) {
+        Exam exam = examRepository.findByIdForUpdate(examId)
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
+        accessPolicy.enforceManage(currentUserId, exam.getClassId(), "EXAM", "EDIT", resolveRbacCourseScope(exam));
+        if (!"DRAFT".equalsIgnoreCase(exam.getStatus())) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Không thể sắp xếp lại câu hỏi sau khi kỳ thi được công bố");
+        }
+        List<Question> questions = questionRepository.findByExamIdOrderByPositionAsc(examId);
+        Map<String, Question> byId = new LinkedHashMap<>();
+        questions.forEach(q -> byId.put(q.getId(), q));
+        if (!ReorderRequests.isPermutationOf(orderedQuestionIds, byId.keySet())) { // R16-10: no duplicates
+            throw new AppException(ErrorCode.BAD_REQUEST, "Danh sách thứ tự câu hỏi không hợp lệ");
+        }
+        for (int i = 0; i < orderedQuestionIds.size(); i++) {
+            Question q = byId.get(orderedQuestionIds.get(i));
+            q.setPosition(i);
+            questionRepository.save(q);
+        }
+    }
+
+    /**
+     * R13-03 item 5: staff-initiated cancellation of an invalid attempt (e.g. started in error,
+     * suspected cheating pending investigation). Gated on EXAM:GRADE (same permission as grading —
+     * cancelling directly affects scoring/leaderboard eligibility) scoped like every other grading
+     * action via resolveRbacCourseScope. A CANCELLED attempt is excluded from the leaderboard the
+     * same way a preview attempt is (all leaderboard queries already filter isPreview=false AND
+     * status='PUBLISHED', so CANCELLED — never PUBLISHED — is naturally excluded without a query
+     * change). Only a non-terminal attempt (IN_PROGRESS/SUBMITTED/GRADING) can be cancelled;
+     * cancelling an already-PUBLISHED result must go through the same explicit path grading
+     * corrections use, so this method refuses that transition and tells the caller so.
+     */
+    @Transactional
+    public ExamAttemptDto cancelAttempt(String attemptId, String currentUserId, String reason) {
+        ExamAttempt attempt = attemptRepository.findByIdForUpdate(attemptId)
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy bài thi"));
+        Exam exam = examRepository.findById(attempt.getExamId())
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
+        accessPolicy.enforceManage(currentUserId, attempt.getClassId(), "EXAM", "GRADE", resolveRbacCourseScope(exam));
+        if (!Set.of("IN_PROGRESS", "SUBMITTED", "GRADING").contains(attempt.getStatus().toUpperCase(Locale.ROOT))) {
+            throw new AppException(ErrorCode.BAD_REQUEST,
+                    "Chỉ có thể hủy bài thi chưa công bố kết quả. Trạng thái hiện tại: " + attempt.getStatus());
+        }
+        attempt.setStatus("CANCELLED");
+        attempt.setCancelReason(reason);
+        ExamAttempt saved = attemptRepository.save(attempt);
+        auditService.record(attempt.getClassId(), currentUserId, "EXAM_ATTEMPT_CANCEL", "EXAM_ATTEMPT", attemptId,
+                String.format("{\"reason\":\"%s\"}", reason == null ? "" : reason.replace("\"", "'")));
+        return withPreviewScoringHiddenIfNeeded(toAttemptDto(saved, exam.getTitle()), saved, exam, currentUserId);
     }
 
     @Transactional
@@ -856,6 +1356,10 @@ public class ExamService {
     }
 
     private ExamDto toExamDto(Exam exam, boolean includeQuestions, boolean includeAnswerKey) {
+        return toExamDto(exam, includeQuestions, includeAnswerKey, questionRepository.countByExamId(exam.getId()));
+    }
+
+    private ExamDto toExamDto(Exam exam, boolean includeQuestions, boolean includeAnswerKey, long count) {
         ExamDto dto = new ExamDto();
         dto.setId(exam.getId());
         dto.setClassId(exam.getClassId());
@@ -872,15 +1376,11 @@ public class ExamService {
         dto.setPassScore(exam.getPassScore());
         dto.setCreatedAt(exam.getCreatedAt());
 
-        long count = questionRepository.countByExamId(exam.getId());
         dto.setQuestionCount((int) count);
 
         if (includeQuestions) {
             List<Question> questions = questionRepository.findByExamIdOrderByPositionAsc(exam.getId());
-            List<QuestionDto> qDtos = questions.stream()
-                    .map(q -> toQuestionDto(q, includeAnswerKey))
-                    .toList();
-            dto.setQuestions(qDtos);
+            dto.setQuestions(toQuestionDtos(questions, includeAnswerKey));
         } else {
             dto.setQuestions(null);
         }
@@ -888,7 +1388,31 @@ public class ExamService {
         return dto;
     }
 
+    /**
+     * R20-06: DTOs for a whole question list with ONE query for all options ({@code IN}), instead of one per question. A
+     * 20-question exam used to add 20 SELECTs to every attempt start (x200 simultaneous starts).
+     */
+    private List<QuestionDto> toQuestionDtos(List<Question> questions, boolean includeAnswerKey) {
+        if (questions.isEmpty()) {
+            return List.of();
+        }
+        Map<String, List<AnswerOption>> optionsByQuestion = new HashMap<>();
+        for (AnswerOption option : optionRepository.findByQuestionIdInOrderByPositionAsc(
+                questions.stream().map(Question::getId).toList())) {
+            optionsByQuestion.computeIfAbsent(option.getQuestionId(), k -> new ArrayList<>()).add(option);
+        }
+        List<QuestionDto> dtos = new ArrayList<>(questions.size());
+        for (Question q : questions) {
+            dtos.add(toQuestionDto(q, includeAnswerKey, optionsByQuestion.getOrDefault(q.getId(), List.of())));
+        }
+        return dtos;
+    }
+
     private QuestionDto toQuestionDto(Question q, boolean includeAnswerKey) {
+        return toQuestionDto(q, includeAnswerKey, optionRepository.findByQuestionIdOrderByPositionAsc(q.getId()));
+    }
+
+    private QuestionDto toQuestionDto(Question q, boolean includeAnswerKey, List<AnswerOption> options) {
         QuestionDto dto = new QuestionDto();
         dto.setId(q.getId());
         dto.setExamId(q.getExamId());
@@ -901,7 +1425,6 @@ public class ExamService {
             dto.setAnswerKey(q.getAnswerKey());
         }
 
-        List<AnswerOption> options = optionRepository.findByQuestionIdOrderByPositionAsc(q.getId());
         List<AnswerOptionDto> optDtos = options.stream()
                 .map(o -> new AnswerOptionDto(o.getId(), o.getQuestionId(), o.getOptionKey(), o.getOptionText(), o.getPosition()))
                 .toList();
@@ -911,6 +1434,11 @@ public class ExamService {
     }
 
     private ExamAttemptDto toAttemptDto(ExamAttempt attempt, String examTitle) {
+        return toAttemptDto(attempt, examTitle, attemptAnswerRepository.findByAttemptId(attempt.getId()));
+    }
+
+    /** Same mapping, but from answers the caller already holds - saves the read-back query on the hot autosave/submit paths. */
+    private ExamAttemptDto toAttemptDto(ExamAttempt attempt, String examTitle, List<AttemptAnswer> answers) {
         ExamAttemptDto dto = new ExamAttemptDto();
         dto.setId(attempt.getId());
         dto.setExamId(attempt.getExamId());
@@ -925,12 +1453,76 @@ public class ExamService {
         dto.setStatus(attempt.getStatus());
         dto.setPreview(attempt.isPreview());
 
-        List<AttemptAnswer> answers = attemptAnswerRepository.findByAttemptId(attempt.getId());
         List<ExamAttemptDto.AttemptAnswerDto> aDtos = answers.stream()
                 .map(a -> new ExamAttemptDto.AttemptAnswerDto(a.getQuestionId(), a.getStudentAnswer(), a.getPointsAwarded(), a.getTeacherFeedback()))
                 .toList();
         dto.setAnswers(aDtos);
 
+        return dto;
+    }
+
+    /**
+     * R19-04: the same rule {@link #startAttempt} applies to open a preview: the class owner, or staff holding
+     * EXAM:PREVIEW / EXAM:EDIT for this exam. Evaluated again whenever an existing preview attempt is used or read,
+     * because staff access can be removed while a preview attempt is still open.
+     */
+    private boolean canPreviewExam(String userId, Exam exam) {
+        if (exam == null || userId == null) return false;
+        return accessPolicy.isOwner(userId, exam.getClassId())
+                || accessPolicy.canManage(userId, exam.getClassId(), "EXAM", "PREVIEW", exam.getTargetCourseId())
+                || accessPolicy.canManage(userId, exam.getClassId(), "EXAM", "EDIT", exam.getTargetCourseId());
+    }
+
+    private void enforcePreviewStillAllowed(Exam exam, String userId) {
+        if (exam == null) {
+            throw new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi");
+        }
+        if (!canPreviewExam(userId, exam)) {
+            throw new AppException(ErrorCode.STAFF_PERMISSION_DENIED, "Bạn không còn quyền xem trước kỳ thi này");
+        }
+    }
+
+    /**
+     * R19-04: whether {@code userId} may see the scoring of a PREVIEW attempt - exactly who may see the answer key
+     * (the owner, or explicit EXAM:EDIT; wildcards do not count, see {@link AccessPolicy#canAccessAnswerKey}). The
+     * score and per-question points of a graded attempt ARE the answer key: preview attempts have no limit, so
+     * anyone allowed to read them could resubmit different answers and read the key back off the results.
+     */
+    private boolean canSeePreviewScoring(String userId, Exam exam) {
+        if (exam == null || userId == null) return false;
+        return accessPolicy.isOwner(userId, exam.getClassId())
+                || accessPolicy.canAccessAnswerKey(userId, exam.getClassId(), exam.getTargetCourseId());
+    }
+
+    /** Hides score / points / feedback of a preview attempt from a viewer who may not read the answer key. */
+    private ExamAttemptDto withPreviewScoringHiddenIfNeeded(ExamAttemptDto dto, ExamAttempt attempt, Exam exam, String viewerId) {
+        if (!attempt.isPreview() || canSeePreviewScoring(viewerId, exam)) {
+            return dto;
+        }
+        return hidePreviewScoring(dto);
+    }
+
+    /**
+     * Returns the attempt "as submitted": the learner's own answers stay, everything that would tell them what was
+     * right does not. A finished attempt is reported as SUBMITTED (never PUBLISHED/GRADING), so no client treats it as
+     * having a score; an attempt still IN_PROGRESS or CANCELLED has nothing to hide and is left as it is.
+     */
+    private ExamAttemptDto hidePreviewScoring(ExamAttemptDto dto) {
+        String status = dto.getStatus() == null ? "" : dto.getStatus().toUpperCase(Locale.ROOT);
+        if ("IN_PROGRESS".equals(status) || "CANCELLED".equals(status)) {
+            return dto;
+        }
+        dto.setScore(null);
+        dto.setTotalPoints(0);
+        if (dto.getAnswers() != null) {
+            dto.getAnswers().forEach(answer -> {
+                answer.setPointsAwarded(null);
+                answer.setTeacherFeedback(null);
+            });
+        }
+        dto.setStatus("SUBMITTED");
+        dto.setResultHidden(true);
+        dto.setNotice(PREVIEW_RESULT_HIDDEN_NOTICE);
         return dto;
     }
 

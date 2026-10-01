@@ -5,7 +5,9 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "leaderboard_entries")
+@Table(name = "leaderboard_entries", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_lb_class_user", columnNames = {"class_id", "user_id"})
+})
 public class LeaderboardEntry {
 
     @Id

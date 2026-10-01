@@ -5,6 +5,7 @@ import com.classroom.config.CurrentUser;
 import com.classroom.config.UserPrincipal;
 import com.classroom.modules.ranking.dto.LeaderboardEntryDto;
 import com.classroom.modules.ranking.dto.LeaderboardConfigRequest;
+import com.classroom.modules.ranking.dto.LeaderboardConfigResponse;
 import com.classroom.modules.ranking.service.LeaderboardService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -25,9 +26,10 @@ public class LeaderboardController {
     @GetMapping
     public ResponseEntity<ApiResponse<List<LeaderboardEntryDto>>> getLeaderboard(
             @PathVariable String classId,
-            @CurrentUser UserPrincipal principal) {
+            @CurrentUser UserPrincipal principal,
+            @RequestParam(required = false) String examId) {
         String currentUserId = (principal != null) ? principal.getId() : null;
-        List<LeaderboardEntryDto> leaderboard = leaderboardService.getLeaderboard(classId, currentUserId);
+        List<LeaderboardEntryDto> leaderboard = leaderboardService.getLeaderboard(classId, currentUserId, examId);
         return ResponseEntity.ok(ApiResponse.ok(leaderboard));
     }
 
@@ -37,6 +39,13 @@ public class LeaderboardController {
             @CurrentUser UserPrincipal principal) {
         leaderboardService.rebuildLeaderboard(classId, principal.getId());
         return ResponseEntity.ok(ApiResponse.ok(Map.of("message", "Đã tái tạo bảng xếp hạng thành công")));
+    }
+
+    @GetMapping("/configuration")
+    public ResponseEntity<ApiResponse<LeaderboardConfigResponse>> getConfiguration(
+            @PathVariable String classId, @CurrentUser UserPrincipal principal) {
+        LeaderboardConfigResponse config = leaderboardService.getConfiguration(classId, principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok(config));
     }
 
     @PutMapping("/configuration")

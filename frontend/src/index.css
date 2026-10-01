@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 body {
-  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  font-family: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
 }
 
 /* Custom scrollbar */

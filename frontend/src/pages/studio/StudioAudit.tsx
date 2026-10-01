@@ -25,6 +25,7 @@ export const StudioAudit: React.FC = () => {
   const fetchLogs = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await api.get<AuditItem[]>(`/classes/${classroom.id}/audit`);
       setLogs(data || []);
     } catch (err: any) {
@@ -42,7 +43,7 @@ export const StudioAudit: React.FC = () => {
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-black text-slate-900 tracking-tight">Nhật ký kiểm toán (Audit Logs)</h1>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-600">
           Ghi nhận toàn bộ thao tác quan trọng: phân quyền nhân sự, chỉnh sửa điểm số và giao dịch tài chính
         </p>
       </div>
@@ -61,19 +62,19 @@ export const StudioAudit: React.FC = () => {
                     {log.targetType}: {log.targetId ? log.targetId.substring(0, 8) : 'N/A'}
                   </span>
                 </div>
-                <div className="text-[11px] text-slate-400 font-mono">
+                <div className="text-[11px] text-slate-500 font-mono">
                   Actor ID: {log.actorId ? log.actorId.substring(0, 8) : 'SYSTEM'}
                 </div>
               </div>
 
-              <span className="text-[11px] text-slate-400">
+              <span className="text-[11px] text-slate-500">
                 {new Date(log.createdAt).toLocaleString('vi-VN')}
               </span>
             </div>
           ))}
 
           {logs.length === 0 && (
-            <div className="p-8 text-center text-xs text-slate-400">Chưa ghi nhận sự kiện kiểm toán nào.</div>
+            <div className="p-8 text-center text-xs text-slate-500">Chưa ghi nhận sự kiện kiểm toán nào.</div>
           )}
         </div>
       )}

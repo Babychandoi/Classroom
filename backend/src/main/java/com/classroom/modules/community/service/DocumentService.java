@@ -152,12 +152,14 @@ public class DocumentService {
         return mediaService.generateAuthorizedDownloadUrl(doc.getMediaAssetId(), userId);
     }
 
-    @Transactional
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED) // the 8-arg overload below runs inside this transaction (self-invocation)
     public DocumentAsset createDocument(String classId, String title, String description, String mediaAssetId, String visibility, String userId) {
         return createDocument(classId, title, description, mediaAssetId, visibility, null, null, userId);
     }
 
-    @Transactional
+    // R19-01(c): READ_COMMITTED - accessPolicy / product / course reads precede the media lock, and the "media already
+    // attached to a document/lesson" check after it must see what a concurrent attach just committed.
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public DocumentAsset createDocument(String classId, String title, String description, String mediaAssetId, String visibility, String targetProductId, String targetCourseId, String userId) {
         accessPolicy.enforceManage(userId, classId, "DOCUMENT", "CREATE", null);
         String normalizedVisibility = visibility == null || visibility.isBlank() ? "FREE" : visibility.trim().toUpperCase();
@@ -183,6 +185,11 @@ public class DocumentService {
             }
         }
 
+        // R4-05: a missing mediaAssetId must be a 400 contract error, not an NPE from
+        // findByIdForUpdate(null) surfacing as a 500.
+        if (mediaAssetId == null || mediaAssetId.isBlank()) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Thiếu mã tệp đính kèm (mediaAssetId)");
+        }
         MediaAsset media = mediaService.getAssetForUpdate(mediaAssetId);
         if (!media.getClassId().equals(classId)) {
             throw new AppException(ErrorCode.BAD_REQUEST, "Tệp đính kèm không thuộc lớp học này");
@@ -200,7 +207,12 @@ public class DocumentService {
             throw new AppException(ErrorCode.BAD_REQUEST, "Tệp đã được gắn với nội dung khác và không thể tái sử dụng");
         }
 
-        DocumentAsset doc = new DocumentAsset(classId, title, description, mediaAssetId, normalizedVisibility, targetProductId, targetCourseId);
+        // R4-08: the same-class checks above validate the trimmed id, so persist the trimmed
+        // value too — otherwise a value with incidental leading/trailing whitespace is validated
+        // trimmed but stored raw, drifting from what was actually checked.
+        String storedTargetProductId = (targetProductId != null && !targetProductId.isBlank()) ? targetProductId.trim() : targetProductId;
+        String storedTargetCourseId = (targetCourseId != null && !targetCourseId.isBlank()) ? targetCourseId.trim() : targetCourseId;
+        DocumentAsset doc = new DocumentAsset(classId, title, description, mediaAssetId.trim(), normalizedVisibility, storedTargetProductId, storedTargetCourseId);
         return documentRepository.save(doc);
     }
 }

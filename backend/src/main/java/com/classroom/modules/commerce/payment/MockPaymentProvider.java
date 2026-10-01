@@ -25,7 +25,8 @@ public class MockPaymentProvider implements PaymentProvider {
                     "Mock payment webhook secret (app.payment.mock.webhook-secret / MOCK_PAYMENT_WEBHOOK_SECRET) " +
                     "must be set and at least 32 characters. Refusing to start with an absent or weak secret.");
         }
-        DevSecretGuard.rejectKnownSampleValue("MOCK_PAYMENT_WEBHOOK_SECRET", webhookSecret, environment);
+        DevSecretGuard.rejectKnownSampleValue("MOCK_PAYMENT_WEBHOOK_SECRET", webhookSecret, environment,
+                environment.getProperty("app.jwt.secret"));
         this.webhookSecret = webhookSecret;
     }
 

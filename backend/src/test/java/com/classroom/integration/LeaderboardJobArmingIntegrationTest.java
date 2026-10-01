@@ -20,6 +20,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Database-backed regression test for the leaderboard recalculation job's arming window.
@@ -106,7 +107,10 @@ public class LeaderboardJobArmingIntegrationTest {
         assertEquals(0, jobsSeenByAnotherConnection,
                 "The job must become visible with the score, never before it");
 
-        // After the commit the post-commit recalculation has serviced and cleared it.
+        // R20-01: the post-commit recalculation now runs on the worker pool, not on the committing thread: wait for it.
+        assertTrue(Eventually.await(15_000, () -> jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM leaderboard_recalc_jobs WHERE class_id = ? AND user_id = ?",
+                Integer.class, classId, userId) == 0), "The worker must service and clear the job shortly after the commit");
         Integer jobsAfterCommit = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM leaderboard_recalc_jobs WHERE class_id = ? AND user_id = ?",
                 Integer.class, classId, userId);

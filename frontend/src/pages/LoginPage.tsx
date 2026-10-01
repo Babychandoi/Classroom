@@ -1,16 +1,33 @@
-import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useId, useState } from 'react';
+import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { GraduationCap, ArrowRight, ShieldCheck, UserCheck } from 'lucide-react';
 import { ErrorBanner } from '../components/UIStates';
 
+const DEFAULT_RETURN_TO = '/classes';
+
+// R17-01: RequireLogin and ClassroomLayout hand over the page the person wanted as state.from (a router
+// Location). Honor it after login/register - including its query string, which carries e.g. an exam
+// attempt id - but only for in-app absolute paths, and never bounce back to /login itself.
+const resolveReturnTo = (state: unknown): string => {
+  const from = (state as { from?: { pathname?: string; search?: string; hash?: string } } | null)?.from;
+  const pathname = from?.pathname;
+  if (!pathname || !pathname.startsWith('/') || pathname.startsWith('//') || pathname.startsWith('/login')) {
+    return DEFAULT_RETURN_TO;
+  }
+  return `${pathname}${from?.search ?? ''}${from?.hash ?? ''}`;
+};
+
 export const LoginPage: React.FC = () => {
-  const { login, register, quickLogin } = useAuth();
+  const { user, login, register, quickLogin } = useAuth();
   const demoLoginEnabled = import.meta.env.VITE_ENABLE_DEMO_LOGIN === 'true';
   const navigate = useNavigate();
   const location = useLocation();
-  const returnTo = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || '/classes';
+  const returnTo = resolveReturnTo(location.state);
 
+  const fullNameId = useId();
+  const emailId = useId();
+  const passwordId = useId();
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -50,6 +67,12 @@ export const LoginPage: React.FC = () => {
     }
   };
 
+  // R17-01: an already signed-in person (the session bootstrap restored it, or they are on /login by
+  // hand) has nothing to do here - send them on instead of leaving them stranded on the form.
+  if (user) {
+    return <Navigate to={returnTo} replace />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
@@ -59,7 +82,7 @@ export const LoginPage: React.FC = () => {
         <h2 className="mt-4 text-3xl font-extrabold text-slate-900 tracking-tight">
           {isRegister ? 'Đăng ký tài khoản mới' : 'Đăng nhập hệ thống'}
         </h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-slate-600">
           Nền tảng lớp học trực tuyến & phân quyền đa vai trò
         </p>
       </div>
@@ -71,8 +94,9 @@ export const LoginPage: React.FC = () => {
           <form className="space-y-4" onSubmit={handleSubmit}>
             {isRegister && (
               <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase">Họ và tên</label>
+                <label htmlFor={fullNameId} className="block text-xs font-semibold text-slate-700 uppercase">Họ và tên</label>
                 <input
+                  id={fullNameId}
                   type="text"
                   required
                   value={fullName}
@@ -84,8 +108,9 @@ export const LoginPage: React.FC = () => {
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase">Email</label>
+              <label htmlFor={emailId} className="block text-xs font-semibold text-slate-700 uppercase">Email</label>
               <input
+                id={emailId}
                 type="email"
                 required
                 value={email}
@@ -96,8 +121,9 @@ export const LoginPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase">Mật khẩu</label>
+              <label htmlFor={passwordId} className="block text-xs font-semibold text-slate-700 uppercase">Mật khẩu</label>
               <input
+                id={passwordId}
                 type="password"
                 required
                 value={password}
@@ -143,7 +169,7 @@ export const LoginPage: React.FC = () => {
               >
                 <div>
                   <span className="font-bold text-indigo-900 block">Thầy Chủ Nhiệm (OWNER)</span>
-                  <span className="text-[11px] text-slate-500">owner@classroom.local</span>
+                  <span className="text-[11px] text-slate-600">owner@classroom.local</span>
                 </div>
                 <span className="px-2 py-0.5 rounded bg-indigo-600 text-white font-bold text-[10px]">OWNER</span>
               </button>
@@ -154,7 +180,7 @@ export const LoginPage: React.FC = () => {
               >
                 <div>
                   <span className="font-bold text-blue-900 block">Cô Trợ Giảng (STAFF)</span>
-                  <span className="text-[11px] text-slate-500">staff@classroom.local</span>
+                  <span className="text-[11px] text-slate-600">staff@classroom.local</span>
                 </div>
                 <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-bold text-[10px]">STAFF</span>
               </button>
@@ -165,7 +191,7 @@ export const LoginPage: React.FC = () => {
               >
                 <div>
                   <span className="font-bold text-slate-900 block">Học Viên FREE (Miễn phí)</span>
-                  <span className="text-[11px] text-slate-500">student.free@classroom.local</span>
+                  <span className="text-[11px] text-slate-600">student.free@classroom.local</span>
                 </div>
                 <span className="px-2 py-0.5 rounded bg-slate-600 text-white font-bold text-[10px]">FREE</span>
               </button>
@@ -176,9 +202,9 @@ export const LoginPage: React.FC = () => {
               >
                 <div>
                   <span className="font-bold text-amber-900 block">Học Viên VIP (PRO)</span>
-                  <span className="text-[11px] text-slate-500">student.pro@classroom.local</span>
+                  <span className="text-[11px] text-slate-600">student.pro@classroom.local</span>
                 </div>
-                <span className="px-2 py-0.5 rounded bg-amber-500 text-white font-bold text-[10px]">PRO</span>
+                <span className="px-2 py-0.5 rounded bg-amber-700 text-white font-bold text-[10px]">PRO</span>
               </button>
 
               <button
@@ -187,7 +213,7 @@ export const LoginPage: React.FC = () => {
               >
                 <div>
                   <span className="font-bold text-rose-900 block">Học Viên Hết Hạn PRO</span>
-                  <span className="text-[11px] text-slate-500">student.expired@classroom.local</span>
+                  <span className="text-[11px] text-slate-600">student.expired@classroom.local</span>
                 </div>
                 <span className="px-2 py-0.5 rounded bg-rose-600 text-white font-bold text-[10px]">EXPIRED</span>
               </button>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useOutletContext, Link } from 'react-router-dom';
 import { Classroom } from '../../types';
 import { api } from '../../api/client';
+import { ClassBadges } from '../../components/ClassBadges';
 import { Users, BookOpen, Award, ShoppingBag, Sparkles, RefreshCw } from 'lucide-react';
 
 export const StudioOverview: React.FC = () => {
@@ -24,7 +25,9 @@ export const StudioOverview: React.FC = () => {
     <div className="max-w-6xl mx-auto space-y-8">
       <div>
         <h1 className="text-2xl font-black text-slate-900 tracking-tight">Tổng quan Studio Quản Trị</h1>
-        <p className="text-xs text-slate-500">Trung tâm điều hành và thiết lập nội dung của lớp học</p>
+        <p className="text-xs text-slate-600">Trung tâm điều hành và thiết lập nội dung của lớp học</p>
+        {/* D-19 */}
+        <ClassBadges classroom={classroom} showPublic className="mt-2" />
       </div>
 
       {/* KPI Cards */}
@@ -34,7 +37,7 @@ export const StudioOverview: React.FC = () => {
             <Users className="w-6 h-6" />
           </div>
           <div>
-            <span className="text-xs font-semibold text-slate-400 uppercase">Thành viên</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase">Thành viên</span>
             <div className="text-2xl font-black text-slate-900">{classroom.memberCount}</div>
           </div>
         </div>
@@ -44,7 +47,7 @@ export const StudioOverview: React.FC = () => {
             <BookOpen className="w-6 h-6" />
           </div>
           <div>
-            <span className="text-xs font-semibold text-slate-400 uppercase">Khóa học</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase">Khóa học</span>
             <div className="text-2xl font-black text-slate-900">Hoạt động</div>
           </div>
         </div>
@@ -54,7 +57,7 @@ export const StudioOverview: React.FC = () => {
             <Award className="w-6 h-6" />
           </div>
           <div>
-            <span className="text-xs font-semibold text-slate-400 uppercase">Kỳ thi</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase">Kỳ thi</span>
             <div className="text-2xl font-black text-slate-900">Sẵn sàng</div>
           </div>
         </div>
@@ -64,7 +67,7 @@ export const StudioOverview: React.FC = () => {
             <ShoppingBag className="w-6 h-6" />
           </div>
           <div>
-            <span className="text-xs font-semibold text-slate-400 uppercase">Cửa hàng</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase">Cửa hàng</span>
             <div className="text-2xl font-black text-slate-900">Mở bán</div>
           </div>
         </div>

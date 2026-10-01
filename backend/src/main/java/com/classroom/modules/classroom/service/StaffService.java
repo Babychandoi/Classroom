@@ -19,10 +19,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Optional;
 
 @Service
 public class StaffService {
+
+    /**
+     * R7-01: modules whose access is ever evaluated per-course (AccessPolicy.canManage /
+     * enforceManage called with a non-null resourceScopeCourseId somewhere in the codebase).
+     * Every other module (SEGMENT, STORE, STUDIO, FEED, DOCUMENT, ABOUT, MEDIA, MEMBER, AUDIT, ...)
+     * is only ever checked with a null (class-wide) scope server-side, so a course-scoped grant on
+     * one of them can never actually authorize anything there — assignStaff rejects such grants
+     * up front instead of silently persisting an inert (and misleading) permission.
+     */
+    private static final java.util.Set<String> COURSE_SCOPABLE_MODULES = java.util.Set.of("COURSE", "EXAM");
 
     private final StaffAssignmentRepository staffAssignmentRepository;
     private final StaffPermissionRepository staffPermissionRepository;
@@ -89,18 +98,25 @@ public class StaffService {
         User targetUser = userRepository.findById(targetUserId)
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy người dùng mục tiêu"));
 
-        // Ensure user is member
-        Optional<ClassMember> memberOpt = memberRepository.findByClassIdAndUserId(classId, targetUserId);
-        if (memberOpt.isEmpty()) {
-            memberRepository.save(new ClassMember(classId, targetUserId, "STAFF"));
-        } else {
-            ClassMember m = memberOpt.get();
-            if (!"ACTIVE".equalsIgnoreCase(m.getState())) {
-                throw new AppException(ErrorCode.BAD_REQUEST, "Không thể cấp nhân sự cho thành viên chưa hoạt động trong lớp");
-            }
-            m.setRole("STAFF");
-            memberRepository.save(m);
+        // R3-07 (part 2): the class owner already holds full authority; assigning themselves as
+        // STAFF is meaningless and would let an owner accidentally scope down their own access.
+        if (accessPolicy.isOwner(targetUserId, classId)) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Chủ lớp học không thể tự thêm mình làm nhân viên");
         }
+
+        // R4-01: assignStaff must never auto-create membership — the target must already be an
+        // ACTIVE member of the class (i.e. they consented to join). Silently creating an ACTIVE
+        // STAFF membership for an arbitrary user would grant them class access, and combined with
+        // the class-admin privacy override, would let the owner read that user's PRIVATE profile
+        // without consent.
+        ClassMember m = memberRepository.findByClassIdAndUserId(classId, targetUserId)
+                .orElseThrow(() -> new AppException(ErrorCode.BAD_REQUEST, "Người dùng chưa là thành viên của lớp học này"));
+        if (!m.isActiveAt(java.time.Instant.now())) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Không thể cấp nhân sự cho thành viên chưa hoạt động trong lớp");
+        }
+        m.setRole("STAFF");
+        m.setAccessExpiresAt(null); // D-19: staff never need (or lose) paid access - assigning them ends the term
+        memberRepository.save(m);
         if (outboxService != null) outboxService.recordEvent("CLASSROOM", classId, "MEMBER_JOINED", java.util.Map.of("classId", classId, "userId", targetUserId));
 
         StaffAssignment assignment = staffAssignmentRepository.findByClassIdAndUserId(classId, targetUserId)
@@ -124,9 +140,19 @@ public class StaffService {
                         throw new AppException(ErrorCode.BAD_REQUEST, "Khóa học phạm vi không thuộc lớp này");
                     }
                 }
+                if (pDto.getModule() == null || pDto.getAction() == null) {
+                    throw new AppException(ErrorCode.BAD_REQUEST, "Module và hành động của quyền không được để trống");
+                }
                 String module = pDto.getModule().toUpperCase();
                 String action = pDto.getAction().toUpperCase();
                 String scopeCourseId = pDto.getScopeCourseId() == null || pDto.getScopeCourseId().isBlank() ? null : pDto.getScopeCourseId();
+                // R7-01: reject a course-scoped grant for a module that is never checked with a
+                // course scope server-side — it would look assigned in the UI but never actually
+                // authorize anything, and would silently produce an inert row in the DB.
+                if (scopeCourseId != null && !COURSE_SCOPABLE_MODULES.contains(module)) {
+                    throw new AppException(ErrorCode.BAD_REQUEST,
+                            "Module " + module + " không hỗ trợ phân quyền theo phạm vi khóa học");
+                }
                 String naturalKey = module + "|" + action + "|" + scopeCourseId;
                 if (!seen.add(naturalKey)) {
                     continue;
@@ -159,18 +185,24 @@ public class StaffService {
     public void removeStaff(String classId, String targetUserId, String currentUserId) {
         accessPolicy.enforceOwner(currentUserId, classId);
 
-        staffAssignmentRepository.findByClassIdAndUserId(classId, targetUserId).ifPresent(assignment -> {
-            staffPermissionRepository.deleteByAssignmentId(assignment.getId());
-            staffAssignmentRepository.delete(assignment);
-        });
+        boolean assignmentRemoved = staffAssignmentRepository.findByClassIdAndUserId(classId, targetUserId)
+                .map(assignment -> {
+                    staffPermissionRepository.deleteByAssignmentId(assignment.getId());
+                    staffAssignmentRepository.delete(assignment);
+                    return true;
+                }).orElse(false);
 
         memberRepository.findByClassIdAndUserId(classId, targetUserId).ifPresent(m -> {
             m.setRole("STUDENT");
             memberRepository.save(m);
         });
+        // R3-07 (part 3): only emit when a STAFF assignment actually existed and was removed.
+        // A no-op removal (the target was never staff) must not re-emit MEMBER_JOINED.
         // Removing a STAFF assignment changes the role but leaves the user an active class
         // member; retain the MEMBER_OF edge in the graph projection.
-        if (outboxService != null) outboxService.recordEvent("CLASSROOM", classId, "MEMBER_JOINED", java.util.Map.of("classId", classId, "userId", targetUserId));
+        if (assignmentRemoved && outboxService != null) {
+            outboxService.recordEvent("CLASSROOM", classId, "MEMBER_JOINED", java.util.Map.of("classId", classId, "userId", targetUserId));
+        }
 
         // Finding 7: Record transactional audit event for staff removal
         auditService.record(

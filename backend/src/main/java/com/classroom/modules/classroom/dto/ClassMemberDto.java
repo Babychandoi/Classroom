@@ -1,5 +1,7 @@
 package com.classroom.modules.classroom.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.time.Instant;
 
 public class ClassMemberDto {
@@ -8,8 +10,15 @@ public class ClassMemberDto {
     private String role;
     private String state;
     private Instant joinedAt;
+    /** D-19: Studio roster only - when the member's paid access ends (null = no expiry). Never on the peer-visible member listing. */
+    private Instant accessExpiresAt;
     private String userFullName;
     private String userAvatarUrl;
+    /** R13-02: Studio member management listing — email is only ever populated for a caller who
+     * already passes MEMBER:VIEW (see MemberService), never on the public getClassMembers listing. */
+    private String userEmail;
+    /** R13-02: FREE/PRO tier, derived from ProPolicy (paid entitlement or OWNER), never a client-set flag. */
+    private boolean isPro;
 
     public ClassMemberDto() {
     }
@@ -64,6 +73,14 @@ public class ClassMemberDto {
         this.joinedAt = joinedAt;
     }
 
+    public Instant getAccessExpiresAt() {
+        return accessExpiresAt;
+    }
+
+    public void setAccessExpiresAt(Instant accessExpiresAt) {
+        this.accessExpiresAt = accessExpiresAt;
+    }
+
     public String getUserFullName() {
         return userFullName;
     }
@@ -78,5 +95,28 @@ public class ClassMemberDto {
 
     public void setUserAvatarUrl(String userAvatarUrl) {
         this.userAvatarUrl = userAvatarUrl;
+    }
+
+    public String getUserEmail() {
+        return userEmail;
+    }
+
+    public void setUserEmail(String userEmail) {
+        this.userEmail = userEmail;
+    }
+
+    /**
+     * R13-02: matches ClassroomDto's isPro()/setPro() @JsonProperty("isPro") convention — without
+     * it, Jackson's default bean-naming for an "is"-prefixed boolean getter serializes this field
+     * as "pro" instead of "isPro", inconsistent with the rest of this API's boolean flags.
+     */
+    @JsonProperty("isPro")
+    public boolean isPro() {
+        return isPro;
+    }
+
+    @JsonProperty("isPro")
+    public void setPro(boolean pro) {
+        isPro = pro;
     }
 }

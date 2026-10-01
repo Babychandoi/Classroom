@@ -43,8 +43,13 @@ class ClassroomApplicationTests {
     @Test
     @DisplayName("Public posts can be read anonymously, while creating a post still requires authentication")
     void publicFeedReadIsAnonymousButPostCreationIsProtected() throws Exception {
+        // R5-04: the feed endpoint now 404s for a class that does not exist (matching the
+        // about/products endpoints) instead of silently returning an empty list. "public-feed-test"
+        // is not a seeded class id, so a 404 here — reached past Spring Security's filter chain
+        // without a 401 — is exactly what proves the GET is permitted anonymously; only the POST
+        // (which requires a real authenticated principal before any class lookup) must 401.
         mockMvc.perform(get("/api/v1/classes/public-feed-test/posts"))
-                .andExpect(status().isOk());
+                .andExpect(status().isNotFound());
 
         mockMvc.perform(post("/api/v1/classes/public-feed-test/posts")
                         .contentType("application/json")

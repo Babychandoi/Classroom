@@ -1,0 +1,15 @@
+# Optional second backend, sharing databases, JWT settings and database rate-limit buckets.
+# Use with compose.yaml; when hosting HTTPS also include compose.server.yaml.
+services:
+  backend-second:
+    extends:
+      file: compose.yaml
+      service: backend
+    container_name: classroom-backend-second
+    ports: !override
+      - "127.0.0.1:28080:8080"
+    environment:
+      APP_SECURITY_RATE_LIMIT_STORE: mysql
+  frontend:
+    environment:
+      SECOND_BACKEND_UPSTREAM: "server backend-second:8080;"

@@ -41,28 +41,31 @@ class StaffPermissionRepositoryTest {
     @Transactional
     @DisplayName("Re-saving the same course-scoped grant after deleteByAssignmentId does not collide with uk_staff_permission")
     void resavingCourseScopedGrantAfterDeleteDoesNotCollide() {
-        String classId = "class-" + UUID.randomUUID();
+        String classId = UUID.randomUUID().toString();
 
         Course course = new Course(classId, "Course for staff perm test", "FREE");
         course = courseRepository.save(course);
 
-        StaffAssignment assignment = new StaffAssignment(classId, "user-" + UUID.randomUUID());
+        StaffAssignment assignment = new StaffAssignment(classId, UUID.randomUUID().toString());
         assignment.setStatus("ACTIVE");
         assignment = staffAssignmentRepository.save(assignment);
 
-        StaffPermission original = new StaffPermission(assignment.getId(), "COURSE", "EDIT", course.getId());
+        final String assignmentId = assignment.getId();
+        final String courseId = course.getId();
+
+        StaffPermission original = new StaffPermission(assignmentId, "COURSE", "EDIT", courseId);
         staffPermissionRepository.save(original);
 
         // Simulate StaffService#assignStaff re-granting the identical permission: delete all
         // existing grants for the assignment, then insert the (possibly identical) new set,
         // within the same transaction/persistence context.
         assertDoesNotThrow(() -> {
-            staffPermissionRepository.deleteByAssignmentId(assignment.getId());
-            StaffPermission reGranted = new StaffPermission(assignment.getId(), "COURSE", "EDIT", course.getId());
+            staffPermissionRepository.deleteByAssignmentId(assignmentId);
+            StaffPermission reGranted = new StaffPermission(assignmentId, "COURSE", "EDIT", courseId);
             staffPermissionRepository.save(reGranted);
         });
 
-        List<StaffPermission> remaining = staffPermissionRepository.findByAssignmentId(assignment.getId());
+        List<StaffPermission> remaining = staffPermissionRepository.findByAssignmentId(assignmentId);
         assertEquals(1, remaining.size());
     }
 }

@@ -24,4 +24,8 @@ public interface OrderRepository extends JpaRepository<Order, String> {
     Optional<Order> findByIdempotencyKeyAndBuyerId(String idempotencyKey, String buyerId);
     List<Order> findByBuyerIdOrderByCreatedAtDesc(String buyerId);
     List<Order> findByClassIdOrderByCreatedAtDesc(String classId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT o FROM Order o WHERE o.id = :id")
+    Optional<Order> findByIdForUpdate(@Param("id") String id);
 }

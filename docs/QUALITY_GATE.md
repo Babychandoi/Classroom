@@ -797,3 +797,21 @@ Re-verified in Docker after fixing the one High and four Medium findings. All fi
 | REVIEW_FINDINGS.md updated truthfully | ✓ Round 15 section added |
 
 **Release status: NOT APPROVED.** This gate covers only the five findings raised in round 15. Open items from earlier rounds — ranking tier/reward-rule configuration endpoints, real payment provider integration and buyer checkout completion, the Studio exam authoring workflow, and several outstanding API-level regression tests — are unchanged and still open. A fresh independent review is required.
+# Gate hiện tại — 2026-10-02, Round 23
+
+Mục này thay thế các kết luận trạng thái hiện tại ở các vòng cũ bên dưới; giữ nguyên chúng làm lịch sử. Đây là kiểm tra source/runtime bởi agent thực hiện, không tự nhận là review độc lập.
+
+| Gate | Kết quả |
+|---|---|
+| Backend Java 21 | 999/999 pass, 0 failure/error/skip; `backend-final-validation.log` |
+| Integration MySQL/MongoDB/Neo4j/MinIO, Flyway V1..V42 | 96/96 pass; `.artifacts/integration-auth-read-validation.log` |
+| Frontend | 369/369 pass, TypeScript strict và Vite build thành công; audit npm 0 vulnerability |
+| Chrome E2E | Demo 210/210 (10 script); HTTPS chính 182/182, script sandbox bỏ qua có chủ đích vì sandbox chính tắt |
+| Lớp private/paid và quyền dữ liệu | Attack/regression Round23 16/16 pass; `round23-deployed-validation.log` |
+| Trợ năng tự động | 29 route mỗi môi trường, 0 axe violation; WebVTT/transcript và keyboard kiểm tra trên Chrome |
+| Vận hành trên máy | Mặc định một node, hỗ trợ hai node; HTTPS tin cậy, cookie Secure/HttpOnly, firewall LAN, secret đã xoay, backup/restore thật, scheduled tasks đã đăng ký |
+| Tải server mới | **OPEN**; xem `PERFORMANCE_REVIEW.md`, không có cam kết 200 học viên đạt NFR |
+| Lịch sử Git | Bản sạch cần kiểm tra tree/object và xác nhận riêng trước force push |
+| Internet / WCAG đầy đủ / pháp lý | Chưa có DNS/router, kiểm chứng thiết bị LAN thứ hai/reboot; manual AT và dữ liệu đơn vị vận hành còn cần nghiệm thu |
+
+Các chức năng Studio authoring, reward rule, checkout giả lập và regression được ghi là còn thiếu ở Round 15 nay đã có trong source và bộ E2E. Thanh toán thật nằm ngoài yêu cầu hiện tại. **Chưa phê duyệt phát hành đáp ứng toàn bộ NFR** vì gate tải vẫn chưa đạt.

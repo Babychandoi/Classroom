@@ -1,0 +1,22 @@
+# Files that are executed or parsed inside Linux containers must keep LF line endings even when
+# checked out on Windows (core.autocrlf=true would otherwise turn them into CRLF and break them,
+# e.g. infra/scripts/container/dbtool.sh is bind-mounted into the mysql/mongodb containers).
+*.sh          text eol=lf
+*.sql         text eol=lf
+Dockerfile    text eol=lf
+*.template    text eol=lf
+*.conf        text eol=lf
+*.yaml        text eol=lf
+*.yml         text eol=lf
+*.properties  text eol=lf
+
+# Windows PowerShell 5.1 scripts: keep pure ASCII + CRLF (see docs/RUNBOOK.md section 5).
+*.ps1         text eol=crlf
+*.cmd         text eol=crlf
+
+# Binary fixtures
+*.mp4 binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.woff2 binary

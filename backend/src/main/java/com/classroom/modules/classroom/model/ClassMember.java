@@ -19,13 +19,21 @@ public class ClassMember {
     private String userId;
 
     @Column(nullable = false, length = 32)
-    private String state = "ACTIVE"; // ACTIVE, BANNED
+    private String state = "ACTIVE"; // ACTIVE, EXPIRED, REMOVED, BLOCKED (the legacy BANNED is read as BLOCKED)
 
     @Column(nullable = false, length = 32)
     private String role = "STUDENT"; // STUDENT, STAFF, OWNER
 
     @Column(name = "joined_at", nullable = false)
     private Instant joinedAt;
+
+    /**
+     * D-19: end of the paid access of this member (the end of the class-access entitlement chain). {@code null} = no expiry - free
+     * classes, the owner and staff, members grandfathered when a free class became paid, lifetime purchases. An ACTIVE row whose date has
+     * passed is already an EXPIRED member to every check ({@link #isActiveAt}) even before the sweeper flips the stored state.
+     */
+    @Column(name = "access_expires_at")
+    private Instant accessExpiresAt;
 
     public ClassMember() {
         this.id = UUID.randomUUID().toString();
@@ -83,6 +91,27 @@ public class ClassMember {
 
     public Instant getJoinedAt() {
         return joinedAt;
+    }
+
+    public Instant getAccessExpiresAt() {
+        return accessExpiresAt;
+    }
+
+    public void setAccessExpiresAt(Instant accessExpiresAt) {
+        this.accessExpiresAt = accessExpiresAt;
+    }
+
+    /** The one definition of "this row currently grants membership": stored state ACTIVE and the paid access has not lapsed. */
+    public boolean isActiveAt(Instant now) {
+        return "ACTIVE".equalsIgnoreCase(state) && (accessExpiresAt == null || accessExpiresAt.isAfter(now));
+    }
+
+    /** The state to show: a stored ACTIVE whose paid access has lapsed is EXPIRED whether or not the sweeper has flipped it yet. */
+    public String effectiveState(Instant now) {
+        if ("ACTIVE".equalsIgnoreCase(state) && accessExpiresAt != null && !accessExpiresAt.isAfter(now)) {
+            return "EXPIRED";
+        }
+        return state;
     }
 
     public void setJoinedAt(Instant joinedAt) {

@@ -6,6 +6,10 @@ import java.util.UUID;
 @Entity
 @Table(name = "lessons")
 public class Lesson {
+    @Column(name = "captions_vtt", columnDefinition = "MEDIUMTEXT")
+    private String captionsVtt;
+    public String getCaptionsVtt() { return captionsVtt; }
+    public void setCaptionsVtt(String captionsVtt) { this.captionsVtt = captionsVtt; }
 
     @Id
     @Column(length = 36)
@@ -34,6 +38,9 @@ public class Lesson {
 
     @Column(nullable = false)
     private int position = 0;
+
+    @Column(nullable = false)
+    private boolean archived = false;
 
     public Lesson() {
         this.id = UUID.randomUUID().toString();
@@ -118,5 +125,13 @@ public class Lesson {
 
     public void setPosition(int position) {
         this.position = position;
+    }
+
+    public boolean isArchived() {
+        return archived;
+    }
+
+    public void setArchived(boolean archived) {
+        this.archived = archived;
     }
 }

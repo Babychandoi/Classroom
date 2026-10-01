@@ -1,9 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { Classroom } from '../../types';
 import { api } from '../../api/client';
 import { LoadingSpinner, ErrorBanner } from '../../components/UIStates';
-import { Layers, Plus, Users, Eye } from 'lucide-react';
+import { Modal } from '../../components/Modal';
+import { Layers, Plus, Users, Eye, X } from 'lucide-react';
+
+interface RuleDraft {
+  criterion: string;
+  operator: string;
+  value: string;
+}
+
+const emptyRule = (): RuleDraft => ({ criterion: 'IS_PRO', operator: 'EQUALS', value: 'true' });
 
 interface SegmentItem {
   id: string;
@@ -27,10 +36,19 @@ export const StudioSegments: React.FC = () => {
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [operator, setOperator] = useState('AND');
-  const [criterion, setCriterion] = useState('IS_PRO');
-  const [ruleOp, setRuleOp] = useState('EQUALS');
-  const [ruleVal, setRuleVal] = useState('true');
+  // R8-11: a segment can combine several rules with the chosen AND/OR combinator; the form used to
+  // always send exactly one rule, making the combinator selector meaningless.
+  const [rules, setRules] = useState<RuleDraft[]>([emptyRule()]);
   const [saving, setSaving] = useState(false);
+  const nameId = useId();
+  const descId = useId();
+
+  const updateRule = (index: number, patch: Partial<RuleDraft>) => {
+    setRules((old) => old.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)));
+  };
+
+  const addRule = () => setRules((old) => [...old, emptyRule()]);
+  const removeRule = (index: number) => setRules((old) => (old.length <= 1 ? old : old.filter((_, i) => i !== index)));
 
   // Preview Result
   const [previewData, setPreviewData] = useState<Record<string, any>>({});
@@ -38,6 +56,7 @@ export const StudioSegments: React.FC = () => {
   const fetchSegments = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await api.get<SegmentItem[]>(`/classes/${classroom.id}/segments`);
       setSegments(data || []);
     } catch (err: any) {
@@ -68,11 +87,15 @@ export const StudioSegments: React.FC = () => {
         name,
         description: desc,
         logicOperator: operator,
-        rules: [{ criterion, operator: ruleOp, value: ruleVal }],
+        // R8-11: send every rule the staff member configured, in the combinator (AND/OR) they chose
+        // — SegmentService.createSegment/isUserInSegment already evaluate an arbitrary list of rules
+        // against that single operator; only the UI used to collapse it down to one rule.
+        rules: rules.map((r) => ({ criterion: r.criterion, operator: r.operator, value: r.value })),
       });
       setShowModal(false);
       setName('');
       setDesc('');
+      setRules([emptyRule()]);
       await fetchSegments();
     } catch (err: any) {
       alert(err.message || 'Tạo phân khúc thất bại');
@@ -86,7 +109,7 @@ export const StudioSegments: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Phân khúc học viên (Segment Engine)</h1>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-600">
             Tạo nhóm học viên theo tiêu chí an toàn (Whitelist AST) để mở bài thi hoặc bài đăng riêng
           </p>
         </div>
@@ -138,13 +161,12 @@ export const StudioSegments: React.FC = () => {
 
       {/* Modal Create Segment */}
       {showModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-200">
-            <h3 className="text-lg font-bold text-slate-900 mb-4">Tạo nhóm phân khúc học viên</h3>
+        <Modal size="lg" title="Tạo nhóm phân khúc học viên" onClose={() => setShowModal(false)}>
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase">Tên phân khúc</label>
+                <label htmlFor={nameId} className="block text-xs font-semibold text-slate-700 uppercase">Tên phân khúc</label>
                 <input
+                  id={nameId}
                   type="text"
                   required
                   value={name}
@@ -155,8 +177,9 @@ export const StudioSegments: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase">Mô tả</label>
+                <label htmlFor={descId} className="block text-xs font-semibold text-slate-700 uppercase">Mô tả</label>
                 <textarea
+                  id={descId}
                   rows={2}
                   value={desc}
                   onChange={(e) => setDesc(e.target.value)}
@@ -165,21 +188,79 @@ export const StudioSegments: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                <label className="text-xs font-semibold text-slate-700">Tiêu chí
-                  <select value={criterion} onChange={(e) => setCriterion(e.target.value)} className="mt-1 block w-full rounded-lg border p-2">
-                    <option value="IS_PRO">PRO</option><option value="COURSE_OWNED">Sở hữu khóa</option>
-                    <option value="COMPLETED_LESSONS_COUNT">Số bài hoàn thành</option><option value="AVG_EXAM_SCORE">Điểm thi TB</option><option value="DAYS_SINCE_JOINED">Ngày tham gia</option>
-                  </select>
-                </label>
-                <label className="text-xs font-semibold text-slate-700">Toán tử
-                  <select value={ruleOp} onChange={(e) => setRuleOp(e.target.value)} className="mt-1 block w-full rounded-lg border p-2">
-                    <option value="EQUALS">Bằng</option><option value="GREATER_THAN_OR_EQUAL">Từ</option><option value="LESS_THAN_OR_EQUAL">Đến</option>
-                  </select>
-                </label>
-                <label className="text-xs font-semibold text-slate-700">Giá trị
-                  <input required value={ruleVal} onChange={(e) => setRuleVal(e.target.value)} className="mt-1 block w-full rounded-lg border p-2" />
-                </label>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700 uppercase">Điều kiện</label>
+                  {/* R8-11: the combinator only matters — and is only shown — once there is more
+                      than one rule to combine. */}
+                  {rules.length > 1 && (
+                    <label className="text-xs font-semibold text-slate-700 inline-flex items-center gap-2">
+                      Kết hợp bằng
+                      <select
+                        aria-label="Toán tử kết hợp điều kiện"
+                        value={operator}
+                        onChange={(e) => setOperator(e.target.value)}
+                        className="rounded-lg border p-1.5"
+                      >
+                        <option value="AND">AND (thỏa tất cả)</option>
+                        <option value="OR">OR (thỏa một trong số)</option>
+                      </select>
+                    </label>
+                  )}
+                </div>
+
+                {rules.map((rule, index) => (
+                  <div key={index} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
+                    <label className="text-xs font-semibold text-slate-700">Tiêu chí
+                      <select
+                        aria-label={`Tiêu chí điều kiện ${index + 1}`}
+                        value={rule.criterion}
+                        onChange={(e) => updateRule(index, { criterion: e.target.value })}
+                        className="mt-1 block w-full rounded-lg border p-2"
+                      >
+                        <option value="IS_PRO">PRO</option><option value="COURSE_OWNED">Sở hữu khóa</option>
+                        <option value="COMPLETED_LESSONS_COUNT">Số bài hoàn thành</option><option value="AVG_EXAM_SCORE">Điểm thi TB</option><option value="DAYS_SINCE_JOINED">Ngày tham gia</option>
+                      </select>
+                    </label>
+                    <label className="text-xs font-semibold text-slate-700">Toán tử
+                      <select
+                        aria-label={`Toán tử điều kiện ${index + 1}`}
+                        value={rule.operator}
+                        onChange={(e) => updateRule(index, { operator: e.target.value })}
+                        className="mt-1 block w-full rounded-lg border p-2"
+                      >
+                        <option value="EQUALS">Bằng</option><option value="GREATER_THAN_OR_EQUAL">Từ</option><option value="LESS_THAN_OR_EQUAL">Đến</option>
+                      </select>
+                    </label>
+                    <label className="text-xs font-semibold text-slate-700">Giá trị
+                      <input
+                        aria-label={`Giá trị điều kiện ${index + 1}`}
+                        required
+                        value={rule.value}
+                        onChange={(e) => updateRule(index, { value: e.target.value })}
+                        className="mt-1 block w-full rounded-lg border p-2"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => removeRule(index)}
+                      disabled={rules.length <= 1}
+                      aria-label={`Xóa điều kiện ${index + 1}`}
+                      className="p-2 rounded-lg border border-slate-300 text-slate-500 hover:text-rose-600 hover:border-rose-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={addRule}
+                  className="inline-flex items-center space-x-1 text-xs font-bold text-indigo-600 hover:text-indigo-800"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Thêm điều kiện</span>
+                </button>
               </div>
 
               <div className="flex justify-end space-x-2 pt-2">
@@ -199,8 +280,7 @@ export const StudioSegments: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

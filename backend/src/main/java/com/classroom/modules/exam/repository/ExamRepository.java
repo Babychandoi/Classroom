@@ -19,4 +19,13 @@ public interface ExamRepository extends JpaRepository<Exam, String> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT e FROM Exam e WHERE e.id = :id")
     Optional<Exam> findByIdForUpdate(@Param("id") String id);
+
+    /**
+     * R20-06: shared (`FOR SHARE`) read used by "start attempt". Many learners can hold it at once, so simultaneous starts
+     * no longer queue behind each other, while an author's exclusive lock (close / edit / publish, {@link #findByIdForUpdate})
+     * still waits for in-flight starts and is seen by the next one.
+     */
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("SELECT e FROM Exam e WHERE e.id = :id")
+    Optional<Exam> findByIdForShare(@Param("id") String id);
 }

@@ -32,10 +32,16 @@ public class ApiResponse<T> {
     }
 
     public static <T> ApiResponse<T> error(String code, String message, String requestId) {
+        return error(code, message, requestId, null);
+    }
+
+    /** D-19: an error that also carries structured {@code details} (e.g. PAYMENT_REQUIRED hands the UI the class-access product). */
+    public static <T> ApiResponse<T> error(String code, String message, String requestId, java.util.Map<String, Object> details) {
         ApiResponse<T> res = new ApiResponse<>();
         res.success = false;
         res.requestId = (requestId != null) ? requestId : UUID.randomUUID().toString();
         res.error = new ApiError(code, message, res.requestId);
+        res.error.setDetails(details);
         return res;
     }
 
@@ -79,10 +85,13 @@ public class ApiResponse<T> {
         this.timestamp = timestamp;
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ApiError {
         private String code;
         private String message;
         private String requestId;
+        /** D-19: optional structured payload (only PAYMENT_REQUIRED sets it today); omitted from the JSON when null. */
+        private java.util.Map<String, Object> details;
 
         public ApiError(String code, String message, String requestId) {
             this.code = code;
@@ -104,6 +113,14 @@ public class ApiResponse<T> {
 
         public void setMessage(String message) {
             this.message = message;
+        }
+
+        public java.util.Map<String, Object> getDetails() {
+            return details;
+        }
+
+        public void setDetails(java.util.Map<String, Object> details) {
+            this.details = details;
         }
 
         public String getRequestId() {

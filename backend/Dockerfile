@@ -37,7 +37,9 @@ COPY --from=builder /app/target/*.jar app.jar
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
-  CMD wget -q --spider http://127.0.0.1:8080/api/v1/health || exit 1
+# R20-12: readiness (a database connection can be obtained), not liveness, so the image's own health status also reflects a database
+# outage. infra/compose.yaml overrides this with the same command and the values documented there.
+HEALTHCHECK --interval=5s --timeout=5s --start-period=40s --retries=4 \
+  CMD wget -q --spider http://127.0.0.1:8080/api/v1/health/readiness || exit 1
 
 ENTRYPOINT ["java", "-Djava.security.egd=file:/dev/./urandom", "-jar", "app.jar"]

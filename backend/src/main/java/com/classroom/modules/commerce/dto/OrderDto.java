@@ -15,6 +15,7 @@ public class OrderDto {
     private String provider;
     private String checkoutUrl;
     private Instant paidAt;
+    private Instant refundedAt;
     private Instant createdAt;
     private List<OrderItemDto> items;
 
@@ -98,6 +99,14 @@ public class OrderDto {
 
     public void setPaidAt(Instant paidAt) {
         this.paidAt = paidAt;
+    }
+
+    public Instant getRefundedAt() {
+        return refundedAt;
+    }
+
+    public void setRefundedAt(Instant refundedAt) {
+        this.refundedAt = refundedAt;
     }
 
     public Instant getCreatedAt() {

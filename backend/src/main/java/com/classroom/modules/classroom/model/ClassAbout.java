@@ -21,6 +21,12 @@ public class ClassAbout {
     @Column(name = "rules_markdown", columnDefinition = "MEDIUMTEXT")
     private String rulesMarkdown;
 
+    @Column(name = "sections_json", columnDefinition = "MEDIUMTEXT")
+    private String sectionsJson;
+
+    public String getSectionsJson() { return sectionsJson; }
+    public void setSectionsJson(String sectionsJson) { this.sectionsJson = sectionsJson; }
+
     @Column(name = "published_version", nullable = false)
     private int publishedVersion = 1;
 

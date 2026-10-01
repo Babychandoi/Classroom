@@ -1,0 +1,10 @@
+# Include after the server overlays only when DNS and router forwarding are configured.
+services:
+  caddy:
+    environment:
+      SERVER_ADDRESS: ${SERVER_ADDRESS:?Set a public DNS hostname}
+      TLS_EMAIL: ${TLS_EMAIL:?Set the certificate contact email}
+    volumes: !override
+      - ./Caddyfile.public:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config

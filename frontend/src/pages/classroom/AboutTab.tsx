@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { Classroom } from '../../types';
 import { api } from '../../api/client';
-import { useAuth } from '../../context/AuthContext';
+import { AboutSections, AboutSectionsEditor, AboutSection } from '../../components/AboutSections';
 import { LoadingSpinner, ErrorBanner } from '../../components/UIStates';
 import { Info, ShieldAlert, Edit3, Check } from 'lucide-react';
 
@@ -12,11 +12,11 @@ interface ClassAbout {
   contentMarkdown: string;
   rulesMarkdown: string;
   publishedVersion: number;
+  sections?: AboutSection[];
 }
 
 export const AboutTab: React.FC = () => {
   const { classroom } = useOutletContext<{ classroom: Classroom }>();
-  const { user } = useAuth();
 
   const [about, setAbout] = useState<ClassAbout | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,17 +26,23 @@ export const AboutTab: React.FC = () => {
   const [editing, setEditing] = useState(false);
   const [contentDraft, setContentDraft] = useState('');
   const [rulesDraft, setRulesDraft] = useState('');
+  const [sections, setSections] = useState<AboutSection[]>([]);
+  const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
+  const contentId = useId();
+  const rulesId = useId();
 
-  const canEdit = classroom.userRole === 'OWNER' || classroom.userRole === 'STAFF';
+  const canEdit = classroom.userRole === 'OWNER' || classroom.studioPermissions?.includes('ABOUT:EDIT');
 
   const fetchAbout = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await api.get<ClassAbout>(`/classes/${classroom.id}/about`);
       setAbout(data);
       setContentDraft(data.contentMarkdown || '');
       setRulesDraft(data.rulesMarkdown || '');
+      setSections(data.sections || []);
     } catch (err: any) {
       setError(err.message || 'Không thể tải thông tin giới thiệu');
     } finally {
@@ -50,15 +56,18 @@ export const AboutTab: React.FC = () => {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError('');
     try {
       const updated = await api.put<ClassAbout>(`/classes/${classroom.id}/about`, {
         contentMarkdown: contentDraft,
         rulesMarkdown: rulesDraft,
+        sections: sections.map(s => ({ ...s, imageUrl: s.mediaAssetId ? '' : s.imageUrl })),
+        publishedVersion: about?.publishedVersion,
       });
       setAbout(updated);
       setEditing(false);
     } catch (err: any) {
-      alert(err.message || 'Cập nhật thất bại');
+      setSaveError(err.message || 'Cập nhật thất bại. Nội dung bạn nhập vẫn được giữ lại.');
     } finally {
       setSaving(false);
     }
@@ -69,7 +78,7 @@ export const AboutTab: React.FC = () => {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap gap-4 justify-between items-center">
         <div>
           <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Giới thiệu & Nội quy</h2>
           <p className="text-xs text-slate-500">Thông tin tổng quan về mục tiêu lớp học và quy định văn hóa lớp</p>
@@ -105,13 +114,16 @@ export const AboutTab: React.FC = () => {
         )}
       </div>
 
+      {saveError && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{saveError}</p>}
       {editing ? (
         <div className="space-y-6 bg-white p-6 rounded-2xl border border-slate-200">
+          <AboutSectionsEditor classId={classroom.id} sections={sections} onChange={setSections} />
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase mb-2">
+            <label htmlFor={contentId} className="block text-xs font-bold text-slate-700 uppercase mb-2">
               Nội dung giới thiệu lớp học (Markdown)
             </label>
             <textarea
+              id={contentId}
               rows={8}
               value={contentDraft}
               onChange={(e) => setContentDraft(e.target.value)}
@@ -120,10 +132,11 @@ export const AboutTab: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase mb-2">
+            <label htmlFor={rulesId} className="block text-xs font-bold text-slate-700 uppercase mb-2">
               Nội quy lớp học (Markdown)
             </label>
             <textarea
+              id={rulesId}
               rows={6}
               value={rulesDraft}
               onChange={(e) => setRulesDraft(e.target.value)}
@@ -133,6 +146,7 @@ export const AboutTab: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-6">
+          <AboutSections sections={about?.sections || []} />
           {/* Main introduction */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 md:p-8 shadow-sm">
             <div className="flex items-center space-x-2 text-indigo-600 mb-4">

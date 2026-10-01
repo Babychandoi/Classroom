@@ -9,8 +9,15 @@ public class CreateOrderRequest {
     @NotBlank(message = "Sản phẩm không được để trống")
     private String productId;
 
-    @NotBlank(message = "Idempotency-Key không được để trống")
+    // R20-12: optional in the body - may come from the Idempotency-Key header instead; CommerceController#resolveIdempotencyKey
+    // enforces "present and consistent" on the effective key.
     private String idempotencyKey;
+
+    /**
+     * D-19: only for the class-access product of a PRIVATE paid class: the invite code that opened the checkout (a person who is not on the
+     * roster cannot otherwise even see the class). A use of the invite is reserved while the order is open. Ignored for every other product.
+     */
+    private String inviteCode;
 
     public CreateOrderRequest() {}
 
@@ -36,5 +43,13 @@ public class CreateOrderRequest {
 
     public void setIdempotencyKey(String idempotencyKey) {
         this.idempotencyKey = idempotencyKey;
+    }
+
+    public String getInviteCode() {
+        return inviteCode;
+    }
+
+    public void setInviteCode(String inviteCode) {
+        this.inviteCode = inviteCode;
     }
 }

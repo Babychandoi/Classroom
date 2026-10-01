@@ -18,7 +18,19 @@ public class CourseDto {
     private int completedLessons;
     private double progressPercentage;
     private Instant createdAt;
+    private boolean canEdit;
     private List<SectionDto> sections;
+    // R13-09 (Learn "hết hạn"): why the viewer does/doesn't have access, and — for a PURCHASE_REQUIRED
+    // course — when their access expires (null when access does not come from a time-boxed entitlement).
+    private String accessReason;
+    private Instant expiresAt;
+    // R14-12: for accessReason=OWNED_UPCOMING (paid, entitlement not started yet) when it begins.
+    private Instant accessStartsAt;
+    // R19-12: whether the course can be bought in the store RIGHT NOW (PURCHASE_REQUIRED and its product is
+    // PUBLISHED), and the linked product's status. An ARCHIVED product ("gỡ bán") is not in the store any more, so
+    // the Learn tab must not send a learner there ("Mua khóa học tại Cửa hàng") nor offer a renewal.
+    private boolean canPurchase;
+    private String productStatus;
 
     public CourseDto() {}
 
@@ -140,5 +152,53 @@ public class CourseDto {
 
     public void setSections(List<SectionDto> sections) {
         this.sections = sections;
+    }
+
+    public boolean isCanEdit() {
+        return canEdit;
+    }
+
+    public void setCanEdit(boolean canEdit) {
+        this.canEdit = canEdit;
+    }
+
+    public String getAccessReason() {
+        return accessReason;
+    }
+
+    public void setAccessReason(String accessReason) {
+        this.accessReason = accessReason;
+    }
+
+    public Instant getExpiresAt() {
+        return expiresAt;
+    }
+
+    public void setExpiresAt(Instant expiresAt) {
+        this.expiresAt = expiresAt;
+    }
+
+    public Instant getAccessStartsAt() {
+        return accessStartsAt;
+    }
+
+    public void setAccessStartsAt(Instant accessStartsAt) {
+        this.accessStartsAt = accessStartsAt;
+    }
+
+    public boolean isCanPurchase() {
+        return canPurchase;
+    }
+
+    public void setCanPurchase(boolean canPurchase) {
+        this.canPurchase = canPurchase;
+    }
+
+    public String getProductStatus() {
+        return productStatus;
+    }
+
+    public void setProductStatus(String productStatus) {
+        this.productStatus = productStatus;
     }
 }

@@ -98,6 +98,14 @@ public class MockPaymentSimulationController {
         if (!isOwner && !canManage) {
             throw new AppException(ErrorCode.FORBIDDEN, "Chỉ chủ lớp hoặc nhân sự quản lý cửa hàng mới có quyền mô phỏng thanh toán sandbox");
         }
+        // R4-07: staff holding STORE:EDIT (a non-owner) can be the buyer on their own order —
+        // that combination must not let them settle their own purchase, even though they pass the
+        // canManage check above. The class owner is deliberately exempt from this self-buy check:
+        // they already hold full authority over every order in their own class regardless of who
+        // the buyer is.
+        if (!isOwner && principal.getId().equals(order.getBuyerId())) {
+            throw new AppException(ErrorCode.FORBIDDEN, "Không thể tự mô phỏng thanh toán cho đơn hàng của chính mình");
+        }
 
         String eventType = (payload.getEventType() != null && !payload.getEventType().isBlank())
                 ? payload.getEventType().toUpperCase().trim()

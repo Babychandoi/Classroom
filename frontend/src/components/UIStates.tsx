@@ -20,7 +20,7 @@ export const EmptyState: React.FC<{
   onAction,
 }) => (
   <div className="flex flex-col items-center justify-center text-center p-12 bg-white rounded-xl border border-slate-200 shadow-sm">
-    <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-4">
+    <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 mb-4">
       <Inbox className="w-6 h-6" />
     </div>
     <h3 className="text-base font-semibold text-slate-800 mb-1">{title}</h3>
@@ -73,7 +73,7 @@ export const ForbiddenState: React.FC<{
     {actionText && onAction && (
       <button
         onClick={onAction}
-        className="px-5 py-2.5 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 shadow-sm transition"
+        className="px-5 py-2.5 bg-amber-700 text-white text-sm font-semibold rounded-lg hover:bg-amber-800 shadow-sm transition"
       >
         {actionText}
       </button>
@@ -102,7 +102,7 @@ export const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     case 'EXPIRED':
       return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800">{s}</span>;
     case 'PRO':
-      return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-white shadow-sm">PRO</span>;
+      return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-700 text-white shadow-sm">PRO</span>;
     case 'OWNER':
       return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-600 text-white">CHỦ NHIỆM</span>;
     case 'STAFF':

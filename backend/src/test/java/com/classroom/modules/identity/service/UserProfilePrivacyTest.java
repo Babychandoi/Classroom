@@ -9,6 +9,12 @@ import com.classroom.modules.identity.dto.UserProfileDto;
 import com.classroom.modules.identity.model.User;
 import com.classroom.modules.identity.policy.ProfileVisibilityPolicy;
 import com.classroom.modules.identity.repository.UserRepository;
+import com.classroom.modules.learning.policy.LearningPolicy;
+import com.classroom.modules.learning.repository.CourseRepository;
+import com.classroom.modules.learning.repository.LessonProgressRepository;
+import com.classroom.modules.learning.repository.LessonRepository;
+import com.classroom.modules.exam.repository.ExamAttemptRepository;
+import com.classroom.modules.exam.repository.ExamRepository;
 import com.classroom.modules.ranking.model.LeaderboardEntry;
 import com.classroom.modules.ranking.repository.LeaderboardEntryRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +42,18 @@ public class UserProfilePrivacyTest {
     private ProPolicy proPolicy;
     @Mock
     private LeaderboardEntryRepository leaderboardEntryRepository;
+    @Mock
+    private CourseRepository courseRepository;
+    @Mock
+    private LessonRepository lessonRepository;
+    @Mock
+    private LessonProgressRepository lessonProgressRepository;
+    @Mock
+    private ExamAttemptRepository examAttemptRepository;
+    @Mock
+    private ExamRepository examRepository;
+    @Mock
+    private LearningPolicy learningPolicy;
 
     private UserService userService;
 
@@ -46,7 +64,8 @@ public class UserProfilePrivacyTest {
         // A real policy over the mocked AccessPolicy: the visibility rule under test is the
         // shared one, not a stubbed stand-in.
         userService = new UserService(userRepository, classMemberRepository, accessPolicy, proPolicy,
-                leaderboardEntryRepository, new ProfileVisibilityPolicy(accessPolicy));
+                leaderboardEntryRepository, new ProfileVisibilityPolicy(accessPolicy), courseRepository,
+                lessonRepository, lessonProgressRepository, examAttemptRepository, examRepository, learningPolicy);
         targetUser = new User("target-1", "target@classroom.local", "hashed", "Target User", "STUDENT");
         targetUser.setAvatarUrl("https://example.com/avatar.png");
         targetUser.setBio("Hello world");
@@ -188,6 +207,9 @@ public class UserProfilePrivacyTest {
         when(classMemberRepository.findByClassIdAndUserId("class-1", "target-1"))
                 .thenReturn(Optional.of(new ClassMember("class-1", "target-1", "STUDENT")));
         when(accessPolicy.isOwner("target-1", "class-1")).thenReturn(false);
+        // R4-01/R16-07: the class-admin privacy override requires the target to have a membership
+        // row in the class (any state).
+        when(accessPolicy.hasMembershipRecord("target-1", "class-1")).thenReturn(true);
         when(proPolicy.isPro("target-1", "class-1")).thenReturn(false);
         when(leaderboardEntryRepository.findByClassIdAndUserId("class-1", "target-1"))
                 .thenReturn(Optional.of(new LeaderboardEntry("class-1", "target-1", 150, "SILVER")));
@@ -212,6 +234,9 @@ public class UserProfilePrivacyTest {
         when(classMemberRepository.findByClassIdAndUserId("class-1", "target-1"))
                 .thenReturn(Optional.of(new ClassMember("class-1", "target-1", "STUDENT")));
         when(accessPolicy.isOwner("target-1", "class-1")).thenReturn(false);
+        // R4-01/R16-07: the class-admin privacy override requires the target to have a membership
+        // row in the class (any state).
+        when(accessPolicy.hasMembershipRecord("target-1", "class-1")).thenReturn(true);
         when(proPolicy.isPro("target-1", "class-1")).thenReturn(false);
 
         UserProfileDto inClass = userService.getProfileForViewer("target-1", "staff-1", "class-1");
@@ -223,4 +248,124 @@ public class UserProfilePrivacyTest {
         assertNull(general.getFullName());
         assertNull(general.getEmail());
     }
-}
+
+    // ----- R15-04: a REMOVED/BLOCKED member's profile is only reachable by class administrators -----
+
+    @Test
+    @DisplayName("R15-04: an ordinary member gets 404 for a REMOVED/BLOCKED member's profile, never a state leak")
+    void peerCannotOpenNonActiveMemberProfile() {
+        when(userRepository.findById("target-1")).thenReturn(Optional.of(targetUser));
+        when(accessPolicy.isMember("peer-1", "class-1")).thenReturn(true);
+
+        for (String state : new String[]{"REMOVED", "BLOCKED", "BANNED"}) {
+            ClassMember inactive = new ClassMember("class-1", "target-1", "STUDENT");
+            inactive.setState(state);
+            when(classMemberRepository.findByClassIdAndUserId("class-1", "target-1")).thenReturn(Optional.of(inactive));
+
+            AppException ex = assertThrows(AppException.class,
+                    () -> userService.getProfileForViewer("target-1", "peer-1", "class-1"), state);
+            assertEquals(com.classroom.common.ErrorCode.NOT_FOUND, ex.getErrorCode(), state);
+        }
+    }
+
+    @Test
+    @DisplayName("R15-04: the owner and staff holding MEMBER:VIEW can still open a BLOCKED member's profile")
+    void classAdministratorsStillOpenNonActiveMemberProfile() {
+        when(userRepository.findById("target-1")).thenReturn(Optional.of(targetUser));
+        ClassMember blocked = new ClassMember("class-1", "target-1", "STUDENT");
+        blocked.setState("BLOCKED");
+        when(classMemberRepository.findByClassIdAndUserId("class-1", "target-1")).thenReturn(Optional.of(blocked));
+        when(accessPolicy.isMember("owner-1", "class-1")).thenReturn(true);
+        when(accessPolicy.isOwner("owner-1", "class-1")).thenReturn(true);
+        when(accessPolicy.isOwner("target-1", "class-1")).thenReturn(false);
+        // The service asks canManage for the owner too (owner holds every permission via isOwner).
+        lenient().when(accessPolicy.canManage("owner-1", "class-1", "MEMBER", "VIEW", null)).thenReturn(true);
+        when(accessPolicy.isMember("staff-1", "class-1")).thenReturn(true);
+        when(accessPolicy.isOwner("staff-1", "class-1")).thenReturn(false);
+        when(accessPolicy.canManage("staff-1", "class-1", "MEMBER", "VIEW", null)).thenReturn(true);
+
+        assertEquals("target-1", userService.getProfileForViewer("target-1", "owner-1", "class-1").getId());
+        assertEquals("target-1", userService.getProfileForViewer("target-1", "staff-1", "class-1").getId());
+    }
+
+    @Test
+    @DisplayName("R15-04: staff WITHOUT MEMBER:VIEW are treated like any peer for a non-ACTIVE member")
+    void staffWithoutMemberViewCannotOpenNonActiveMemberProfile() {
+        when(userRepository.findById("target-1")).thenReturn(Optional.of(targetUser));
+        ClassMember removed = new ClassMember("class-1", "target-1", "STUDENT");
+        removed.setState("REMOVED");
+        when(classMemberRepository.findByClassIdAndUserId("class-1", "target-1")).thenReturn(Optional.of(removed));
+        when(accessPolicy.isMember("staff-2", "class-1")).thenReturn(true);
+        when(accessPolicy.canManage("staff-2", "class-1", "MEMBER", "VIEW", null)).thenReturn(false);
+
+        AppException ex = assertThrows(AppException.class,
+                () -> userService.getProfileForViewer("target-1", "staff-2", "class-1"));
+        assertEquals(com.classroom.common.ErrorCode.NOT_FOUND, ex.getErrorCode());
+    }
+
+    // ----- R16-07: administrators see the identity of a REMOVED/BLOCKED member; nobody else does -----
+
+    private void stubRosterRow(String state) {
+        targetUser.setProfileVisibility("PRIVATE");
+        when(userRepository.findById("target-1")).thenReturn(Optional.of(targetUser));
+        ClassMember row = new ClassMember("class-1", "target-1", "STUDENT");
+        row.setState(state);
+        when(classMemberRepository.findByClassIdAndUserId("class-1", "target-1")).thenReturn(Optional.of(row));
+        when(accessPolicy.isOwner("target-1", "class-1")).thenReturn(false);
+        // The member is no longer ACTIVE but still has a roster row.
+        when(accessPolicy.hasMembershipRecord("target-1", "class-1")).thenReturn(true);
+    }
+
+    @Test
+    @DisplayName("R16-07: the owner sees a PRIVATE BLOCKED/REMOVED member's name, avatar and email in the class-admin context")
+    void ownerSeesIdentityOfPrivateNonActiveMember() {
+        for (String state : new String[]{"BLOCKED", "REMOVED"}) {
+            stubRosterRow(state);
+            when(accessPolicy.isOwner("owner-1", "class-1")).thenReturn(true);
+            when(accessPolicy.isMember("owner-1", "class-1")).thenReturn(true);
+
+            UserProfileDto profile = userService.getProfileForViewer("target-1", "owner-1", "class-1");
+
+            assertEquals("Target User", profile.getFullName(), state);
+            assertEquals("https://example.com/avatar.png", profile.getAvatarUrl(), state);
+            assertEquals("target@classroom.local", profile.getEmail(), state);
+        }
+    }
+
+    @Test
+    @DisplayName("R16-07: staff holding MEMBER:VIEW see a PRIVATE REMOVED member's identity too")
+    void memberViewStaffSeeIdentityOfPrivateRemovedMember() {
+        stubRosterRow("REMOVED");
+        when(accessPolicy.isMember("staff-1", "class-1")).thenReturn(true);
+        when(accessPolicy.isOwner("staff-1", "class-1")).thenReturn(false);
+        when(accessPolicy.canManage("staff-1", "class-1", "MEMBER", "VIEW", null)).thenReturn(true);
+
+        UserProfileDto profile = userService.getProfileForViewer("target-1", "staff-1", "class-1");
+
+        assertEquals("Target User", profile.getFullName());
+    }
+
+    @Test
+    @DisplayName("R16-07: the override never reaches a user with no roster row at all (an outsider stays hidden)")
+    void classAdminStillCannotSeeOutsiderIdentity() {
+        targetUser.setProfileVisibility("PRIVATE");
+        when(accessPolicy.hasMembershipRecord("target-1", "class-1")).thenReturn(false);
+        when(accessPolicy.isOwner("owner-1", "class-1")).thenReturn(true);
+
+        ProfileVisibilityPolicy policy = new ProfileVisibilityPolicy(accessPolicy);
+
+        assertFalse(policy.isIdentityVisible(targetUser, "owner-1", "class-1"));
+    }
+
+    @Test
+    @DisplayName("R16-07: ordinary peers are unchanged - a PRIVATE removed member stays hidden (and unreachable) for them")
+    void peersStillCannotSeePrivateNonActiveMember() {
+        targetUser.setProfileVisibility("PRIVATE");
+        when(accessPolicy.isOwner("peer-1", "class-1")).thenReturn(false);
+        when(accessPolicy.canManage("peer-1", "class-1", "MEMBER", "VIEW", null)).thenReturn(false);
+
+        ProfileVisibilityPolicy policy = new ProfileVisibilityPolicy(accessPolicy);
+
+        assertFalse(policy.isIdentityVisible(targetUser, "peer-1", "class-1"));
+        verify(accessPolicy, never()).hasMembershipRecord(anyString(), anyString());
+    }}

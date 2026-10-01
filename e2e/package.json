@@ -1,0 +1,34 @@
+{
+  "name": "classroom-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bộ kiểm thử E2E trình duyệt thật (Playwright) cho hệ thống lớp học - chỉ chạy trên môi trường cục bộ",
+  "type": "commonjs",
+  "scripts": {
+    "e2e": "node e2e.js",
+    "race": "node race.js",
+    "followups": "node e2e2.js",
+    "netwatch": "node netwatch.js",
+    "mobnav": "node mobnav.js",
+    "all": "node all.js",
+    "origin": "node origin.js",
+    "check": "node --check lib.js && node --check e2e.js && node --check race.js && node --check e2e2.js && node --check netwatch.js && node --check mobnav.js && node --check e2e3.js && node --check e2e4.js && node --check e2e5.js && node --check origin.js && node --check a11y.js && node --check all.js",
+    "round18": "node e2e3.js",
+    "round20": "node e2e4.js",
+    "round22": "node e2e5.js",
+    "a11y": "node a11y.js",
+    "round23": "node round23.js",
+    "captions": "node captions.js",
+    "server-smoke": "node server-smoke.js",
+    "multinode": "node multinode.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "playwright": "^1.63.0"
+  },
+  "devDependencies": {
+    "axe-core": "^4.10.0"
+  }
+}

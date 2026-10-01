@@ -6,6 +6,9 @@ import com.classroom.config.UserPrincipal;
 import com.classroom.modules.classroom.dto.ClassMemberDto;
 import com.classroom.modules.classroom.dto.ClassroomDto;
 import com.classroom.modules.classroom.dto.CreateClassroomRequest;
+import com.classroom.modules.classroom.dto.UpdateClassAccessRequest;
+import com.classroom.modules.classroom.dto.UpdateClassroomRequest;
+import com.classroom.modules.classroom.dto.UpdateClassroomStatusRequest;
 import com.classroom.modules.classroom.model.ClassMember;
 import com.classroom.modules.classroom.service.ClassroomService;
 import com.classroom.modules.identity.dto.UserProfileDto;
@@ -29,9 +32,16 @@ public class ClassroomController {
     }
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<ClassroomDto>>> getAllClasses(@CurrentUser UserPrincipal principal) {
+    public ResponseEntity<ApiResponse<List<ClassroomDto>>> getAllClasses(
+            @CurrentUser UserPrincipal principal,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
         String currentUserId = (principal != null) ? principal.getId() : null;
-        List<ClassroomDto> classes = classroomService.getAllClassrooms(currentUserId);
+        // R16-08: the listing is always paged. Without page/size the first ClassroomService.DEFAULT_PAGE_SIZE
+        // (50) classes are returned; size is clamped to ClassroomService.MAX_PAGE_SIZE (100); a client
+        // fetches further pages with page=1,2,... (a page shorter than the requested size is the last).
+        List<ClassroomDto> classes = classroomService.getAllClassrooms(currentUserId,
+                page != null ? page : 0, size != null ? size : ClassroomService.DEFAULT_PAGE_SIZE);
         return ResponseEntity.ok(ApiResponse.ok(classes));
     }
 
@@ -58,6 +68,39 @@ public class ClassroomController {
             @CurrentUser UserPrincipal principal) {
         String currentUserId = (principal != null) ? principal.getId() : null;
         ClassroomDto dto = classroomService.getBySlug(slug, currentUserId);
+        return ResponseEntity.ok(ApiResponse.ok(dto));
+    }
+
+    /** R13-02: Studio "Cài đặt lớp" (FR-14) — see ClassroomService#updateClassroom for gating. */
+    @PutMapping("/{id}")
+    public ResponseEntity<ApiResponse<ClassroomDto>> updateClass(
+            @PathVariable String id,
+            @CurrentUser UserPrincipal principal,
+            @Valid @RequestBody UpdateClassroomRequest request) {
+        ClassroomDto dto = classroomService.updateClassroom(id, request, principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok(dto));
+    }
+
+    /**
+     * D-19: FREE / PAID and the price of the class-access product. Money, so: OWNER, or staff holding both STORE:EDIT and CLASS:EDIT - see
+     * ClassAccessService#changeAccess for the conversion rules.
+     */
+    @PutMapping("/{id}/access")
+    public ResponseEntity<ApiResponse<ClassroomDto>> updateClassAccess(
+            @PathVariable String id,
+            @CurrentUser UserPrincipal principal,
+            @Valid @RequestBody UpdateClassAccessRequest request) {
+        ClassroomDto dto = classroomService.updateClassAccess(id, request, principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok(dto));
+    }
+
+    /** R13-02: archive/unarchive — OWNER-only, see ClassroomService#updateClassroomStatus. */
+    @PutMapping("/{id}/status")
+    public ResponseEntity<ApiResponse<ClassroomDto>> updateClassStatus(
+            @PathVariable String id,
+            @CurrentUser UserPrincipal principal,
+            @Valid @RequestBody UpdateClassroomStatusRequest request) {
+        ClassroomDto dto = classroomService.updateClassroomStatus(id, request, principal.getId());
         return ResponseEntity.ok(ApiResponse.ok(dto));
     }
 

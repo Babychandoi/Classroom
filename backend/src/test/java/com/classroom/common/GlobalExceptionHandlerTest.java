@@ -30,6 +30,42 @@ class GlobalExceptionHandlerTest {
         public ApiResponse<String> get(@PathVariable String id) {
             return ApiResponse.ok(id);
         }
+
+        @PostMapping("/referenced")
+        public ApiResponse<String> triggerReferencedRow() {
+            throw new org.springframework.dao.DataIntegrityViolationException("could not execute statement",
+                    new java.sql.SQLIntegrityConstraintViolationException(
+                            "Cannot delete or update a parent row: a foreign key constraint fails (`classroom_db`.`staff_permissions`, CONSTRAINT `fk_staff_perm_course`)",
+                            "23000", 1451));
+        }
+
+        @PostMapping("/missing-parent")
+        public ApiResponse<String> triggerMissingParent() {
+            throw new org.springframework.dao.DataIntegrityViolationException("could not execute statement",
+                    new java.sql.SQLIntegrityConstraintViolationException(
+                            "Cannot add or update a child row: a foreign key constraint fails", "23000", 1452));
+        }
+
+        @PostMapping("/not-null")
+        public ApiResponse<String> triggerNotNull() {
+            throw new org.springframework.dao.DataIntegrityViolationException("could not execute statement",
+                    new java.sql.SQLIntegrityConstraintViolationException("Column 'title' cannot be null", "23000", 1048));
+        }
+
+        @PostMapping("/unavailable")
+        public ApiResponse<String> triggerUnavailable() {
+            throw new AppException(ErrorCode.SERVICE_UNAVAILABLE, "Kho lưu trữ tạm thời không khả dụng", 5);
+        }
+
+        @PostMapping("/conflict")
+        public ApiResponse<String> triggerConflict() {
+            throw new AppException(ErrorCode.CONFLICT, "trùng");
+        }
+
+        @PostMapping("/optimistic-conflict")
+        public ApiResponse<String> triggerOptimisticConflict() {
+            throw new org.springframework.orm.ObjectOptimisticLockingFailureException("SomeEntity", "id-1");
+        }
     }
 
     private MockMvc mockMvc;
@@ -78,5 +114,51 @@ class GlobalExceptionHandlerTest {
                         .content("name=x"))
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.error.code").value("UNSUPPORTED_MEDIA_TYPE"));
+    }
+
+    @Test
+    @DisplayName("R12-01: OptimisticLockingFailureException (e.g. a racing bulk update) returns 409 CONFLICT, not 500")
+    void testOptimisticLockingConflictReturnsConflict() throws Exception {
+        mockMvc.perform(post("/api/v1/probe/optimistic-conflict")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("CONFLICT"));
+    }
+
+    @Test
+    @DisplayName("R18-07: a delete blocked by a foreign key from another table is a 409 with a clear message, not a misleading 400")
+    void testReferencedRowViolationReturnsConflict() throws Exception {
+        mockMvc.perform(post("/api/v1/probe/referenced").contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("CONFLICT"))
+                .andExpect(jsonPath("$.error.message").value(GlobalExceptionHandler.REFERENCED_DATA_MESSAGE))
+                // the driver text (table/constraint names) must never be echoed back
+                .andExpect(jsonPath("$.error.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("fk_staff_perm_course"))));
+    }
+
+    @Test
+    @DisplayName("R18-07: other integrity violations (missing parent, NOT NULL) keep the generic 400")
+    void testOtherIntegrityViolationsStayBadRequest() throws Exception {
+        mockMvc.perform(post("/api/v1/probe/missing-parent").contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
+        mockMvc.perform(post("/api/v1/probe/not-null").contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("R20-12: an AppException carrying a retry hint answers 503 with Retry-After in the standard envelope")
+    void testServiceUnavailableCarriesRetryAfter() throws Exception {
+        mockMvc.perform(post("/api/v1/probe/unavailable").contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "5"))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.error.message").value("Kho lưu trữ tạm thời không khả dụng"));
+        // an AppException without a hint sends no Retry-After
+        mockMvc.perform(post("/api/v1/probe/conflict").contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isConflict())
+                .andExpect(header().doesNotExist("Retry-After"));
     }
 }

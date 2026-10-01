@@ -58,8 +58,9 @@ public class ExamController {
     public ResponseEntity<ApiResponse<ExamAttemptDto>> startAttempt(
             @PathVariable String examId,
             @CurrentUser UserPrincipal principal,
-            @RequestParam(defaultValue = "false") boolean preview) {
-        ExamAttemptDto attempt = examService.startAttempt(examId, principal.getId(), preview);
+            @RequestParam(defaultValue = "false") boolean preview,
+            @RequestParam(defaultValue = "false") boolean resumeOnly) {
+        ExamAttemptDto attempt = examService.startAttempt(examId, principal.getId(), preview, resumeOnly);
         return ResponseEntity.ok(ApiResponse.ok(attempt));
     }
 
@@ -118,6 +119,14 @@ public class ExamController {
         return ResponseEntity.ok(ApiResponse.ok(examService.getGradingAttempt(attemptId, principal.getId())));
     }
 
+    @GetMapping("/exams/{examId}/published-attempts")
+    public ResponseEntity<ApiResponse<List<ExamAttemptDto>>> getPublishedAttempts(
+            @PathVariable String examId,
+            @CurrentUser UserPrincipal principal,
+            @RequestParam(defaultValue = "50") int limit) {
+        return ResponseEntity.ok(ApiResponse.ok(examService.getPublishedAttempts(examId, principal.getId(), limit)));
+    }
+
     public record AddQuestionRequest(Question question, List<AnswerOption> options) {}
 
     @PostMapping("/exams/{examId}/questions")
@@ -133,5 +142,61 @@ public class ExamController {
     public ResponseEntity<ApiResponse<Exam>> publishExam(
             @PathVariable String examId, @CurrentUser UserPrincipal principal) {
         return ResponseEntity.ok(ApiResponse.ok(examService.publishExam(examId, principal.getId())));
+    }
+
+    @PutMapping("/exams/{examId}")
+    public ResponseEntity<ApiResponse<Exam>> updateExam(
+            @PathVariable String examId,
+            @CurrentUser UserPrincipal principal,
+            @RequestBody Exam patch) {
+        return ResponseEntity.ok(ApiResponse.ok(examService.updateExam(examId, patch, principal.getId())));
+    }
+
+    @PostMapping("/exams/{examId}/close")
+    public ResponseEntity<ApiResponse<Exam>> closeExam(
+            @PathVariable String examId, @CurrentUser UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(examService.closeExam(examId, principal.getId())));
+    }
+
+    @PostMapping("/exams/{examId}/archive")
+    public ResponseEntity<ApiResponse<Exam>> archiveExam(
+            @PathVariable String examId, @CurrentUser UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(examService.archiveExam(examId, principal.getId())));
+    }
+
+    @PutMapping("/questions/{questionId}")
+    public ResponseEntity<ApiResponse<Question>> updateQuestion(
+            @PathVariable String questionId,
+            @CurrentUser UserPrincipal principal,
+            @RequestBody AddQuestionRequest request) {
+        Question updated = examService.updateQuestion(questionId, request.question(), request.options(), principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok(updated));
+    }
+
+    @DeleteMapping("/questions/{questionId}")
+    public ResponseEntity<ApiResponse<Void>> deleteQuestion(
+            @PathVariable String questionId, @CurrentUser UserPrincipal principal) {
+        examService.deleteQuestion(questionId, principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    @PutMapping("/exams/{examId}/questions/reorder")
+    public ResponseEntity<ApiResponse<Void>> reorderQuestions(
+            @PathVariable String examId,
+            @CurrentUser UserPrincipal principal,
+            @RequestBody List<String> orderedQuestionIds) {
+        examService.reorderQuestions(examId, orderedQuestionIds, principal.getId());
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
+
+    public record CancelAttemptRequest(String reason) {}
+
+    @PostMapping("/attempts/{attemptId}/cancel")
+    public ResponseEntity<ApiResponse<ExamAttemptDto>> cancelAttempt(
+            @PathVariable String attemptId,
+            @CurrentUser UserPrincipal principal,
+            @RequestBody(required = false) CancelAttemptRequest request) {
+        String reason = request != null ? request.reason() : null;
+        return ResponseEntity.ok(ApiResponse.ok(examService.cancelAttempt(attemptId, principal.getId(), reason)));
     }
 }

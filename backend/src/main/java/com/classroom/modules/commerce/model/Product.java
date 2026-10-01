@@ -8,6 +8,11 @@ import java.util.UUID;
 @Table(name = "products")
 public class Product {
 
+    /** Everything sold before D-19: PRO packages and course products. */
+    public static final String KIND_STANDARD = "STANDARD";
+    /** D-19: the product that sells membership of a PAID class (one per class, see Classroom#getAccessProductId). */
+    public static final String KIND_CLASS_ACCESS = "CLASS_ACCESS";
+
     @Id
     @Column(length = 36)
     private String id;
@@ -26,6 +31,9 @@ public class Product {
 
     @Column(nullable = false, length = 32)
     private String status = "DRAFT"; // DRAFT, PUBLISHED, ARCHIVED
+
+    @Column(nullable = false, length = 24)
+    private String kind = KIND_STANDARD; // STANDARD, CLASS_ACCESS
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -97,6 +105,19 @@ public class Product {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getKind() {
+        return kind;
+    }
+
+    public void setKind(String kind) {
+        this.kind = kind;
+    }
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean isClassAccess() {
+        return KIND_CLASS_ACCESS.equalsIgnoreCase(kind);
     }
 
     public Instant getCreatedAt() {

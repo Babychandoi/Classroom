@@ -66,6 +66,9 @@ public class ExamAttempt {
     @Column(name = "reward_rule_snapshot", length = 2000)
     private String rewardRuleSnapshot;
 
+    @Column(name = "cancel_reason", length = 512)
+    private String cancelReason;
+
     public ExamAttempt() {
         this.id = UUID.randomUUID().toString();
         this.startedAt = Instant.now();
@@ -202,6 +205,8 @@ public class ExamAttempt {
     public void setRewardScoreSnapshot(BigDecimal rewardScoreSnapshot) { this.rewardScoreSnapshot = rewardScoreSnapshot; }
     public String getRewardRuleSnapshot() { return rewardRuleSnapshot; }
     public void setRewardRuleSnapshot(String rewardRuleSnapshot) { this.rewardRuleSnapshot = rewardRuleSnapshot; }
+    public String getCancelReason() { return cancelReason; }
+    public void setCancelReason(String cancelReason) { this.cancelReason = cancelReason; }
 
     @PrePersist
     @PreUpdate

@@ -60,6 +60,9 @@ public class Exam {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "closed_at")
+    private Instant closedAt;
+
     public Exam() {
         this.id = UUID.randomUUID().toString();
         this.createdAt = Instant.now();
@@ -200,5 +203,13 @@ public class Exam {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Instant getClosedAt() {
+        return closedAt;
+    }
+
+    public void setClosedAt(Instant closedAt) {
+        this.closedAt = closedAt;
     }
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Lesson, QuestionAnswer } from '../../types';
 import { api } from '../../api/client';
@@ -12,6 +12,13 @@ export const LessonViewPage: React.FC = () => {
   const navigate = useNavigate();
 
   const [lesson, setLesson] = useState<Lesson | null>(null);
+  const [captionUrl, setCaptionUrl] = useState<string>();
+  useEffect(() => {
+    if (!lesson?.captionsVtt) { setCaptionUrl(undefined); return; }
+    const url = URL.createObjectURL(new Blob([lesson.captionsVtt], { type: 'text/vtt' }));
+    setCaptionUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [lesson?.captionsVtt]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
@@ -26,40 +33,74 @@ export const LessonViewPage: React.FC = () => {
   const [submissionText, setSubmissionText] = useState('');
   const [submissions, setSubmissions] = useState<Array<{ id: string; attemptNumber: number; submissionText: string; score: number | null; feedback: string | null; submittedAt: string }>>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  // R8-01/R9-06: lesson.mediaDownloadUrl is a short-lived presigned MinIO URL (issued by
+  // MediaService#signPresignedDownloadUrl), not a same-origin proxy path. The <video> element
+  // consumes it directly - MinIO natively supports Range, so playback can seek and never has to
+  // pass through the backend's async request (which previously capped out at 30s and silently
+  // truncated large files).
+  //
+  // R9-06: on expiry mid-playback, the previous fix re-fetched the *whole lesson* (fetchLesson()),
+  // which sets loading=true and unmounts the <video>/Q&A subtree entirely - playback restarted from
+  // 0:00 and the Q&A list reloaded even though only the presigned URL was stale. It also only ever
+  // reset its one-shot guard on lessonId change, so a *second* expiry on the same lesson (a long
+  // video whose 10-minute presigned TTL elapses more than once during playback) was permanently
+  // unrecoverable. Fetching only a fresh presigned URL (GET /media/{mediaAssetId}/download-url) and
+  // swapping `src` in place preserves currentTime/play state; the guard now tracks the specific
+  // URL that was last (re)issued so each newly-issued URL gets its own one-shot retry instead of
+  // being permanently exhausted after the first refresh.
+  const [videoUrl, setVideoUrl] = useState<string | undefined>(undefined);
+  const [documentUrl, setDocumentUrl] = useState<string | undefined>(undefined);
+  const lastRefreshedUrlRef = useRef<string | undefined>(undefined);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
-    let active = true;
-    let objectUrl: string | null = null;
-    setMediaUrl(null);
-    if (lesson?.mediaDownloadUrl && (lesson.type === 'VIDEO' || lesson.type === 'DOCUMENT')) {
-      api.download(lesson.mediaDownloadUrl)
-        .then((blob) => {
-          objectUrl = URL.createObjectURL(blob);
-          if (active) setMediaUrl(objectUrl);
-          else URL.revokeObjectURL(objectUrl);
-        })
-        .catch(() => { if (active) setMediaUrl(null); });
-    }
-    return () => {
-      active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [lesson?.mediaDownloadUrl, lesson?.type]);
+    setVideoUrl(lesson?.mediaDownloadUrl);
+    setDocumentUrl(lesson?.mediaDownloadUrl);
+    lastRefreshedUrlRef.current = undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lesson?.id, lesson?.mediaDownloadUrl]);
 
-  const downloadLessonDocument = async () => {
-    if (!lesson?.mediaDownloadUrl) return;
+  const fetchFreshMediaUrl = async (): Promise<string | null> => {
+    if (!lesson?.mediaAssetId) return null;
     try {
-      const blob = await api.download(lesson.mediaDownloadUrl);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = lesson.title || 'tai-lieu';
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Không thể tải tài liệu');
+      const res = await api.get<{ downloadUrl: string }>(`/media/${lesson.mediaAssetId}/download-url`);
+      return res.downloadUrl;
+    } catch {
+      return null;
     }
+  };
+
+  const handleVideoError = async () => {
+    // At most one automatic retry per issued URL: if the freshly-reissued URL itself errors, stop
+    // instead of looping forever against a genuinely broken asset.
+    if (!videoUrl || lastRefreshedUrlRef.current === videoUrl) return;
+    lastRefreshedUrlRef.current = videoUrl;
+    const currentTime = videoRef.current?.currentTime ?? 0;
+    const wasPlaying = videoRef.current ? !videoRef.current.paused : false;
+    const fresh = await fetchFreshMediaUrl();
+    if (!fresh) return;
+    setVideoUrl(fresh);
+    // Restore playback position/state once the new src has loaded, without unmounting the player.
+    requestAnimationFrame(() => {
+      const el = videoRef.current;
+      if (!el) return;
+      el.currentTime = currentTime;
+      if (wasPlaying) el.play().catch(() => {});
+    });
+  };
+
+  /** R9-06: the "Tải tài liệu" link fetches a fresh URL on click, the same pattern as DocumentsTab. */
+  const handleDocumentDownloadClick = async (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    const fresh = (await fetchFreshMediaUrl()) || documentUrl;
+    if (!fresh) return;
+    setDocumentUrl(fresh);
+    const link = document.createElement('a');
+    link.href = fresh;
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const fetchLesson = async () => {
@@ -204,9 +245,23 @@ export const LessonViewPage: React.FC = () => {
         <div className="p-6">
           {lesson.type === 'VIDEO' && (
             <div className="mb-6">
-              {mediaUrl ? (
+              {videoUrl ? (
                 <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-inner">
-                  <video controls className="w-full h-full" src={mediaUrl}>
+                  {/* R8-01/R9-06: src is a short-lived presigned MinIO URL, so the browser streams
+                      and seeks directly against the object store (Range support included) instead
+                      of buffering the whole file through this app first. onError covers playback
+                      starting (or resuming, e.g. a long video outliving the URL's TTL more than
+                      once) after the current URL has expired: fetch only a fresh presigned URL and
+                      swap src in place, preserving playback position instead of remounting the
+                      player via a full lesson refetch. */}
+                  <video
+                    ref={videoRef}
+                    controls
+                    className="w-full h-full"
+                    src={videoUrl}
+                    onError={() => { void handleVideoError(); }}
+                  >
+                    {captionUrl && <track kind="captions" src={captionUrl} srcLang="vi" label="Tiếng Việt" default />}
                     Trình duyệt của bạn không hỗ trợ video HTML5.
                   </video>
                 </div>
@@ -231,23 +286,31 @@ export const LessonViewPage: React.FC = () => {
                   <p className="text-xs text-slate-500">Tài liệu học tập đính kèm cho bài học</p>
                 </div>
               </div>
-              {lesson.mediaDownloadUrl ? (
-                <button
-                  type="button"
-                  onClick={downloadLessonDocument}
+              {documentUrl ? (
+                // R8-01/R9-06: fetches a fresh presigned URL on click (same pattern as
+                // DocumentsTab#handleDownload) instead of relying on the URL issued when the
+                // lesson first loaded, which may have since expired if the page was left open.
+                // The object was issued with response-content-disposition=attachment, so the
+                // browser downloads it directly from the object store with native Range/resume
+                // support, instead of this app buffering the whole file into memory as a Blob first.
+                <a
+                  href={documentUrl}
+                  rel="noopener"
+                  onClick={handleDocumentDownloadClick}
                   className="inline-flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition"
                 >
                   <Download className="w-4 h-4" />
                   <span>Tải tài liệu</span>
-                </button>
+                </a>
               ) : (
-                <span className="text-xs text-slate-400 italic">Đang chuẩn bị liên kết tải...</span>
+                <span className="text-xs text-slate-500 italic">Đang chuẩn bị liên kết tải...</span>
               )}
             </div>
           )}
 
           {lesson.contentText && (
             <div className="prose prose-slate max-w-none text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50/50 p-6 rounded-xl border border-slate-100">
+              {lesson.type === 'VIDEO' && <h2 className="mb-3 text-lg font-bold">Bản chép lời và mô tả video</h2>}
               {lesson.contentText}
             </div>
           )}
@@ -314,7 +377,7 @@ export const LessonViewPage: React.FC = () => {
             <div key={q.id} className="p-4 bg-slate-50/80 rounded-xl border border-slate-100">
               <div className="flex justify-between items-center mb-1">
                 <span className="text-xs font-bold text-slate-900">{q.authorName}</span>
-                <span className="text-[10px] text-slate-400">
+                <span className="text-[10px] text-slate-500">
                   {new Date(q.createdAt).toLocaleString('vi-VN')}
                 </span>
               </div>

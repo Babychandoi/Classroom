@@ -4,6 +4,7 @@ export interface User {
   fullName: string;
   avatarUrl?: string;
   bio?: string;
+  profileVisibility?: 'PRIVATE' | 'CLASS' | 'PUBLIC';
   role: string;
   status: string;
 }
@@ -15,6 +16,25 @@ export interface AuthResponse {
   fullName: string;
   role: string;
   avatarUrl?: string;
+}
+
+/** D-19: who can see a class. PRIVATE classes are invisible (404) to everybody who is not on the roster. */
+export type ClassVisibility = 'PUBLIC' | 'PRIVATE';
+/** D-19: how a class is joined. PAID classes sell a CLASS_ACCESS product (see ClassAccessProduct). */
+export type ClassAccessType = 'FREE' | 'PAID';
+/** D-19: the caller's membership lifecycle. EXPIRED = paid access has lapsed (renew to come back). */
+export type MemberState = 'ACTIVE' | 'EXPIRED' | 'REMOVED' | 'BLOCKED' | 'NONE';
+
+/**
+ * D-19: what a PAID class sells. `id` is the productId of POST /orders; `durationDays == null` (lifetime = true) means the
+ * purchase never expires. Also the `error.details.accessProduct` of a PAYMENT_REQUIRED (402).
+ */
+export interface ClassAccessProduct {
+  id: string;
+  price: number;
+  currency: string;
+  durationDays: number | null;
+  lifetime?: boolean;
 }
 
 export interface Classroom {
@@ -31,7 +51,18 @@ export interface Classroom {
   isMember?: boolean;
   isPro?: boolean;
   userRole?: string;
+  // R16-01: the caller's membership lifecycle in this class. Only ACTIVE (or the owner) is a member;
+  // REMOVED may rejoin on their own ("Tham gia lại"); BLOCKED may not (only a Studio unblock helps).
+  // D-19: EXPIRED = a paid member whose access lapsed (isMember=false, userRole=GUEST); accessExpiresAt is then when it lapsed.
+  memberState?: MemberState;
+  // D-19: PUBLIC (default) or PRIVATE; FREE (default) or PAID. Absent on older payloads - treat as PUBLIC / FREE.
+  visibility?: ClassVisibility;
+  accessType?: ClassAccessType;
+  // D-19: when the CALLER's paid access ends (null = no expiry / not a member).
+  accessExpiresAt?: string | null;
+  accessProduct?: ClassAccessProduct | null;
   studioPermissions?: string[];
+  studioScopedPermissions?: { module: string; action: string; courseId: string }[];
   createdAt: string;
 }
 
@@ -49,7 +80,17 @@ export interface Course {
   totalLessons: number;
   completedLessons: number;
   progressPercentage: number;
+  canEdit?: boolean;
   sections?: Section[];
+  // R13-09 (Learn "hết hạn"): why canLearn is true/false, and expiry for a time-boxed entitlement.
+  // R14-12: OWNED_UPCOMING = paid, but the entitlement has not started yet (see accessStartsAt).
+  accessReason?: 'FREE' | 'OWNED' | 'OWNED_UPCOMING' | 'PRO' | 'EXPIRED' | 'NOT_PURCHASED' | 'STAFF' | 'OWNER';
+  expiresAt?: string;
+  accessStartsAt?: string;
+  // R19-12: whether the course can be bought in the store right now (its product is PUBLISHED); productStatus is
+  // the linked product's status. Absent on older payloads - treat only an explicit false as "not for sale".
+  canPurchase?: boolean;
+  productStatus?: string;
 }
 
 export interface Section {
@@ -57,10 +98,12 @@ export interface Section {
   courseId: string;
   title: string;
   position: number;
+  archived?: boolean;
   lessons: Lesson[];
 }
 
 export interface Lesson {
+  captionsVtt?: string;
   id: string;
   sectionId: string;
   courseId: string;
@@ -72,6 +115,7 @@ export interface Lesson {
   durationMinutes: number;
   position: number;
   completed: boolean;
+  archived?: boolean;
 }
 
 export interface QuestionAnswer {
@@ -117,6 +161,13 @@ export interface Comment {
   createdAt: string;
 }
 
+/** R20-03: one page of OLDER comments of a post (GET /posts/{id}/comments?before=...); comments are oldest-first. */
+export interface CommentPage {
+  comments: Comment[];
+  hasMore: boolean;
+  nextBefore: string | null;
+}
+
 export interface DocumentAsset {
   id: string;
   classId: string;
@@ -148,6 +199,7 @@ export interface Exam {
   canEnter: boolean;
   userAttemptsCount: number;
   questionCount?: number;
+  targetCourseId?: string | null;
   createdAt: string;
   questions?: Question[];
 }
@@ -159,6 +211,12 @@ export interface Question {
   type: 'MULTIPLE_CHOICE' | 'ESSAY' | 'TRUE_FALSE';
   points: number;
   position: number;
+  /**
+   * R15-02: the stored correct option key (e.g. 'C'). GET /exams/{id} only includes it for callers
+   * allowed to see answer keys (owner / explicit EXAM:EDIT); it is always absent for learners and
+   * for essay questions.
+   */
+  answerKey?: string | null;
   options?: AnswerOption[];
 }
 
@@ -183,6 +241,9 @@ export interface ExamAttempt {
   totalPoints: number;
   status: 'IN_PROGRESS' | 'SUBMITTED' | 'GRADING' | 'GRADED' | 'PUBLISHED' | 'CANCELLED';
   isPreview: boolean;
+  // R19-04: a PREVIEW attempt's score/points are withheld from staff who may not read the answer key; `notice` says so.
+  resultHidden?: boolean;
+  notice?: string;
   questions?: Question[];
   answers?: {
     questionId: string;
@@ -199,13 +260,15 @@ export interface LeaderboardEntry {
   userAvatarUrl?: string;
   classId: string;
   totalPoints: number;
-  currentTier: string;
+  currentTier?: string | null;
   lastCalculatedAt: string;
 }
 
 export interface Product {
   id: string;
   classId: string;
+  // D-19: CLASS_ACCESS is the product that sells membership of a PAID class (managed only through PUT /classes/{id}/access).
+  kind?: 'STANDARD' | 'CLASS_ACCESS';
   targetCourseId?: string;
   targetCourseTitle?: string;
   title: string;
@@ -215,7 +278,18 @@ export interface Product {
   currency: string;
   durationDays: number;
   userHasActiveEntitlement?: boolean;
+  // R19-06: paid for, but every entitlement starts in the future (pre-sale). entitlementStartsAt is when the earliest begins.
+  userOwnsUpcoming?: boolean;
+  entitlementStartsAt?: string;
   entitlementExpiresAt?: string;
+}
+
+/** POST /orders. `inviteCode` (D-19) is only for the class-access product of a PRIVATE paid class when the buyer is not on the roster. */
+export interface CreateOrderRequest {
+  classId: string;
+  productId: string;
+  idempotencyKey: string;
+  inviteCode?: string;
 }
 
 export interface Order {
@@ -229,6 +303,7 @@ export interface Order {
   provider: string;
   checkoutUrl?: string;
   paidAt?: string;
+  refundedAt?: string;
   createdAt: string;
   items?: {
     productId: string;
@@ -254,6 +329,23 @@ export interface StaffAssignment {
   }[];
 }
 
+export interface UserJourney {
+  userId: string;
+  classId: string;
+  courses: {
+    courseId: string;
+    courseTitle: string;
+    completedLessons: number;
+    totalLessons: number;
+  }[];
+  examResults: {
+    examId: string;
+    examTitle: string;
+    score?: number;
+    submittedAt?: string;
+  }[];
+}
+
 export interface MemberProfile {
   id: string;
   email?: string | null;
@@ -267,4 +359,48 @@ export interface MemberProfile {
   isPro?: boolean;
   totalPoints?: number;
   rankTier?: string;
+}
+
+/** D-19: a row of the Studio roster (GET /classes/{id}/studio/members). `state` is the effective state (an overdue ACTIVE row already reads EXPIRED). */
+export interface ClassMember {
+  id: string;
+  userId: string;
+  role: string;
+  state: 'ACTIVE' | 'EXPIRED' | 'REMOVED' | 'BLOCKED' | 'BANNED' | string;
+  joinedAt: string;
+  accessExpiresAt?: string | null;
+  userFullName?: string | null;
+  userAvatarUrl?: string | null;
+  userEmail?: string | null;
+  isPro?: boolean;
+}
+
+export type InviteStatus = 'ACTIVE' | 'REVOKED' | 'EXPIRED' | 'EXHAUSTED';
+
+/** D-19: one invite as the owner / MEMBER:EDIT staff sees it. `code` is present ONLY in the response of the create call. */
+export interface ClassInvite {
+  id: string;
+  code?: string;
+  codeHint: string;
+  createdAt: string;
+  expiresAt?: string | null;
+  maxUses?: number | null;
+  usedCount: number;
+  status: InviteStatus;
+  createdBy?: string;
+}
+
+/** D-19: GET /classes/invites/{code} (public): the class card a person holding a valid invite decides on. */
+export interface InvitePreview {
+  classId: string;
+  slug: string;
+  title: string;
+  description?: string | null;
+  coverImageUrl?: string | null;
+  accessType: ClassAccessType;
+  price?: number | null;
+  currency?: string | null;
+  durationDays?: number | null;
+  lifetime?: boolean | null;
+  ownerName?: string | null;
 }

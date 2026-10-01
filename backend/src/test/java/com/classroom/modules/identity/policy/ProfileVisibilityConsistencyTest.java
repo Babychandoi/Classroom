@@ -16,6 +16,10 @@ import com.classroom.modules.identity.dto.UserProfileDto;
 import com.classroom.modules.identity.model.User;
 import com.classroom.modules.identity.repository.UserRepository;
 import com.classroom.modules.identity.service.UserService;
+import com.classroom.modules.learning.policy.LearningPolicy;
+import com.classroom.modules.learning.repository.CourseRepository;
+import com.classroom.modules.learning.repository.LessonProgressRepository;
+import com.classroom.modules.learning.repository.LessonRepository;
 import com.classroom.modules.outbox.service.OutboxService;
 import com.classroom.modules.ranking.dto.LeaderboardEntryDto;
 import com.classroom.modules.ranking.model.LeaderboardEntry;
@@ -72,6 +76,11 @@ public class ProfileVisibilityConsistencyTest {
     @Mock private ExamRewardRuleRepository rewardRuleRepository;
     @Mock private ExamAttemptRepository attemptRepository;
     @Mock private ExamRepository examRepository;
+    @Mock private com.classroom.modules.audit.service.AuditService auditService;
+    @Mock private CourseRepository courseRepository;
+    @Mock private LessonRepository lessonRepository;
+    @Mock private LessonProgressRepository lessonProgressRepository;
+    @Mock private LearningPolicy learningPolicy;
 
     private ProfileVisibilityPolicy visibilityPolicy;
     private UserService userService;
@@ -85,13 +94,14 @@ public class ProfileVisibilityConsistencyTest {
     void setUp() {
         visibilityPolicy = new ProfileVisibilityPolicy(accessPolicy);
         userService = new UserService(userRepository, classMemberRepository, accessPolicy, proPolicy,
-                leaderboardEntryRepository, visibilityPolicy);
+                leaderboardEntryRepository, visibilityPolicy, courseRepository, lessonRepository,
+                lessonProgressRepository, attemptRepository, examRepository, learningPolicy);
         classroomService = new ClassroomService(classroomRepository, classMemberRepository, aboutRepository,
                 staffAssignmentRepository, staffPermissionRepository, userRepository, outboxService,
-                accessPolicy, visibilityPolicy, proPolicy);
+                accessPolicy, visibilityPolicy, proPolicy, auditService);
         leaderboardService = new LeaderboardService(leaderboardEntryRepository, recalcJobRepository,
                 rankTierRepository, rewardRuleRepository, attemptRepository, examRepository, userRepository,
-                accessPolicy, visibilityPolicy, null);
+                accessPolicy, visibilityPolicy, classMemberRepository, auditService, null);
 
         privateUser = new User(PRIVATE_USER_ID, "private@classroom.local", "hashed", "Private Learner", "STUDENT");
         privateUser.setAvatarUrl("https://example.com/private.png");
@@ -106,6 +116,15 @@ public class ProfileVisibilityConsistencyTest {
         when(accessPolicy.isOwner(PRIVATE_USER_ID, CLASS_ID)).thenReturn(false);
         when(userRepository.findById(PRIVATE_USER_ID)).thenReturn(Optional.of(privateUser));
         when(userRepository.findById(PUBLIC_USER_ID)).thenReturn(Optional.of(publicUser));
+        // R16-08: listings batch-load users with one findAllById instead of a findById per row.
+        when(userRepository.findAllById(org.mockito.ArgumentMatchers.<Iterable<String>>any())).thenAnswer(inv -> {
+            List<User> found = new java.util.ArrayList<>();
+            for (Object id : (Iterable<?>) inv.getArgument(0)) {
+                if (PRIVATE_USER_ID.equals(id)) found.add(privateUser);
+                if (PUBLIC_USER_ID.equals(id)) found.add(publicUser);
+            }
+            return found;
+        });
         when(classMemberRepository.findByClassIdAndUserId(CLASS_ID, PRIVATE_USER_ID))
                 .thenReturn(Optional.of(new ClassMember(CLASS_ID, PRIVATE_USER_ID, "STUDENT")));
     }
@@ -125,6 +144,7 @@ public class ProfileVisibilityConsistencyTest {
         assertNull(members.get(0).getUserAvatarUrl());
         assertNull(members.get(0).getUserId());
 
+        when(classMemberRepository.findActiveUserIdsByClassId(CLASS_ID)).thenReturn(List.of(PRIVATE_USER_ID));
         when(leaderboardEntryRepository.findByClassIdOrderByTotalPointsDesc(CLASS_ID))
                 .thenReturn(List.of(new LeaderboardEntry(CLASS_ID, PRIVATE_USER_ID, 150, "SILVER")));
         List<LeaderboardEntryDto> board = leaderboardService.getLeaderboard(CLASS_ID, VIEWER_ID);
@@ -150,6 +170,7 @@ public class ProfileVisibilityConsistencyTest {
         assertEquals("https://example.com/public.png", members.get(0).getUserAvatarUrl());
         assertEquals(PUBLIC_USER_ID, members.get(0).getUserId());
 
+        when(classMemberRepository.findActiveUserIdsByClassId(CLASS_ID)).thenReturn(List.of(PUBLIC_USER_ID));
         when(leaderboardEntryRepository.findByClassIdOrderByTotalPointsDesc(CLASS_ID))
                 .thenReturn(List.of(new LeaderboardEntry(CLASS_ID, PUBLIC_USER_ID, 90, "BRONZE")));
         List<LeaderboardEntryDto> board = leaderboardService.getLeaderboard(CLASS_ID, VIEWER_ID);
@@ -168,5 +189,38 @@ public class ProfileVisibilityConsistencyTest {
         List<ClassMemberDto> members = classroomService.getClassMembers(CLASS_ID, PRIVATE_USER_ID);
         assertEquals("Private Learner", members.get(0).getUserFullName());
         assertEquals("https://example.com/private.png", members.get(0).getUserAvatarUrl());
+    }
+
+    // --- R4-01: the class-admin privacy override only applies while the target has an ACTIVE
+    // membership in that class — an owner must not read an outsider's PRIVATE profile just by
+    // holding class-admin rights over some class the outsider never joined. ---
+
+    @Test
+    @DisplayName("R4-01: class owner CANNOT see a PRIVATE user's identity when that user has no membership in the class")
+    void classAdminCannotSeePrivateNonMemberIdentity() {
+        String ownerId = "owner-of-class-1";
+        when(accessPolicy.isOwner(ownerId, CLASS_ID)).thenReturn(true);
+        when(accessPolicy.isMember(ownerId, CLASS_ID)).thenReturn(true);
+        // The target has never joined class-1 at all.
+        when(classMemberRepository.findByClassIdAndUserId(CLASS_ID, PRIVATE_USER_ID)).thenReturn(Optional.empty());
+        when(accessPolicy.isMember(PRIVATE_USER_ID, CLASS_ID)).thenReturn(false);
+
+        boolean visible = visibilityPolicy.isIdentityVisible(privateUser, ownerId, CLASS_ID);
+
+        assertFalse(visible, "Owner must not read a PRIVATE profile for a user who never joined their class");
+    }
+
+    @Test
+    @DisplayName("R4-01: class owner CAN see a PRIVATE user's identity once that user is an ACTIVE member")
+    void classAdminCanSeePrivateActiveMemberIdentity() {
+        String ownerId = "owner-of-class-1";
+        when(accessPolicy.isOwner(ownerId, CLASS_ID)).thenReturn(true);
+        when(accessPolicy.isMember(ownerId, CLASS_ID)).thenReturn(true);
+        when(accessPolicy.isMember(PRIVATE_USER_ID, CLASS_ID)).thenReturn(true);
+        when(accessPolicy.hasMembershipRecord(PRIVATE_USER_ID, CLASS_ID)).thenReturn(true);
+
+        boolean visible = visibilityPolicy.isIdentityVisible(privateUser, ownerId, CLASS_ID);
+
+        assertEquals(true, visible);
     }
 }
