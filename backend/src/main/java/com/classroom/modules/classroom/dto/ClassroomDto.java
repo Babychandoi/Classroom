@@ -43,6 +43,9 @@ public class ClassroomDto {
     /** D-28: PENDING join requests - only for callers with MEMBER:VIEW (owner included), 0 for everybody else. */
     private long pendingRequestCount;
     private String status;
+    /** D-29: set only for the owner of a SUSPENDED class (nobody else can see one); null otherwise. */
+    private String suspendedReason;
+    private Instant suspendedAt;
     private long memberCount;
     private boolean isOwner;
     private boolean isMember;
@@ -200,6 +203,11 @@ public class ClassroomDto {
     public String getStatus() {
         return status;
     }
+
+    public String getSuspendedReason() { return suspendedReason; }
+    public void setSuspendedReason(String suspendedReason) { this.suspendedReason = suspendedReason; }
+    public Instant getSuspendedAt() { return suspendedAt; }
+    public void setSuspendedAt(Instant suspendedAt) { this.suspendedAt = suspendedAt; }
 
     public void setStatus(String status) {
         this.status = status;

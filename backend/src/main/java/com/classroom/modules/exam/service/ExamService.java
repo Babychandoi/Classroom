@@ -815,7 +815,7 @@ public class ExamService {
     public List<ExamAttemptDto> getPublishedAttempts(String examId, String currentUserId, int limit) {
         Exam exam = examRepository.findById(examId)
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
-        accessPolicy.enforceManage(currentUserId, exam.getClassId(), "EXAM", "GRADE", resolveRbacCourseScope(exam));
+        accessPolicy.enforceManageRead(currentUserId, exam.getClassId(), "EXAM", "GRADE", resolveRbacCourseScope(exam));
         int safeLimit = Math.max(1, Math.min(limit, 200));
         Pageable page = PageRequest.of(0, safeLimit);
         List<ExamAttempt> attempts = attemptRepository
@@ -873,7 +873,7 @@ public class ExamService {
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy bài thi"));
         Exam exam = examRepository.findById(attempt.getExamId())
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy kỳ thi"));
-        accessPolicy.enforceManage(currentUserId, attempt.getClassId(), "EXAM", "GRADE", resolveRbacCourseScope(exam));
+        accessPolicy.enforceManageRead(currentUserId, attempt.getClassId(), "EXAM", "GRADE", resolveRbacCourseScope(exam));
         // R13-07: PUBLISHED is also loadable here so an authorized grader can open an already
         // published result for correction ("Sửa điểm"), in addition to the original SUBMITTED/
         // GRADING grading-queue flow.

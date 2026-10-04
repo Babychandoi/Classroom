@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 import { Classroom } from '../types';
 import { ClassBadges } from './ClassBadges';
+import { SuspendedChip, isSuspended } from './SuspendedNotice';
 import { ClassAvatar, CoverImage, buttonClass } from './ui';
 import { daysUntil, formatDate } from '../api/format';
 import { Check, Clock, GraduationCap, Hourglass, LayoutDashboard, Lock, Share2, Tag } from 'lucide-react';
@@ -172,6 +173,7 @@ export const ClassroomHeader: React.FC<{
                   </span>
                 )
               )}
+              {isSuspended(classroom) && <SuspendedChip />}
               <ClassBadges classroom={classroom} variant={coverSrc ? 'glass' : 'default'} />
             </div>
           </div>

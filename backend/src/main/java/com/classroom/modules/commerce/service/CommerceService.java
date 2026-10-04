@@ -300,6 +300,11 @@ public class CommerceService {
         if (!classAccessOrder) {
             accessPolicy.enforceMember(buyerId, request.getClassId());
         }
+        // D-29: a SUSPENDED class is hidden from everybody but its owner - the class-access path (which skips enforceMember) answers the
+        // same 404 as for a class that does not exist.
+        if (classAccessOrder && accessPolicy.isClassSuspended(request.getClassId()) && !accessPolicy.isOwner(buyerId, request.getClassId())) {
+            throw new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy lớp học");
+        }
 
         // Idempotency check scoped to buyer (Finding 6 & 7)
         // The key is normalized exactly once here and that same normalized value is both looked up
@@ -327,8 +332,10 @@ public class CommerceService {
 
         // R14-13 (D-11): an ARCHIVED class is frozen for new activity. A replay of an order that
         // already exists was returned above; only creating a NEW order is refused here.
-        if (accessPolicy.isClassArchived(request.getClassId())) {
-            throw new AppException(ErrorCode.BAD_REQUEST, "Lớp học đã được lưu trữ; không thể tạo đơn hàng mới");
+        // D-29: the same freeze for a class SUSPENDED by a platform admin (not ACTIVE = frozen).
+        if (accessPolicy.isClassFrozen(request.getClassId())) {
+            throw new AppException(ErrorCode.BAD_REQUEST,
+                    (accessPolicy.isClassSuspended(request.getClassId()) ? AccessPolicy.SUSPENDED_MESSAGE : "Lớp học đã được lưu trữ; không thể tạo đơn hàng mới"));
         }
 
         // Serialize purchase creation against course association changes.

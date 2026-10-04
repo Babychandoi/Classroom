@@ -13,6 +13,7 @@ import { ClassPaywallBanner, ClassPaywallCard } from '../components/ClassAccessG
 import { LoadingSpinner, ErrorBanner } from '../components/UIStates';
 import { Badge, buttonClass } from '../components/ui';
 import { AlertCircle, Ban, Check, Hourglass, Lock, SearchX, UserPlus } from 'lucide-react';
+import { SuspendedNotice } from '../components/SuspendedNotice';
 
 // D-19: the tabs whose data is members-only on the server (an EXPIRED member gets 403 MEMBERSHIP_EXPIRED for them, a person who
 // never paid gets 403). Giới thiệu and Shop (store) are the public / renewal-friendly tabs; the feed is public until the membership lapsed.
@@ -268,6 +269,9 @@ export const ClassroomLayout: React.FC = () => {
       )}
 
       <div className="mx-auto w-full max-w-container space-y-4 px-4 pt-6 empty:hidden sm:px-8 sm:pt-7">
+        {/* A class suspended by a platform admin: only its owner gets this far (everyone else gets a 404), read-only. */}
+        <SuspendedNotice classroom={classroom} />
+
         {joinError && (
           <div role="alert" className="flex items-start gap-2.5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-ui font-medium text-red-700">
             <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" strokeWidth={1.75} aria-hidden="true" />

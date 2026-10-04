@@ -62,6 +62,11 @@ public class AccessPolicy {
         if (classroom.getOwnerId().equals(userId)) {
             return true;
         }
+        if (isSuspended(classroom)) {
+            // D-29: a class suspended by a platform admin is visible to its owner only (read-only); staff and members are treated like
+            // outsiders of a hidden PRIVATE class.
+            return false;
+        }
         if (staffAssignmentRepository.findByClassIdAndUserId(classroom.getId(), userId)
                 .map(s -> "ACTIVE".equalsIgnoreCase(s.getStatus())).orElse(false)) {
             return true;
@@ -83,7 +88,8 @@ public class AccessPolicy {
      * for an id that does not exist (404, same message), so the answer never reveals that a private class is there.
      */
     public boolean isHiddenPrivateClass(Classroom classroom, String userId) {
-        return classroom != null && classroom.isPrivate() && !isClassVisibleToUser(classroom, userId);
+        // D-29: a SUSPENDED class is hidden exactly like a PRIVATE one from everybody but its owner (same 404 as an unknown id).
+        return classroom != null && (classroom.isPrivate() || isSuspended(classroom)) && !isClassVisibleToUser(classroom, userId);
     }
 
     /**
@@ -128,6 +134,43 @@ public class AccessPolicy {
                 .orElse(false);
     }
 
+    /** D-29: the class status a platform admin sets; the class is hidden from everybody but its owner and frozen for every write. */
+    public static final String STATUS_SUSPENDED = "SUSPENDED";
+
+    /** D-29: answer for a write the owner attempts on a SUSPENDED class (only the owner can still reach the class at all). */
+    public static final String SUSPENDED_MESSAGE = "Lớp học đang bị tạm khóa bởi quản trị nền tảng; mọi thay đổi đều bị chặn";
+
+    public static boolean isSuspended(Classroom classroom) {
+        return classroom != null && STATUS_SUSPENDED.equalsIgnoreCase(classroom.getStatus());
+    }
+
+    public boolean isClassSuspended(String classId) {
+        if (classId == null) return false;
+        return classroomRepository.findById(classId).map(AccessPolicy::isSuspended).orElse(false);
+    }
+
+    /**
+     * D-29 (extends D-11): a class that is not ACTIVE - ARCHIVED by its owner or SUSPENDED by a platform admin - is frozen for NEW activity
+     * (joins, orders, exam attempts, posts, registrations). Every former {@code isClassArchived} gate uses this, so a suspension can never
+     * be a weaker freeze than an archive.
+     */
+    public boolean isClassFrozen(String classId) {
+        if (classId == null) return false;
+        return classroomRepository.findById(classId)
+                .map(c -> !"ACTIVE".equalsIgnoreCase(c.getStatus()))
+                .orElse(false);
+    }
+
+    /**
+     * D-29: refuses (409) any write on a SUSPENDED class. Call it after the caller's own authorization: only the owner still reaches a
+     * suspended class (everybody else already got the hidden-class answer), and the owner sees it read-only.
+     */
+    public void enforceNotSuspended(String classId) {
+        if (isClassSuspended(classId)) {
+            throw new AppException(ErrorCode.CONFLICT, SUSPENDED_MESSAGE);
+        }
+    }
+
     /**
      * Whether the user currently belongs to the class: its owner, or a member whose row is ACTIVE <em>and</em> whose paid access (D-19
      * {@code access_expires_at}) has not lapsed. The date is checked here as well as by the sweeper, so a member is locked out the instant
@@ -135,7 +178,10 @@ public class AccessPolicy {
      */
     public boolean isMember(String userId, String classId) {
         if (userId == null || classId == null) return false;
-        if (isOwner(userId, classId)) return true;
+        Classroom classroom = classroomRepository.findById(classId).orElse(null);
+        if (classroom != null && userId.equals(classroom.getOwnerId())) return true;
+        // D-29: nobody but the owner belongs to a SUSPENDED class while the suspension lasts (rows are kept; restore brings them back).
+        if (isSuspended(classroom)) return false;
         Instant now = Instant.now();
         return memberRepository.findByClassIdAndUserId(classId, userId)
                 .map(m -> m.isActiveAt(now))
@@ -211,10 +257,12 @@ public class AccessPolicy {
                 .orElse(false) && isMember(userId, classId);
     }
 
+    /** Owner-only WRITES (status, staff, member moderation): D-29 a SUSPENDED class refuses them with 409, even for its owner. */
     public void enforceOwner(String userId, String classId) {
         if (!isOwner(userId, classId)) {
             throw new AppException(ErrorCode.FORBIDDEN, "Chỉ chủ lớp học (OWNER) mới có quyền thực hiện thao tác này");
         }
+        enforceNotSuspended(classId);
     }
 
     public void enforceMember(String userId, String classId) {
@@ -269,7 +317,19 @@ public class AccessPolicy {
         return false;
     }
 
+    /**
+     * The Studio gate. D-29: for any action but VIEW the class must not be SUSPENDED (409 for the owner - the only one who still passes the
+     * permission check there). Reads that are gated on a non-VIEW grant use {@link #enforceManageRead}.
+     */
     public void enforceManage(String userId, String classId, String module, String action, String resourceScopeCourseId) {
+        enforceManageRead(userId, classId, module, action, resourceScopeCourseId);
+        if (!"VIEW".equalsIgnoreCase(action)) {
+            enforceNotSuspended(classId);
+        }
+    }
+
+    /** {@link #enforceManage} for READS gated on a non-VIEW grant (invite list, grading queue, ...): a suspended class stays readable. */
+    public void enforceManageRead(String userId, String classId, String module, String action, String resourceScopeCourseId) {
         if (!canManage(userId, classId, module, action, resourceScopeCourseId)) {
             throw new AppException(ErrorCode.STAFF_PERMISSION_DENIED,
                     String.format("Không có quyền thực hiện %s trên %s của lớp học", action, module));

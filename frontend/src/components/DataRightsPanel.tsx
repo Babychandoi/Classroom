@@ -3,8 +3,11 @@ import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 import { Badge, buttonClass, inputClass } from './ui';
+import { isPlatformAdmin } from '../api/admin';
 
 interface PrivacyRequest { user_id: string; id: string; status: string; reason: string; resolution: string }
+// The PLATFORM_ADMIN queue of everyone's requests lives in "Quản trị nền tảng" (pages/admin/AdminPrivacy.tsx); this panel
+// only handles the signed-in person's own data, and links admins to that queue.
 interface ExportPage { hasMore: boolean; nextOffset: number | null; [key: string]: unknown }
 export const DataRightsPanel: React.FC = () => {
   const { user } = useAuth();
@@ -13,10 +16,8 @@ export const DataRightsPanel: React.FC = () => {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [requests, setRequests] = useState<PrivacyRequest[]>([]);
-  const [adminRequests, setAdminRequests] = useState<PrivacyRequest[]>([]);
-  const [resolution, setResolution] = useState('');
   const load = async () => {
-    try { setRequests(await api.get<PrivacyRequest[]>('/privacy/me/requests')); if (user?.role === 'PLATFORM_ADMIN') setAdminRequests(await api.get<PrivacyRequest[]>('/privacy/requests')); }
+    try { setRequests(await api.get<PrivacyRequest[]>('/privacy/me/requests')); }
     catch (e) { setMessage(e instanceof Error ? e.message : 'Không thể tải yêu cầu dữ liệu.'); }
   };
   useEffect(() => { void load(); }, [user?.id]);
@@ -40,12 +41,6 @@ export const DataRightsPanel: React.FC = () => {
     } catch (e) { setMessage(e instanceof Error ? e.message : 'Không thể xử lý yêu cầu. Thử lại sau.'); }
     finally { setBusy(false); }
   };
-  const resolve = async (request: PrivacyRequest, status: string) => {
-    setBusy(true);
-    try { await api.put(`/privacy/requests/${request.user_id}`, { status, resolution }); setMessage('Đã ghi nhận kết quả xử lý.'); await load(); }
-    catch (e) { setMessage(e instanceof Error ? e.message : 'Không thể xử lý yêu cầu.'); }
-    finally { setBusy(false); }
-  };
   const pending = requests.some(r => ['PENDING', 'ON_HOLD'].includes(r.status));
   return <section aria-labelledby="data-rights-title" className="space-y-5 rounded-card border border-slate-200 bg-white p-5 shadow-hairline sm:p-7">
     <div>
@@ -58,6 +53,6 @@ export const DataRightsPanel: React.FC = () => {
     <p className="text-caption text-slate-500">Cả hai thao tác đều cần mật khẩu hiện tại để xác nhận đúng là bạn.</p>
     {message && <p role="status" className="rounded-btn bg-slate-100 px-3.5 py-2.5 text-meta text-slate-900">{message}</p>}
     {requests.length > 0 && <ul className="divide-y divide-slate-100 rounded-btn border border-slate-200">{requests.map(r => <li key={r.id} className="flex flex-wrap items-center gap-2 px-3.5 py-2.5 text-meta text-slate-600"><span className="min-w-0 break-all">Yêu cầu {r.id}:</span><Badge tone={r.status === 'COMPLETED' ? 'success' : r.status === 'REJECTED' ? 'danger' : 'warn'} size="sm">{r.status}</Badge>{r.resolution && <span className="w-full text-slate-600">— {r.resolution}</span>}</li>)}</ul>}
-    {user?.role === 'PLATFORM_ADMIN' && <div className="space-y-4 border-t border-slate-100 pt-5"><h3 className="text-h3 font-semibold text-slate-900">Xử lý yêu cầu dữ liệu</h3><label className="block text-meta font-semibold text-slate-900">Kết quả và căn cứ lưu trữ<textarea maxLength={2000} value={resolution} onChange={e => setResolution(e.target.value)} className={inputClass('mt-1.5 resize-none py-2.5 font-normal leading-[22px]')} /></label>{adminRequests.filter(r => r.status !== 'COMPLETED').map(r => <div key={r.id} className="space-y-3 rounded-btn border border-slate-200 p-3.5"><p className="break-words text-meta text-slate-600">{r.user_id} · {r.status} · {r.reason}</p><div className="flex flex-wrap gap-2">{[['ON_HOLD', 'Tạm giữ có căn cứ'], ['REJECTED', 'Từ chối có lý do'], ['COMPLETED', 'Ẩn danh hóa và đóng tài khoản']].map(([status, label]) => <button key={status} type="button" disabled={busy || !resolution.trim()} onClick={() => void resolve(r, status)} className={buttonClass('secondary', 'sm')}>{label}</button>)}</div></div>)}</div>}
+    {isPlatformAdmin(user) && <div className="border-t border-slate-100 pt-5"><p className="text-meta text-slate-600">Bạn là quản trị nền tảng: yêu cầu dữ liệu của mọi người dùng được xử lý trong khu vực quản trị.</p><Link to="/admin/privacy" className="mt-1.5 inline-flex text-meta font-semibold text-blue-600 hover:text-blue-700">Mở hàng đợi trong Quản trị nền tảng</Link></div>}
   </section>;
 };

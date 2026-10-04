@@ -97,7 +97,8 @@ public class PrivacyService {
         if (rows.isEmpty()) throw new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy yêu cầu");
         if ("COMPLETED".equals(rows.get(0).get("status"))) return rows.get(0);
         if ("COMPLETED".equals(status)) {
-            Integer owned = jdbc.queryForObject("SELECT COUNT(*) FROM classrooms WHERE owner_id=? AND status='ACTIVE'", Integer.class, userId);
+            // D-29: a class suspended out of ACTIVE becomes ACTIVE again on restore, so it counts as active here.
+            Integer owned = jdbc.queryForObject("SELECT COUNT(*) FROM classrooms WHERE owner_id=? AND (status='ACTIVE' OR (status='SUSPENDED' AND status_before_suspend='ACTIVE'))", Integer.class, userId);
             if (owned != null && owned > 0) throw new AppException(ErrorCode.CONFLICT, "Cần chuyển quyền sở hữu hoặc lưu trữ lớp đang hoạt động trước khi xóa tài khoản");
             jdbc.update("UPDATE users SET email=?,full_name='Tài khoản đã xóa',avatar_url=NULL,bio=NULL,profile_visibility='PRIVATE',status='DELETED',password_hash=?,updated_at=? WHERE id=?",
                     "deleted+" + userId + "@invalid.local", passwords.encode(UUID.randomUUID().toString()), Timestamp.from(Instant.now()), userId);

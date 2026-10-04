@@ -49,14 +49,14 @@ class StudioOutboxStatusTest {
 
         assertEquals(200, response.getStatusCode().value());
         assertEquals(status, response.getBody().getData());
-        verify(accessPolicy).enforceManage("owner-1", "class-1", "OUTBOX", "REPLAY", null);
+        verify(accessPolicy).enforceManageRead("owner-1", "class-1", "OUTBOX", "REPLAY", null);
     }
 
     @Test
     @DisplayName("without the OUTBOX:REPLAY permission the status is refused and nothing is read")
     void deniedWithoutPermission() {
         doThrow(new AppException(ErrorCode.STAFF_PERMISSION_DENIED, "denied"))
-                .when(accessPolicy).enforceManage(eq("owner-1"), eq("class-1"), eq("OUTBOX"), eq("REPLAY"), any());
+                .when(accessPolicy).enforceManageRead(eq("owner-1"), eq("class-1"), eq("OUTBOX"), eq("REPLAY"), any());
 
         assertThrows(AppException.class, () -> controller.getOutboxStatus("class-1", owner));
 

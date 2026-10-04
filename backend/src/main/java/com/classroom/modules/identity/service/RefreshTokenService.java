@@ -435,6 +435,22 @@ public class RefreshTokenService {
         }
     }
 
+    /**
+     * D-29: a platform-admin ban logs the user out everywhere - every refresh-token family of the user is revoked, row by row exactly like
+     * {@link #revokeFamily} (same lock granularity), inside the caller's transaction so the ban and the revocation commit together. Access
+     * tokens need nothing: the JWT filter reads the account status on every request (D-26). Returns the number of families revoked.
+     */
+    @Transactional
+    public int revokeAllForUser(String userId) {
+        if (userId == null) return 0;
+        Instant now = Instant.now();
+        List<String> families = repository.findUnrevokedFamilyIdsByUserId(userId);
+        for (String familyId : families) {
+            revokeFamily(familyId, now);
+        }
+        return families.size();
+    }
+
     /** R8-06: expired rows are otherwise never removed, growing the table forever. */
     @Scheduled(fixedDelayString = "${classroom.security.refresh-token-purge-delay-ms:3600000}")
     @Transactional

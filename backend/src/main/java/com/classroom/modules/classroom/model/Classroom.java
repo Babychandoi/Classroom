@@ -70,6 +70,17 @@ public class Classroom {
     @Column(name = "access_product_id", length = 36)
     private String accessProductId;
 
+    /** D-29: what a platform-admin suspension interrupted (ACTIVE / ARCHIVED) - restore returns to it; NULL unless SUSPENDED. */
+    @Column(name = "status_before_suspend", length = 32)
+    private String statusBeforeSuspend;
+
+    /** D-29: the admin's reason, shown to the owner only. */
+    @Column(name = "suspended_reason", length = 500)
+    private String suspendedReason;
+
+    @Column(name = "suspended_at")
+    private Instant suspendedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -203,6 +214,13 @@ public class Classroom {
     public void setAccessProductId(String accessProductId) {
         this.accessProductId = accessProductId;
     }
+
+    public String getStatusBeforeSuspend() { return statusBeforeSuspend; }
+    public void setStatusBeforeSuspend(String statusBeforeSuspend) { this.statusBeforeSuspend = statusBeforeSuspend; }
+    public String getSuspendedReason() { return suspendedReason; }
+    public void setSuspendedReason(String suspendedReason) { this.suspendedReason = suspendedReason; }
+    public Instant getSuspendedAt() { return suspendedAt; }
+    public void setSuspendedAt(Instant suspendedAt) { this.suspendedAt = suspendedAt; }
 
     /** D-19: a missing/unknown stored value is PUBLIC (the behaviour every pre-V37 class has). */
     @com.fasterxml.jackson.annotation.JsonIgnore

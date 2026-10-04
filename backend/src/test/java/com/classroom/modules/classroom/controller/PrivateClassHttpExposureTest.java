@@ -65,6 +65,8 @@ class PrivateClassHttpExposureTest {
     @Autowired private ClassroomService classroomService;
     @Autowired private FeedService feedService;
     @Autowired private JwtTokenProvider tokens;
+    @Autowired private com.classroom.modules.classroom.repository.StaffAssignmentRepository staffAssignmentRepository;
+    @Autowired private com.classroom.modules.classroom.repository.StaffPermissionRepository staffPermissionRepository;
 
     private User owner;
     private User member;
@@ -207,6 +209,12 @@ class PrivateClassHttpExposureTest {
         r.add(new Route(HttpMethod.GET, "/api/v1/users/some-user?classId={id}", null, false));
         r.add(new Route(HttpMethod.GET, "/api/v1/users/some-user/journey?classId={id}", null, false));
         r.add(new Route(HttpMethod.POST, "/api/v1/orders", "{\"classId\":\"{id}\",\"productId\":\"p\",\"idempotencyKey\":\"k-1234\"}", false));
+        // D-29: platform administration - PLATFORM_ADMIN only (401 guest, 403 everybody else), whether the class exists or not
+        r.add(new Route(HttpMethod.GET, "/api/v1/admin/classes/{id}", null, false));
+        r.add(new Route(HttpMethod.POST, "/api/v1/admin/classes/{id}/suspend", "{\"reason\":\"x\"}", false));
+        r.add(new Route(HttpMethod.POST, "/api/v1/admin/classes/{id}/restore", "{\"reason\":\"x\"}", false));
+        r.add(new Route(HttpMethod.GET, "/api/v1/admin/audit?classId={id}", null, false));
+        r.add(new Route(HttpMethod.GET, "/api/v1/admin/classes?q={slug}", null, false));
         return r;
     }
 
@@ -399,5 +407,75 @@ class PrivateClassHttpExposureTest {
 
         Answer bad = call(HttpMethod.PUT, "/api/v1/classes/" + c.getId(), "{\"title\":\"x\",\"visibility\":\"SECRET\"}", owner);
         assertEquals(400, bad.status());
+    }
+
+    @Test
+    @DisplayName("D-29: a SUSPENDED class is indistinguishable from a missing one on every class route - for a guest, a stranger and also for its own members, staff, EXPIRED, REMOVED and BLOCKED people; only the owner still reads it")
+    void suspendedIsIndistinguishableFromMissing() throws Exception {
+        User sOwner = user("s-owner");
+        User sMember = user("s-member");
+        User sExpired = user("s-expired");
+        User sStaff = user("s-staff");
+        User sRemoved = user("s-removed");
+        User sBlocked = user("s-blocked");
+        CreateClassroomRequest req = new CreateClassroomRequest();
+        String title = "Lop Tam Khoa " + UUID.randomUUID().toString().substring(0, 8);
+        req.setTitle(title);
+        req.setSlug("tk-" + UUID.randomUUID().toString().substring(0, 10));
+        req.setVisibility("PUBLIC");
+        Classroom frozen = classroomRepository.findById(classroomService.createClassroom(sOwner.getId(), req).getId()).orElseThrow();
+        for (Object[] row : new Object[][]{{sMember, "ACTIVE", null}, {sExpired, "EXPIRED", Instant.now().minus(1, ChronoUnit.DAYS)},
+                {sRemoved, "REMOVED", null}, {sBlocked, "BLOCKED", null}}) {
+            ClassMember m = new ClassMember(frozen.getId(), ((User) row[0]).getId(), "STUDENT");
+            m.setState((String) row[1]);
+            m.setAccessExpiresAt((Instant) row[2]);
+            memberRepository.save(m);
+        }
+        memberRepository.save(new ClassMember(frozen.getId(), sStaff.getId(), "STAFF"));
+        com.classroom.modules.classroom.model.StaffAssignment assignment = staffAssignmentRepository.save(
+                new com.classroom.modules.classroom.model.StaffAssignment(frozen.getId(), sStaff.getId()));
+        staffPermissionRepository.save(new com.classroom.modules.classroom.model.StaffPermission(assignment.getId(), "*", "*", null));
+        feedService.createPost(frozen.getId(), sOwner.getId(), new CreatePostRequest("Bai cong khai", "Noi dung bai viet", "PUBLIC", null, null, false));
+        frozen.setStatusBeforeSuspend(frozen.getStatus());
+        frozen.setStatus("SUSPENDED");
+        frozen.setSuspendedReason("Vi pham");
+        frozen.setSuspendedAt(Instant.now());
+        frozen = classroomRepository.save(frozen);
+
+        String missingId = UUID.randomUUID().toString();
+        String missingSlug = "khong-ton-tai-" + UUID.randomUUID().toString().substring(0, 8);
+        Map<String, User> viewers = new LinkedHashMap<>();
+        viewers.put("guest", null);
+        viewers.put("stranger", stranger);
+        viewers.put("member", sMember);
+        viewers.put("expired", sExpired);
+        viewers.put("staff", sStaff);
+        viewers.put("removed", sRemoved);
+        viewers.put("blocked", sBlocked);
+        int compared = 0;
+        for (Map.Entry<String, User> viewer : viewers.entrySet()) {
+            for (Route route : routes()) {
+                Answer real = call(route.method(), fill(route.path(), frozen.getId(), frozen.getSlug()),
+                        route.body() == null ? null : fill(route.body(), frozen.getId(), frozen.getSlug()), viewer.getValue());
+                Answer none = call(route.method(), fill(route.path(), missingId, missingSlug),
+                        route.body() == null ? null : fill(route.body(), missingId, missingSlug), viewer.getValue());
+                String label = viewer.getKey() + " " + route.method() + " " + route.path();
+                assertEquals(none.status(), real.status(), label + " status: " + real.body());
+                assertEquals(none.code(), real.code(), label + " error code");
+                assertEquals(normalised(none.message(), missingId, missingSlug), normalised(real.message(), frozen.getId(), frozen.getSlug()),
+                        label + " message");
+                String withoutEcho = real.body().replace("id: " + frozen.getId(), "").replace("slug: " + frozen.getSlug(), "");
+                assertFalse(withoutEcho.contains(frozen.getId()), label + " leaks the class id: " + real.body());
+                assertFalse(real.body().contains(title), label + " leaks the title");
+                assertFalse(real.body().contains("Bai cong khai"), label + " leaks a post");
+                compared++;
+            }
+        }
+        assertTrue(compared >= 7 * 45, "compared " + compared);
+        // and the owner still reads it (read-only, with the reason)
+        Answer own = call(HttpMethod.GET, "/api/v1/classes/" + frozen.getId(), null, sOwner);
+        assertEquals(200, own.status());
+        assertTrue(own.body().contains("Vi pham"));
+        assertEquals(200, call(HttpMethod.GET, "/api/v1/classes/" + frozen.getId() + "/posts", null, sOwner).status());
     }
 }

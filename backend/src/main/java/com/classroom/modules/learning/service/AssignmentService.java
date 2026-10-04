@@ -66,6 +66,7 @@ public class AssignmentService {
             throw new AppException(ErrorCode.BAD_REQUEST, "Bài học này không phải bài tập");
         Course course = course(lesson);
         learningPolicy.enforceLearn(userId, course);
+        accessPolicy.enforceNotSuspended(course.getClassId()); // D-29: a suspended class is read-only, also for its owner
         // R14-02: an archived assignment (or one inside an archived section) is invisible to learners
         // and must not accept new submissions through a stale link or a direct API call.
         requireVisibleToLearner(lesson, course, userId);
@@ -88,7 +89,7 @@ public class AssignmentService {
     public List<AssignmentSubmission> queue(String lessonId, String userId) {
         Lesson lesson = assignment(lessonId);
         Course course = course(lesson);
-        accessPolicy.enforceManage(userId, course.getClassId(), "COURSE", "GRADE", course.getId());
+        accessPolicy.enforceManageRead(userId, course.getClassId(), "COURSE", "GRADE", course.getId());
         return submissions.findByLessonIdOrderBySubmittedAtAsc(lessonId);
     }
 

@@ -386,6 +386,7 @@ public class FeedService {
     @Transactional
     public PostDto createPost(String classId, String userId, CreatePostRequest request) {
         accessPolicy.enforceMember(userId, classId);
+        accessPolicy.enforceNotSuspended(classId); // D-29: a suspended class is read-only, also for its owner
 
         // Required-field validation must answer 400, not let a NOT NULL column raise a 500 at flush.
         if (request == null || request.title() == null || request.title().isBlank()
@@ -458,6 +459,7 @@ public class FeedService {
         if (!"PUBLISHED".equalsIgnoreCase(post.getStatus()) || !canViewPost(post, userId)) {
             throw new AppException(ErrorCode.FORBIDDEN, "Bạn không có quyền bình luận bài viết này");
         }
+        accessPolicy.enforceNotSuspended(post.getClassId()); // D-29: a suspended class is read-only, also for its owner
 
         if (content == null || content.isBlank()) {
             throw new AppException(ErrorCode.BAD_REQUEST, "Nội dung bình luận không được để trống");
@@ -483,6 +485,7 @@ public class FeedService {
         if ((!isActiveAuthor || requiresFeedManagement(post)) && !canManage) {
             throw forbiddenOrExpired(userId, post.getClassId(), "Không có quyền sửa bài viết này");
         }
+        accessPolicy.enforceNotSuspended(post.getClassId()); // D-29: a suspended class is read-only, also for its owner
         if (request == null || request.title() == null || request.title().isBlank()
                 || request.contentMarkdown() == null || request.contentMarkdown().isBlank()) {
             throw new AppException(ErrorCode.BAD_REQUEST, "Tiêu đề và nội dung bài viết không được để trống");
@@ -504,6 +507,7 @@ public class FeedService {
         if (!isActiveAuthor && !canManage) {
             throw forbiddenOrExpired(userId, post.getClassId(), "Không có quyền sửa bình luận này");
         }
+        accessPolicy.enforceNotSuspended(post.getClassId()); // D-29: a suspended class is read-only, also for its owner
         if (request == null || request.content() == null || request.content().isBlank()) {
             throw new AppException(ErrorCode.BAD_REQUEST, "Nội dung bình luận không được để trống");
         }
@@ -556,6 +560,7 @@ public class FeedService {
         if ((!isAuthor || requiresFeedManagement(post)) && !canManage) {
             throw forbiddenOrExpired(userId, post.getClassId(), "Không có quyền xóa bài viết này");
         }
+        accessPolicy.enforceNotSuspended(post.getClassId()); // D-29: a suspended class is read-only, also for its owner
 
         postRepository.delete(post);
     }
@@ -575,6 +580,7 @@ public class FeedService {
         if (!isAuthor && !canManage) {
             throw forbiddenOrExpired(userId, post.getClassId(), "Không có quyền xóa bình luận này");
         }
+        accessPolicy.enforceNotSuspended(post.getClassId()); // D-29: a suspended class is read-only, also for its owner
 
         // Post deletion in this service is a hard delete with no outbox event, so comment
         // deletion follows the same, simpler approach for consistency.

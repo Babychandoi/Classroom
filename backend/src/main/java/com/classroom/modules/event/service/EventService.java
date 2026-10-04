@@ -201,8 +201,8 @@ public class EventService {
     @Transactional
     public ClassEventDto create(String classId, String userId, CreateEventRequest request) {
         accessPolicy.enforceManage(userId, classId, "EVENT", "CREATE", null);
-        if (accessPolicy.isClassArchived(classId)) {
-            throw new AppException(ErrorCode.CONFLICT, "Lớp học đã được lưu trữ; không thể tạo sự kiện mới");
+        if (accessPolicy.isClassFrozen(classId)) { // D-11 / D-29
+            throw new AppException(ErrorCode.CONFLICT, (accessPolicy.isClassSuspended(classId) ? AccessPolicy.SUSPENDED_MESSAGE : "Lớp học đã được lưu trữ; không thể tạo sự kiện mới"));
         }
         ClassEvent event = new ClassEvent();
         event.setClassId(classId);
@@ -360,8 +360,9 @@ public class EventService {
         if (registrationRepository.existsByEventIdAndUserId(eventId, userId)) {
             return toDtos(List.of(event), viewer, null).get(0);
         }
-        if (accessPolicy.isClassArchived(classroom.getId())) {
-            throw new AppException(ErrorCode.CONFLICT, "Lớp học đã được lưu trữ; không thể đăng ký sự kiện");
+        if (accessPolicy.isClassFrozen(classroom.getId())) { // D-11 / D-29
+            throw new AppException(ErrorCode.CONFLICT,
+                    (accessPolicy.isClassSuspended(classroom.getId()) ? AccessPolicy.SUSPENDED_MESSAGE : "Lớp học đã được lưu trữ; không thể đăng ký sự kiện"));
         }
         if (ClassEvent.STATUS_CANCELLED.equals(event.getStatus())) {
             throw new AppException(ErrorCode.CONFLICT, "Sự kiện đã bị hủy");

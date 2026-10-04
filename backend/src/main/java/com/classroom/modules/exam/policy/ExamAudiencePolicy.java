@@ -83,7 +83,7 @@ public class ExamAudiencePolicy {
         var active = attemptRepository.findByClassIdAndUserIdAndStatus(classId, userId, "IN_PROGRESS").stream()
                 .collect(Collectors.groupingBy(ExamAttempt::getExamId));
         var context = new ListingContext(accessPolicy.isMember(userId, classId),
-                accessPolicy.isClassArchived(classId), counts, active);
+                accessPolicy.isClassFrozen(classId), counts, active);
         return exams.stream().collect(Collectors.toMap(Exam::getId,
                 e -> new EntryState(canEnterLearner(userId, e, now, context), counts.getOrDefault(e.getId(), 0L))));
     }
@@ -102,7 +102,7 @@ public class ExamAudiencePolicy {
 
         // R14-05 / R14-13: after the exam is closed/archived, or once the class is archived, nobody
         // can START a new attempt; a learner can only continue one that is already running.
-        if (!enterableStatus || (context == null ? accessPolicy.isClassArchived(exam.getClassId()) : context.archived())) {
+        if (!enterableStatus || (context == null ? accessPolicy.isClassFrozen(exam.getClassId()) : context.archived())) {
             return hasResumableAttempt(userId, exam, now, context);
         }
 
@@ -166,9 +166,10 @@ public class ExamAudiencePolicy {
 
         // R14-13 (D-11): an archived class accepts no NEW attempts (resuming a running one goes
         // through enforceResumeAttempt and is unaffected).
-        if (!isResume && accessPolicy.isClassArchived(exam.getClassId())) {
+        // D-29: a SUSPENDED class is frozen the same way (not ACTIVE = frozen).
+        if (!isResume && accessPolicy.isClassFrozen(exam.getClassId())) {
             throw new AppException(ErrorCode.EXAM_NOT_OPEN,
-                    "Lớp học đã được lưu trữ; không thể bắt đầu lượt làm bài mới");
+                    (accessPolicy.isClassSuspended(exam.getClassId()) ? AccessPolicy.SUSPENDED_MESSAGE : "Lớp học đã được lưu trữ; không thể bắt đầu lượt làm bài mới"));
         }
 
         if (exam.getScheduleStart() != null && now.isBefore(exam.getScheduleStart())) {

@@ -111,6 +111,8 @@ public class MediaController {
                     new String[][]{{"STORE", "CREATE", null}, {"MEDIA", "CREATE", null}}, null);
             default -> accessPolicy.enforceManage(userId, classId, "MEDIA", "CREATE", null);
         }
+        // D-29: a SUSPENDED class takes no new files (requireAny passes on a boolean grant, so the freeze is checked here once).
+        accessPolicy.enforceNotSuspended(classId);
     }
 
     private static void requireCoverImage(UploadIntentRequest request) {

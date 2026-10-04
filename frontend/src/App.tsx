@@ -45,7 +45,16 @@ import { StudioAbout, StudioDocuments, StudioFeed } from './pages/studio/StudioC
 import { StudioBlog } from './pages/studio/StudioBlog';
 import { StudioEvents } from './pages/studio/StudioEvents';
 
-const RequireLogin: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+import { AdminLayout } from './pages/admin/AdminLayout';
+import { AdminOverview } from './pages/admin/AdminOverview';
+import { AdminUsers } from './pages/admin/AdminUsers';
+import { AdminUserDetail } from './pages/admin/AdminUserDetail';
+import { AdminClasses } from './pages/admin/AdminClasses';
+import { AdminClassDetail } from './pages/admin/AdminClassDetail';
+import { AdminPrivacy } from './pages/admin/AdminPrivacy';
+import { AdminAudit } from './pages/admin/AdminAudit';
+
+export const RequireLogin: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading, isReconnecting, retryReconnect } = useAuth();
   const location = useLocation();
   if (isLoading) {
@@ -179,6 +188,19 @@ export const App: React.FC = () => {
                 <Route path="about" element={<StudioAbout />} />
                 <Route path="blog" element={<StudioBlog />} />
                 <Route path="events" element={<StudioEvents />} />
+              </Route>
+
+              {/* Platform admin ("Quản trị nền tảng"): guests go to /login, other accounts see a ForbiddenState. */}
+              <Route path="/admin" element={<RequireLogin><AdminLayout /></RequireLogin>}>
+                <Route index element={<Navigate to="overview" replace />} />
+                <Route path="overview" element={<AdminOverview />} />
+                <Route path="users" element={<AdminUsers />} />
+                <Route path="users/:id" element={<AdminUserDetail />} />
+                <Route path="classes" element={<AdminClasses />} />
+                <Route path="classes/:id" element={<AdminClassDetail />} />
+                <Route path="privacy" element={<AdminPrivacy />} />
+                <Route path="audit" element={<AdminAudit />} />
+                <Route path="*" element={<Navigate to="overview" replace />} />
               </Route>
 
               {/* Fallback */}

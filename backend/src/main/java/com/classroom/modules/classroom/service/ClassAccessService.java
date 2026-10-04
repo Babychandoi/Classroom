@@ -172,6 +172,7 @@ public class ClassAccessService {
             throw new AppException(ErrorCode.STAFF_PERMISSION_DENIED,
                     "Chỉ chủ lớp hoặc nhân sự có đồng thời quyền STORE:EDIT và CLASS:EDIT mới được thay đổi hình thức thu phí của lớp");
         }
+        accessPolicy.enforceNotSuspended(classId); // D-29: a suspended class is read-only, also for its owner
         Classroom classroom = classroomRepository.findByIdForUpdate(classId)
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, NOT_FOUND_MESSAGE));
         String target = request.getAccessType().trim().toUpperCase(Locale.ROOT);

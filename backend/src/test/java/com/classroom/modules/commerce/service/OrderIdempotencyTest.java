@@ -494,7 +494,7 @@ public class OrderIdempotencyTest {
         request.setProductId("prod-1");
         request.setIdempotencyKey("archived-key");
         when(orderRepository.findByIdempotencyKey("archived-key")).thenReturn(Optional.empty());
-        when(accessPolicy.isClassArchived("class-1")).thenReturn(true);
+        when(accessPolicy.isClassFrozen("class-1")).thenReturn(true);
 
         AppException ex = assertThrows(AppException.class, () -> commerceService.createOrder("buyer-1", request));
 
@@ -519,6 +519,6 @@ public class OrderIdempotencyTest {
         OrderDto replayed = commerceService.createOrder("buyer-1", retry);
 
         assertEquals("ORD-TEST-123", replayed.getOrderNumber());
-        verify(accessPolicy, never()).isClassArchived(any());
+        verify(accessPolicy, never()).isClassFrozen(any());
     }
 }

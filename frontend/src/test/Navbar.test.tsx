@@ -11,8 +11,8 @@ import { Navbar } from '../components/Navbar';
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
-  Link: ({ children, to, className }: { children?: React.ReactNode; to: string; className?: string }) => (
-    <a href={to} className={className}>{children}</a>
+  Link: ({ children, to, className, role }: { children?: React.ReactNode; to: string; className?: string; role?: string }) => (
+    <a href={to} className={className} role={role}>{children}</a>
   ),
 }));
 
@@ -60,6 +60,20 @@ describe('Navbar', () => {
 
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('offers "Quản trị nền tảng" in the account menu to a PLATFORM_ADMIN only', () => {
+    authState = { user: mockUser, isLoading: false };
+    const { unmount } = render(<Navbar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Mở menu tài khoản' }));
+    expect(screen.queryByText('Quản trị nền tảng')).not.toBeInTheDocument();
+    unmount();
+
+    authState = { user: { ...mockUser, role: 'PLATFORM_ADMIN' }, isLoading: false };
+    render(<Navbar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Mở menu tài khoản' }));
+    const link = screen.getByRole('menuitem', { name: 'Quản trị nền tảng' });
+    expect(link).toHaveAttribute('href', '/admin');
   });
 
   it('keeps the brand on a single line and hides the duplicate "Khám phá lớp học" link on phones', () => {

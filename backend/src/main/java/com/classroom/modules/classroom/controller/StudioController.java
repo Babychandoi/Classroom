@@ -82,7 +82,7 @@ public class StudioController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> getOutboxStatus(
             @PathVariable String classId,
             @CurrentUser UserPrincipal principal) {
-        accessPolicy.enforceManage(principal.getId(), classId, "OUTBOX", "REPLAY", null);
+        accessPolicy.enforceManageRead(principal.getId(), classId, "OUTBOX", "REPLAY", null);
         return ResponseEntity.ok(ApiResponse.ok(outboxMonitor.classStatus(classId)));
     }
 

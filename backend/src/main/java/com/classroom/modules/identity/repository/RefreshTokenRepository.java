@@ -54,6 +54,10 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Stri
      * those same single-row locks taken elsewhere in the same family's rotation chain (see R11-03's
      * grace-mint hop loop).</p>
      */
+    /** D-29: every family of the user that still has an unrevoked row (a platform-admin ban revokes them all). */
+    @Query("select distinct t.familyId from RefreshToken t where t.userId = :userId and t.revokedAt is null")
+    List<String> findUnrevokedFamilyIdsByUserId(@Param("userId") String userId);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update RefreshToken t set t.revokedAt = :now, t.version = t.version + 1 "
             + "where t.id = :id and t.revokedAt is null")

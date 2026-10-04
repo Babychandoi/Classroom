@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { GraduationCap, UserCheck, LogOut, ChevronDown, ChevronRight, Compass, ShieldCheck, UserRound } from 'lucide-react';
+import { GraduationCap, UserCheck, LogOut, ChevronDown, ChevronRight, Compass, ShieldCheck, ShieldHalf, UserRound } from 'lucide-react';
+import { isPlatformAdmin } from '../api/admin';
 import { Avatar } from './ui';
 
 const DEMO_ACCOUNTS = [
@@ -184,6 +185,14 @@ export const Navbar: React.FC = () => {
                       <span className="min-w-0 flex-1">Khám phá lớp học</span>
                       <ChevronRight className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden="true" />
                     </Link>
+                    {/* Platform admins only (the server enforces PLATFORM_ADMIN on every /admin route as well). */}
+                    {isPlatformAdmin(user) && (
+                      <Link to="/admin" role="menuitem" onClick={closeAccount} className={MENU_ROW}>
+                        <span className={MENU_ICON} aria-hidden="true"><ShieldHalf className="h-[17px] w-[17px]" strokeWidth={1.7} /></span>
+                        <span className="min-w-0 flex-1">Quản trị nền tảng</span>
+                        <ChevronRight className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden="true" />
+                      </Link>
+                    )}
                     <Link to="/privacy" role="menuitem" onClick={closeAccount} className={MENU_ROW}>
                       <span className={MENU_ICON} aria-hidden="true"><ShieldCheck className="h-[17px] w-[17px]" strokeWidth={1.7} /></span>
                       <span className="min-w-0 flex-1">Quyền riêng tư &amp; dữ liệu</span>

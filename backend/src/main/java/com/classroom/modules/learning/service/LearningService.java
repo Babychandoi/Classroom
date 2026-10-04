@@ -299,6 +299,7 @@ public class LearningService {
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy khóa học"));
 
         learningPolicy.enforceLearn(userId, course);
+        accessPolicy.enforceNotSuspended(course.getClassId()); // D-29: a suspended class is read-only, also for its owner
         // R14-02: an archived lesson (or one inside an archived section) is invisible to learners -
         // report it as missing rather than confirming it exists. A course editor who can still open
         // it in Studio gets the explicit reason instead, since progress is never recorded on it.
@@ -929,6 +930,7 @@ public class LearningService {
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy khóa học"));
 
         learningPolicy.enforceLearn(userId, course);
+        accessPolicy.enforceNotSuspended(course.getClassId()); // D-29: a suspended class is read-only, also for its owner
         requireVisibleToLearner(lesson, course, userId);
 
         if (questionText == null || questionText.isBlank()) {
@@ -963,6 +965,7 @@ public class LearningService {
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy khóa học"));
 
         learningPolicy.enforceLearn(userId, course);
+        accessPolicy.enforceNotSuspended(course.getClassId()); // D-29: a suspended class is read-only, also for its owner
         requireVisibleToLearner(lesson, course, userId);
 
         if (answerText == null || answerText.isBlank()) {

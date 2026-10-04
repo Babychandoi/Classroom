@@ -404,7 +404,7 @@ public class ClassroomService {
      * Course/Product ARCHIVED already behaves elsewhere in this codebase (content and access
      * already granted survive archiving; only new self-service join is blocked, per
      * joinClassroom's existing ACTIVE-only guard). Since R14-13 (decision D-11) an ARCHIVED class is
-     * also frozen for NEW orders and NEW exam attempts - see AccessPolicy.isClassArchived.</p>
+     * also frozen for NEW orders and NEW exam attempts - see AccessPolicy.isClassFrozen (D-29: SUSPENDED is frozen too).</p>
      */
     @Transactional
     public ClassroomDto updateClassroomStatus(String classId, UpdateClassroomStatusRequest req, String currentUserId) {
@@ -517,7 +517,7 @@ public class ClassroomService {
             if (withdrawn) {
                 return null;
             }
-            if (classroom.isPrivate()) {
+            if (classroom.isPrivate() || AccessPolicy.isSuspended(classroom)) { // D-29: suspended = hidden like private
                 throw new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy lớp học");
             }
             throw new AppException(ErrorCode.FORBIDDEN, "Bạn không có quyền truy cập thông tin lớp học không công khai này");
@@ -652,6 +652,11 @@ public class ClassroomService {
 
             if (isOwner) {
                 dto.setUserRole("OWNER");
+                if (AccessPolicy.isSuspended(classroom)) {
+                    // D-29: the owner (the only one who still sees a suspended class) is told why, for the read-only banner.
+                    dto.setSuspendedReason(classroom.getSuspendedReason());
+                    dto.setSuspendedAt(classroom.getSuspendedAt());
+                }
                 dto.setMember(true);
                 dto.setMemberState(ClassroomDto.MEMBER_STATE_ACTIVE);
             } else {

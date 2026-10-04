@@ -45,6 +45,7 @@
 - `POST /api/v1/classes`: Tạo lớp học mới (Body: `title`, `slug?`, `description`, `visibility?`, `category?`, `requireApproval?`, `coverPosition?`, `avatarPosition?`) — mục 2.2 (D-28)
 - `PUT /api/v1/classes/{id}`: Cập nhật cài đặt lớp (`CLASS:EDIT`; Body: `title`, `description`, `coverImageUrl`, `visibility?`, `coverMediaId?`). **D-27 `coverMediaId`:** vắng/`null` = giữ nguyên, chuỗi rỗng = bỏ ảnh bìa, còn lại phải là ảnh `UPLOADED` của chính lớp với purpose `CLASS_COVER` (sai → 400).
 - **`ClassroomDto` (D-27) có thêm:** `coverUrl` (URL ký sẵn ngắn hạn của ảnh bìa đã tải, hoặc `null`; chỉ sinh cho người đã qua kiểm tra quyền thấy lớp), `coverMediaId`, `ownerAvatarUrl`, `upcomingEventCount` (số sự kiện `SCHEDULED` chưa kết thúc). Vẫn giữ `coverImageUrl`; giao diện hiển thị `coverUrl ?? coverImageUrl ?? ô màu`.
+- **`ClassroomDto.status` (D-29)** có thêm giá trị `SUSPENDED` (quản trị nền tảng tạm khóa; chỉ chủ lớp còn thấy lớp, chỉ đọc) và hai trường `suspendedReason`, `suspendedAt` chỉ có giá trị cho chủ lớp của lớp đang tạm khóa (còn lại `null`). `PUT /classes/{id}/status` trên lớp tạm khóa → 409. Xem mục 12.
 - `PUT /api/v1/classes/{id}/access`: Đổi hình thức thu phí `FREE`/`PAID` và giá (chủ lớp, hoặc `STORE:EDIT` + `CLASS:EDIT`) — mục 2.1
 - `POST|GET /api/v1/classes/{id}/invites`, `DELETE /api/v1/classes/{id}/invites/{inviteId}`, `GET /api/v1/classes/invites/{code}` (công khai), `POST /api/v1/classes/invites/{code}/join`: mã mời — mục 2.1
 - `GET /api/v1/classes/{id}`: Chi tiết lớp học theo ID
@@ -335,6 +336,106 @@ interface EventRegistrant { user: PersonSummary; registeredAt: string }
 | `GET /events/{id}/registrations` | `EVENT:VIEW` hoặc `EVENT:EDIT` | `EventRegistrant[]` theo `registeredAt` |
 
 Lớp `ARCHIVED`: không tạo sự kiện, không đăng ký (409). Audit `EVENT_CREATE/UPDATE/CANCEL/DELETE` (đối tượng `CLASS_EVENT`); đăng ký/hủy đăng ký là thao tác của chính thành viên nên không ghi audit (giống tham gia lớp).
+
+## 12. Quản trị nền tảng (D-29)
+
+Mọi endpoint dưới `/api/v1/admin/**`, khung phản hồi chuẩn, `Cache-Control: no-store`. Thời gian ISO-8601 UTC.
+
+**Quyền.** Chỉ vai trò nền tảng `PLATFORM_ADMIN`, đọc lại từ MySQL ở mỗi request (D-26): khách → 401 `UNAUTHORIZED`, mọi người khác → 403 `FORBIDDEN`, kể cả khi id không tồn tại. Hai lớp chặn: luật URL trong `SecurityConfig` và `@PreAuthorize("hasRole('PLATFORM_ADMIN')")` trên controller. Hạ quyền có hiệu lực ngay từ request kế tiếp. Quản trị nền tảng **không** phải chủ lớp: các endpoint này không cấp quyền Studio, không trả đáp án, nội dung đề/bài, tin nhắn, bí mật thanh toán hay mật khẩu băm — chỉ metadata và số đếm.
+
+**Ghi.** Mọi thao tác ghi bắt buộc `reason` (1..500 ký tự, thiếu/rỗng/quá dài → 400) và ghi một dòng `audit_events`: action `ADMIN_USER_BAN` / `ADMIN_USER_UNBAN` / `ADMIN_USER_ROLE` (đối tượng `USER`, `class_id = NULL`) hoặc `ADMIN_CLASS_SUSPEND` / `ADMIN_CLASS_RESTORE` (đối tượng `CLASSROOM`, `class_id` = lớp); `details_json` dựng bằng ObjectMapper, luôn có `reason` (cùng trạng thái/vai trò trước–sau). Thao tác ghi trả về dòng mới (`AdminUserRow` / `AdminClassRow`). Không tự khóa/tự hạ quyền chính mình (400); không khóa hoặc hạ quyền quản trị `ACTIVE` cuối cùng (409, kiểm tra khi đang giữ khóa dòng của mọi quản trị `ACTIVE`).
+
+```ts
+interface Page<T> { content: T[]; page: number; size: number; totalElements: number; totalPages: number }
+interface PersonRef { id: string; fullName: string; email: string }
+interface AuditRow {
+  id: string; createdAt: string; action: string; targetType: string; targetId?: string | null;
+  classId?: string | null; classTitle?: string | null;
+  actor?: PersonRef | null;
+  details: object | null;   // details_json đã parse; dòng cũ không phải JSON hợp lệ trả { raw: "<chuỗi gốc>" }
+}
+```
+
+### 12.1 Tổng quan — `GET /admin/overview`
+
+```ts
+interface AdminOverview {
+  users: { total: number; active: number; banned: number; deleted: number; admins: number; newLast7Days: number; newLast30Days: number };
+  classes: { total: number; active: number; archived: number; suspended: number; public: number; private: number; paid: number; newLast7Days: number };
+  members: { activeMemberships: number; pendingRequests: number };
+  content: { courses: number; publishedExams: number; blogPostsPublished: number; upcomingEvents: number };
+  commerce: { paidOrdersLast30Days: number; revenueLast30Days: number; currency: 'VND'; pendingOrders: number };
+  privacy: { openRequests: number };
+  outbox: { pending: number; deadLetter: number };
+  signupsByDay: { date: string; count: number }[];   // 30 ngày UTC gần nhất (gồm hôm nay), cũ → mới, yyyy-MM-dd, ngày trống = 0
+}
+```
+
+Định nghĩa: `admins` = `PLATFORM_ADMIN` đang `ACTIVE`; `activeMemberships` = dòng thành viên `ACTIVE` còn hạn, **không** tính dòng chủ lớp; `pendingRequests` = yêu cầu tham gia `PENDING` (D-28); `publishedExams` = đề ở trạng thái `PUBLISHED`/`OPEN`/`CLOSED`; `upcomingEvents` = sự kiện `SCHEDULED` chưa kết thúc; doanh thu = tổng `total_amount` các đơn `PAID` có `paid_at` trong 30 ngày (đơn `REFUNDED` không còn là `PAID` nên bị loại); `privacy.openRequests` = yêu cầu chưa `COMPLETED`/`REJECTED`; `outbox.pending` = `PENDING`/`PROCESSING`/`FAILED`. Mỗi khối là một câu lệnh COUNT/SUM, không đọc từng dòng.
+
+### 12.2 Người dùng
+
+```ts
+interface AdminUserRow {
+  id: string; email: string; fullName: string; avatarUrl?: string | null;
+  role: 'USER' | 'PLATFORM_ADMIN'; status: 'ACTIVE' | 'BANNED' | 'DELETED';
+  createdAt: string;
+  ownedClassCount: number;     // mọi lớp người này sở hữu (mọi trạng thái)
+  membershipCount: number;     // dòng thành viên ACTIVE còn hạn, không tính dòng chủ lớp
+  lastLoginAt?: string | null; // thời điểm phát refresh token gần nhất (đăng nhập hoặc làm mới phiên); null nếu không còn token
+}
+interface AdminUserDetail extends AdminUserRow {
+  ownedClasses: { id: string; slug: string; title: string; status: string }[]; // tối đa 50, mới nhất trước
+  recentAudit: AuditRow[];                                                     // 20 dòng gần nhất có actor HOẶC target là người này
+}
+```
+
+| Phương thức + đường dẫn | Ghi chú |
+|---|---|
+| `GET /admin/users?q&status&role&sort&page&size` | `q` khớp e-mail hoặc tên (không phân biệt hoa thường, ≤ 100 ký tự, `%`/`_` là chữ thường); `status` `ACTIVE`/`BANNED`/`DELETED`; `role` `USER`/`PLATFORM_ADMIN`; `sort=newest` (mặc định) / `oldest` / `name`; `size` mặc định 20, tối đa 100 (lớn hơn bị kẹp về 100). Giá trị lọc/sắp xếp sai → 400. Số đếm theo lô (3 truy vấn gộp cho cả trang). |
+| `GET /admin/users/{id}` | `AdminUserDetail`; id lạ → 404. |
+| `POST /admin/users/{id}/ban` body `{reason}` | `ACTIVE → BANNED` và thu hồi **mọi** họ refresh token của người đó trong cùng giao dịch; access token cũ bị từ chối (401) ngay request kế tiếp vì bộ lọc JWT đòi `ACTIVE`. Tự khóa → 400; `DELETED` → 409; đã `BANNED` → 409; quản trị `ACTIVE` cuối cùng → 409. Không đụng tới lớp, đơn hàng hay nội dung của người đó. |
+| `POST /admin/users/{id}/unban` body `{reason}` | `BANNED → ACTIVE` (người dùng đăng nhập lại; phiên cũ vẫn đã bị thu hồi). Trạng thái khác → 409. |
+| `PUT /admin/users/{id}/role` body `{role, reason}` | `role` = `USER` hoặc `PLATFORM_ADMIN` (khác → 400). Tự đổi vai trò → 400; đã có vai trò đó → 409; cấp `PLATFORM_ADMIN` cho tài khoản không `ACTIVE` → 409; hạ quyền quản trị `ACTIVE` cuối cùng → 409. |
+
+### 12.3 Lớp học
+
+```ts
+interface AdminClassRow {
+  id: string; slug: string; title: string;
+  owner: PersonRef;
+  status: 'ACTIVE' | 'ARCHIVED' | 'SUSPENDED';
+  visibility: 'PUBLIC' | 'PRIVATE'; accessType: 'FREE' | 'PAID'; category?: string | null;
+  memberCount: number;            // cùng quy tắc ClassroomDto.memberCount (dòng ACTIVE còn hạn, gồm dòng chủ lớp)
+  pendingRequestCount: number; createdAt: string;
+  coverUrl?: string | null; avatarUrl?: string | null;   // URL ký ngắn hạn như nơi khác
+  suspendedReason?: string | null; suspendedAt?: string | null;   // chỉ khi SUSPENDED
+}
+interface AdminClassDetail extends AdminClassRow {
+  counts: { courses: number; exams: number; blogPosts: number; events: number; products: number; paidOrders: number };
+  recentAudit: AuditRow[];        // 20 dòng gần nhất của lớp
+}
+```
+
+| Phương thức + đường dẫn | Ghi chú |
+|---|---|
+| `GET /admin/classes?q&status&visibility&accessType&category&sort&page&size` | **Mọi** lớp, kể cả `PRIVATE`/`ARCHIVED`/`SUSPENDED`. `q` khớp tên, slug hoặc e-mail chủ lớp; `status` `ACTIVE`/`ARCHIVED`/`SUSPENDED`; `category` như D-28; `sort=newest` (mặc định) / `members` / `name`; `size` mặc định 20, tối đa 100. Sai → 400. |
+| `GET /admin/classes/{id}` | `AdminClassDetail`, không có nội dung bài/đề. id lạ → 404. |
+| `POST /admin/classes/{id}/suspend` body `{reason}` | `ACTIVE`/`ARCHIVED` → `SUSPENDED`; lưu trạng thái cũ vào `status_before_suspend`, `suspended_reason`, `suspended_at` (V47). Đã `SUSPENDED` → 409. |
+| `POST /admin/classes/{id}/restore` body `{reason}` | `SUSPENDED` → đúng trạng thái trước đó (`ACTIVE` hoặc `ARCHIVED`), xóa lý do/thời điểm. Lớp không bị tạm khóa → 409. |
+
+**Lớp `SUSPENDED` (D-29) — hợp đồng cho giao diện:**
+- **Bị ẩn với mọi người trừ chủ lớp**, kể cả thành viên, nhân sự, người hết hạn: mọi endpoint trả đúng câu trả lời của một lớp không tồn tại (404 như lớp `PRIVATE` ẩn; route Studio/nhân sự trả 403 như với id lạ). Không có trong `GET /classes`, tìm kiếm, `/events/upcoming`. Dòng thành viên/nhân sự được giữ nguyên và hiệu lực trở lại khi khôi phục.
+- **Chủ lớp xem chỉ đọc:** `ClassroomDto.status = 'SUSPENDED'` và — **chỉ cho chủ lớp** — `suspendedReason`, `suspendedAt` (giao diện hiện băng "Lớp đang bị tạm khóa bởi quản trị nền tảng: <reason>"). Các trang đọc (thành viên, Studio, hàng chờ chấm, danh sách mã mời...) vẫn mở.
+- **Đóng băng mọi ghi:** mọi thao tác ghi của chủ lớp → **409 `CONFLICT`** "Lớp học đang bị tạm khóa bởi quản trị nền tảng; mọi thay đổi đều bị chặn" — gồm `PUT /classes/{id}/status` (chủ lớp không tự mở khóa được), cài đặt, thu phí, mã mời, Studio (khóa học, đề, sản phẩm, blog, sự kiện, thành viên, nhân sự, bảng xếp hạng...), bảng tin (bài, bình luận, sửa, xóa), hỏi đáp/tiến độ/nộp bài, tải tệp lên. Các chỗ đã đóng băng lớp `ARCHIVED` (D-11/D-27: đơn hàng mới 400, lượt thi mới `EXAM_NOT_OPEN`, sự kiện/đăng ký/bài blog/xuất bản 409) nay áp cho mọi lớp không `ACTIVE`, với thông điệp tạm khóa khi lớp `SUSPENDED`; thông điệp với lớp `ARCHIVED` giữ nguyên. Đơn `PENDING` đã tạo trước khi tạm khóa vẫn được webhook xử lý (như D-11, để không mất tiền người mua).
+
+### 12.4 Nhật ký — `GET /admin/audit?action&actorId&classId&from&to&page&size`
+
+`Page<AuditRow>` toàn nền tảng (mọi lớp + thao tác nền tảng), mới nhất trước. `action` khớp chính xác (không phân biệt hoa thường); `from`/`to` là instant ISO-8601 hoặc ngày `yyyy-MM-dd` UTC (`to` dạng ngày = hết ngày đó, loại trừ); sai định dạng hoặc `from ≥ to` → 400. `size` mặc định 50, tối đa 200 (kẹp).
+
+### 12.5 Hàng đợi quyền dữ liệu
+
+Giữ nguyên `GET /privacy/requests` và `PUT /privacy/requests/{userId}` (đã yêu cầu `PLATFORM_ADMIN`); giao diện quản trị chuyển hàng đợi này sang trang riêng. Đóng tài khoản (COMPLETED) coi lớp `SUSPENDED` từ `ACTIVE` như lớp đang hoạt động (phải chuyển quyền/lưu trữ trước).
 
 ## Round 23: About, phụ đề và quyền dữ liệu
 

@@ -256,10 +256,10 @@ public class BlogService {
         return post;
     }
 
-    /** D-11: an ARCHIVED class is read-only for new activity. */
+    /** D-11: an ARCHIVED class is read-only for new activity; D-29: so is a SUSPENDED one (not ACTIVE = frozen). */
     private void requireNotArchived(String classId, String message) {
-        if (accessPolicy.isClassArchived(classId)) {
-            throw new AppException(ErrorCode.CONFLICT, message);
+        if (accessPolicy.isClassFrozen(classId)) {
+            throw new AppException(ErrorCode.CONFLICT, (accessPolicy.isClassSuspended(classId) ? AccessPolicy.SUSPENDED_MESSAGE : message));
         }
     }
 

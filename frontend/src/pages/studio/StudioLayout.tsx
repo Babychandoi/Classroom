@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { hasAnyStudioPermission } from '../../api/permissions';
 import { LoadingSpinner, ErrorBanner } from '../../components/UIStates';
 import { ClassBadges } from '../../components/ClassBadges';
+import { SuspendedChip, SuspendedNotice, isSuspended } from '../../components/SuspendedNotice';
 import { ClassAvatar, buttonClass } from '../../components/ui';
 import {
   LayoutDashboard,
@@ -245,7 +246,10 @@ export const StudioLayout: React.FC = () => {
             </div>
           </div>
           {/* D-19: visibility + fee of the class at a glance, on every Studio page */}
-          <ClassBadges classroom={classroom} showPublic className="mt-2 px-1" />
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 px-1">
+            {isSuspended(classroom) && <SuspendedChip />}
+            <ClassBadges classroom={classroom} showPublic />
+          </div>
         </div>
 
         <div id={navId} className={`${menuOpen ? 'block' : 'hidden'} md:block md:min-h-0 md:flex-1`}>
@@ -306,6 +310,11 @@ export const StudioLayout: React.FC = () => {
 
       {/* Main Studio work area */}
       <main className="min-w-0 px-4 pb-24 pt-6 sm:px-8 sm:pt-8">
+        {isSuspended(classroom) && (
+          <div className="mx-auto mb-6 w-full max-w-[1080px]">
+            <SuspendedNotice classroom={classroom} />
+          </div>
+        )}
         {!isAuthorized ? (
           <div className="mx-auto max-w-[560px] py-12">
             <div className="rounded-card border border-slate-200 bg-white p-8 text-center shadow-hairline">

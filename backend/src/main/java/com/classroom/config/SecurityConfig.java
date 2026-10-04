@@ -107,6 +107,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/events/upcoming").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/events/*").permitAll()
                         .requestMatchers("/error").permitAll()
+                        // D-29: platform administration. The role is read from the database on every request (JwtAuthenticationFilter), and
+                        // AdminController repeats the rule with @PreAuthorize; guests get 401, everybody else 403.
+                        .requestMatchers("/api/v1/admin/**").hasRole("PLATFORM_ADMIN")
                         // All other APIs require authentication (including /members and /leaderboard)
                         .requestMatchers("/api/v1/**").authenticated()
                         // Deny all other unmapped and non-API requests by default (fail closed per Review 19 Finding 1)

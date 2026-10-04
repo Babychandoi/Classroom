@@ -1030,7 +1030,7 @@ public class ExamSecurityTest {
         ExamAttemptDto dto = examService.getGradingAttempt("att-published", "teacher-1");
 
         assertEquals("PUBLISHED", dto.getStatus());
-        verify(accessPolicy).enforceManage("teacher-1", "class-1", "EXAM", "GRADE", null);
+        verify(accessPolicy).enforceManageRead("teacher-1", "class-1", "EXAM", "GRADE", null);
     }
 
     @Test

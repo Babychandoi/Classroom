@@ -105,7 +105,7 @@ public class ExamAudiencePolicyTest {
                 .thenAnswer(call -> active.stream().filter(a -> !a.isPreview() && a.getExamId().equals(call.getArgument(0))).findFirst());
         for (boolean member : new boolean[]{true, false}) for (boolean archived : new boolean[]{false, true}) {
             when(accessPolicy.isMember("user-1", "class-1")).thenReturn(member);
-            lenient().when(accessPolicy.isClassArchived("class-1")).thenReturn(archived);
+            lenient().when(accessPolicy.isClassFrozen("class-1")).thenReturn(archived);
             var batch = audiencePolicy.listingEligibility("user-1", "class-1", exams, now);
             for (var exam : exams) {
                 assertEquals(audiencePolicy.canEnterExam("user-1", exam, now, false), batch.get(exam.getId()).canEnter(),
@@ -501,7 +501,7 @@ public class ExamAudiencePolicyTest {
         exam.setAttemptLimit(2);
         Instant now = Instant.parse("2026-03-02T10:00:00Z");
         when(accessPolicy.isMember(STUDENT, "class-1")).thenReturn(true);
-        when(accessPolicy.isClassArchived("class-1")).thenReturn(true);
+        when(accessPolicy.isClassFrozen("class-1")).thenReturn(true);
 
         AppException ex = assertThrows(AppException.class,
                 () -> audiencePolicy.enforceEnterExam(STUDENT, exam, now, false));
@@ -531,6 +531,6 @@ public class ExamAudiencePolicyTest {
         when(accessPolicy.isOwner("owner-1", "class-1")).thenReturn(true);
 
         assertDoesNotThrow(() -> audiencePolicy.enforceEnterExam("owner-1", exam, Instant.now(), true));
-        verify(accessPolicy, never()).isClassArchived(any());
+        verify(accessPolicy, never()).isClassFrozen(any());
     }
 }

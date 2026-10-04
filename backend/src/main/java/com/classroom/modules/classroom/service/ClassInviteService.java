@@ -124,7 +124,7 @@ public class ClassInviteService {
     /** The class's invites, newest first: id, dates, limits, usage, status and the last four characters of the code - never the code. */
     @Transactional(readOnly = true)
     public List<ClassInviteDto> list(String classId, String actorId) {
-        accessPolicy.enforceManage(actorId, classId, "MEMBER", "EDIT", null);
+        accessPolicy.enforceManageRead(actorId, classId, "MEMBER", "EDIT", null);
         Instant now = Instant.now();
         return inviteRepository.findByClassIdOrderByCreatedAtDesc(classId).stream().map(i -> toDto(i, now)).toList();
     }

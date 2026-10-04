@@ -8,6 +8,8 @@ import com.classroom.modules.classroom.repository.ClassMemberRepository;
 import com.classroom.modules.classroom.repository.ClassroomRepository;
 import com.classroom.modules.classroom.repository.StaffAssignmentRepository;
 import com.classroom.modules.classroom.service.ClassroomService;
+import com.classroom.modules.event.model.ClassEvent;
+import com.classroom.modules.event.repository.ClassEventRepository;
 import com.classroom.modules.identity.model.User;
 import com.classroom.modules.identity.repository.UserRepository;
 import org.junit.jupiter.api.BeforeAll;
@@ -42,9 +44,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code ClassroomRepository.findPubliclyVisible} / {@code findVisibleToUser} (a page of the listing). They must never disagree, or the list would
  * show a class the detail page refuses (or hide one it allows).
  *
- * <p>The fixture is every combination of PUBLIC/PRIVATE x FREE/PAID x ACTIVE/ARCHIVED (8 classes). One parameterised case per kind of viewer - guest,
- * stranger, owner, ACTIVE staff, revoked staff, ACTIVE member, ACTIVE-but-lapsed member, EXPIRED member, REMOVED, BLOCKED and the legacy BANNED -
- * compares, for all 8 classes, the policy answer with (a) the SQL listing and (b) the paged {@code GET /classes} service: 11 x 8 = 88 comparisons.
+ * <p>The fixture is every combination of PUBLIC/PRIVATE x FREE/PAID x ACTIVE/ARCHIVED/SUSPENDED (12 classes; D-29 added SUSPENDED). One
+ * parameterised case per kind of viewer - guest, stranger, owner, ACTIVE staff, revoked staff, ACTIVE member, ACTIVE-but-lapsed member, EXPIRED
+ * member, REMOVED, BLOCKED, the legacy BANNED and PENDING - compares, for all 12 classes, the policy answer with (a) the SQL listing and (b) the
+ * paged {@code GET /classes} service, plus the search / popularity twins.
  * It runs on H2; the same JPQL is executed on a real MySQL by ClassAccessConcurrencyIntegrationTest.</p>
  */
 @SpringBootTest
@@ -63,6 +66,8 @@ class AccessPolicySqlParityTest {
     private final Map<String, User> viewers = new LinkedHashMap<>();
     private final List<Classroom> classes = new ArrayList<>();
     private Set<String> fixtureIds;
+    private final Map<String, String> eventIdsByClass = new LinkedHashMap<>();
+    @Autowired private ClassEventRepository eventRepository;
 
     private User user(String tag) {
         return userRepository.save(new User(UUID.randomUUID().toString(),
@@ -78,7 +83,7 @@ class AccessPolicySqlParityTest {
         }
         for (String visibility : List.of("PUBLIC", "PRIVATE")) {
             for (String access : List.of("FREE", "PAID")) {
-                for (String status : List.of("ACTIVE", "ARCHIVED")) {
+                for (String status : List.of("ACTIVE", "ARCHIVED", "SUSPENDED")) {
                     Classroom c = new Classroom();
                     c.setOwnerId(owner.getId());
                     c.setSlug("parity-" + visibility + "-" + access + "-" + status + "-" + UUID.randomUUID().toString().substring(0, 6));
@@ -86,7 +91,24 @@ class AccessPolicySqlParityTest {
                     c.setVisibility(visibility);
                     c.setAccessType(access);
                     c.setStatus(status);
+                    if ("SUSPENDED".equals(status)) {
+                        c.setStatusBeforeSuspend("ACTIVE");
+                        c.setSuspendedReason("parity");
+                        c.setSuspendedAt(Instant.now());
+                    }
                     c = classroomRepository.save(c);
+                    // D-29: one upcoming SCHEDULED event per class - the public rail must list exactly the PUBLIC + ACTIVE ones.
+                    ClassEvent e = new ClassEvent();
+                    e.setClassId(c.getId());
+                    e.setCreatedBy(owner.getId());
+                    e.setHostUserId(owner.getId());
+                    e.setTitle("Parity event " + c.getTitle());
+                    e.setFormat("ONLINE");
+                    e.setStartsAt(Instant.now().plus(1, ChronoUnit.DAYS));
+                    e.setEndsAt(Instant.now().plus(1, ChronoUnit.DAYS).plus(1, ChronoUnit.HOURS));
+                    e.setAudience("PUBLIC");
+                    e.setStatus("SCHEDULED");
+                    eventIdsByClass.put(c.getId(), eventRepository.save(e).getId());
                     classes.add(c);
                     memberRepository.save(new ClassMember(c.getId(), owner.getId(), "OWNER"));
 
@@ -203,6 +225,32 @@ class AccessPolicySqlParityTest {
         assertTrue(accessPolicy.isClassVisibleToUser(privateActive, owner.getId()));
         assertFalse(accessPolicy.isClassVisibleToUser(publicArchived, viewers.get("stranger").getId()), "archived classes stay hidden from strangers (D-11)");
         assertTrue(accessPolicy.isClassVisibleToUser(publicArchived, viewers.get("memberActive").getId()));
+        // D-29: a suspended class exists for its owner only - not for its members, staff or anybody else - and is hidden like a private one.
+        Classroom publicSuspended = byName.get("Parity PUBLIC FREE SUSPENDED");
+        assertTrue(accessPolicy.isClassVisibleToUser(publicSuspended, owner.getId()));
+        assertFalse(accessPolicy.isHiddenPrivateClass(publicSuspended, owner.getId()));
+        for (String kind : List.of("memberActive", "memberExpired", "staffActive", "stranger")) {
+            assertFalse(accessPolicy.isClassVisibleToUser(publicSuspended, viewers.get(kind).getId()), kind);
+            assertTrue(accessPolicy.isHiddenPrivateClass(publicSuspended, viewers.get(kind).getId()), kind + ": 404 like a private class");
+        }
+        assertFalse(accessPolicy.isClassVisibleToUser(publicSuspended, null));
+        assertTrue(accessPolicy.isHiddenPrivateClass(publicSuspended, null));
+        assertFalse(accessPolicy.isMember(viewers.get("memberActive").getId(), publicSuspended.getId()), "no member while suspended");
+        assertFalse(accessPolicy.isActiveStaff(viewers.get("staffActive").getId(), publicSuspended.getId()), "no staff while suspended");
+        assertTrue(accessPolicy.isMember(owner.getId(), publicSuspended.getId()), "the owner still belongs (read-only)");
+        assertTrue(accessPolicy.isClassFrozen(publicSuspended.getId()));
+        assertTrue(accessPolicy.isClassFrozen(publicArchived.getId()));
+        assertFalse(accessPolicy.isClassFrozen(publicActive.getId()));
+    }
+
+    @Test
+    @DisplayName("D-29: GET /events/upcoming (the public rail) lists the events of PUBLIC + ACTIVE classes only - never an archived, private or suspended one")
+    void upcomingRailFollowsTheGuestRule() {
+        Set<String> listed = eventRepository.findUpcomingInPublicClasses(Instant.now(), PageRequest.of(0, 5000)).stream()
+                .map(ClassEvent::getId).collect(Collectors.toSet());
+        for (Classroom c : classes) {
+            assertEquals(accessPolicy.isClassVisibleToUser(c, null), listed.contains(eventIdsByClass.get(c.getId())), c.getTitle());
+        }
     }
 
     @Test

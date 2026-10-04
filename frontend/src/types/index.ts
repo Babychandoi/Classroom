@@ -38,6 +38,12 @@ export interface ClassAccessProduct {
   lifetime?: boolean;
 }
 
+/**
+ * Lifecycle of a class. SUSPENDED = frozen by a platform admin (docs/API-PLATFORM-ADMIN.md §3): hidden from everyone but
+ * the owner, who sees it read-only with `suspendedReason`. Older payloads may carry other strings - keep them displayable.
+ */
+export type ClassStatus = 'ACTIVE' | 'ARCHIVED' | 'SUSPENDED';
+
 export interface Classroom {
   id: string;
   ownerId: string;
@@ -50,7 +56,10 @@ export interface Classroom {
   coverUrl?: string | null;
   ownerAvatarUrl?: string | null;
   upcomingEventCount?: number;
-  status: string;
+  status: ClassStatus | (string & {});
+  /** Why / since when a platform admin suspended the class (only when status is SUSPENDED). */
+  suspendedReason?: string | null;
+  suspendedAt?: string | null;
   memberCount: number;
   isOwner?: boolean;
   isMember?: boolean;

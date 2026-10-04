@@ -634,7 +634,7 @@ public class LeaderboardService {
     /** R8-05: current tiers + per-exam reward rules for the Studio leaderboard configuration editor. */
     @Transactional(readOnly = true)
     public com.classroom.modules.ranking.dto.LeaderboardConfigResponse getConfiguration(String classId, String currentUserId) {
-        accessPolicy.enforceManage(currentUserId, classId, "LEADERBOARD", "EDIT", null);
+        accessPolicy.enforceManageRead(currentUserId, classId, "LEADERBOARD", "EDIT", null);
         List<com.classroom.modules.ranking.dto.LeaderboardConfigResponse.Tier> tiers =
                 rankTierRepository.findByClassIdOrderByMinPointsAsc(classId).stream()
                         .map(t -> new com.classroom.modules.ranking.dto.LeaderboardConfigResponse.Tier(
