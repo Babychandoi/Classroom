@@ -6,7 +6,7 @@
 //   F4  Danh sách lớp phân trang "Xem thêm lớp học" (R16-08) - chỉ kiểm được khi có > 50 lớp
 //       (đặt E2E_PAGING_FILL=1 để tự tạo thêm lớp cho đến khi vượt 50: chậm, ~1 phút).
 const path = require('path');
-const { BASE, SHOTS_ROOT, log, newRunId, launchBrowser, newCtx, createRunner, login, loadState, unexpectedEvents } = require('./lib');
+const { BASE, SHOTS_ROOT, log, newRunId, launchBrowser, newCtx, createRunner, login, createClassViaUI, loadState, unexpectedEvents } = require('./lib');
 
 const S = loadState();
 if (!S.classId) { console.error('Thiếu classId (shots/last-run.json hoặc E2E_CLASS_ID).'); process.exit(2); }
@@ -27,7 +27,7 @@ const SECTION_PLACEHOLDER = 'Tên chương học mới (VD: Chương 1: Giới t
   await step('F0', 'login as the class owner', page, async () => { await login(page, S.owner); });
 
   // ---- F1: chương ----
-  const card = () => page.locator('div.p-6', { has: page.locator('h3', { hasText: S.courseTitle }) }).first();
+  const card = () => page.locator('article', { has: page.locator('h3', { hasText: S.courseTitle }) }).first();
   await step('F1', 'new section appears at once in the expanded course', page, async () => {
     await page.goto(`${BASE}/studio/classes/${S.classId}/courses`);
     await card().getByRole('button', { name: 'Xem bài học' }).click();
@@ -68,7 +68,7 @@ const SECTION_PLACEHOLDER = 'Tên chương học mới (VD: Chương 1: Giới t
 
   // ---- F2: lịch thi ----
   const examTitle = `Sched ${newRunId()}`;
-  const ecard = () => page.locator('div.p-5', { has: page.locator('h3', { hasText: examTitle }) }).first();
+  const ecard = () => page.locator('article', { has: page.locator('h3', { hasText: examTitle }) }).first();
   const created = {};
   await step('F2', 'create an exam with a schedule; API returns the same instants', page, async () => {
     await page.goto(`${BASE}/studio/classes/${S.classId}/exams`);
@@ -119,44 +119,47 @@ const SECTION_PLACEHOLDER = 'Tên chương học mới (VD: Chương 1: Giới t
   // ---- F3: xếp hạng theo kỳ thi ----
   await step('F3', 'per-exam leaderboard lists the graded student', page, async () => {
     await page.goto(`${BASE}/classes/${S.classSlug}/leaderboard`);
-    const select = page.locator('select').first();
-    await select.waitFor({ timeout: 10000 });
-    // The exam options arrive from a separate GET /classes/{id}/exams after the <select> is already on screen (it starts
-    // with just the class-wide option), so poll for the option instead of reading the list once.
-    let options = [];
-    let target;
-    for (let i = 0; i < 20 && !target; i++) {
-      options = await select.locator('option').allInnerTexts();
-      target = options.find((o) => o.includes(S.examTitle));
-      if (!target) await page.waitForTimeout(400);
-    }
-    if (!target) throw new Error(`no option for ${S.examTitle}; options=${options.join('|')}`);
-    await select.selectOption({ label: target });
+    // Bộ lọc kỳ thi giờ là nhóm chip (thay cho <select>): chip của kỳ thi đến từ GET /classes/{id}/exams riêng,
+    // nên chờ chip xuất hiện; bấm chip phải gọi bảng xếp hạng với ?examId= và chip chuyển sang aria-pressed=true.
+    const filters = page.getByRole('group', { name: 'Bộ lọc kỳ thi' });
+    await filters.getByRole('button', { name: 'Toàn bộ lớp (tổng điểm)' }).waitFor({ timeout: 10000 });
+    const chip = filters.getByRole('button', { name: S.examTitle, exact: true });
+    await chip.waitFor({ timeout: 8000 });
+    const [resp] = await Promise.all([
+      page.waitForResponse((r) => /\/leaderboard\?examId=/.test(r.url()) && r.request().method() === 'GET', { timeout: 8000 }),
+      chip.click(),
+    ]);
+    if (resp.status() !== 200) throw new Error(`per-exam leaderboard ${resp.status()}`);
+    if ((await chip.getAttribute('aria-pressed')) !== 'true') throw new Error('exam chip not selected');
     await page.locator('main').getByText(S.student.name).first().waitFor({ timeout: 8000 });
+    return resp.url().replace(/^.*\/api\/v1/, '');
   });
 
   // ---- F4: phân trang danh sách lớp ----
   await step('F4', 'classes list pages with "Xem thêm lớp học" without duplicates', page, async () => {
-    const links = page.getByRole('link', { name: 'Vào lớp' });
+    // Trang chủ /classes giờ là các rail chọn lọc; danh mục đầy đủ có phân trang mở bằng "Xem tất cả lớp học".
+    // Mỗi thẻ lớp có đúng một liên kết "Vào lớp" (lớp của mình) hoặc "Xem lớp".
+    const links = page.getByRole('link', { name: /^(Vào lớp|Xem lớp)$/ });
+    const openCatalog = async () => {
+      await page.getByRole('button', { name: 'Xem tất cả lớp học' }).click();
+      await page.getByRole('heading', { name: 'Tất cả lớp học' }).waitFor({ timeout: 10000 });
+    };
     const more = page.getByRole('button', { name: 'Xem thêm lớp học' });
     if (process.env.E2E_PAGING_FILL === '1') {
       await page.goto(`${BASE}/classes`);
+      await openCatalog();
       await page.waitForTimeout(1500);
       let total = await links.count();
       while (total <= 50 && !(await more.isVisible())) {
-        const slug = `e2e-page-${newRunId()}-${total}`;
+        await createClassViaUI(page, { title: `E2E Paging ${newRunId()} ${total}` });
         await page.goto(`${BASE}/classes`);
-        await page.getByRole('button', { name: 'Tạo lớp học mới' }).click();
-        await page.getByLabel('Tên lớp học').fill(`E2E Paging ${slug}`);
-        await page.getByLabel('Đường dẫn slug (URL)').fill(slug);
-        await page.getByRole('button', { name: 'Xác nhận tạo lớp' }).click();
-        await page.waitForURL(new RegExp(`/classes/${slug}/feed`));
-        await page.goto(`${BASE}/classes`);
+        await openCatalog();
         await page.waitForTimeout(800);
         total = await links.count();
       }
     }
     await page.goto(`${BASE}/classes`);
+    await openCatalog();
     await links.first().waitFor({ timeout: 10000 });
     await page.waitForTimeout(800);
     const first = await links.count();
@@ -164,7 +167,7 @@ const SECTION_PLACEHOLDER = 'Tên chương học mới (VD: Chương 1: Giới t
       return `SKIP: chỉ có ${first} lớp (< 50), chưa có trang thứ hai để kiểm (đặt E2E_PAGING_FILL=1 để tự tạo thêm)`;
     }
     await more.click();
-    await page.waitForFunction((n) => Array.from(document.querySelectorAll('a')).filter((a) => a.textContent.includes('Vào lớp')).length > n, first, { timeout: 8000 });
+    await page.waitForFunction((n) => Array.from(document.querySelectorAll('a')).filter((a) => /^(Vào lớp|Xem lớp)$/.test(a.textContent.trim())).length > n, first, { timeout: 8000 });
     const hrefs = await links.evaluateAll((els) => els.map((e) => e.getAttribute('href')));
     const dups = hrefs.length - new Set(hrefs).size;
     if (dups) throw new Error(`${dups} duplicate classes after "Xem thêm"`);

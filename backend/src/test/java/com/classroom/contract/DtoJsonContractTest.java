@@ -39,6 +39,23 @@ public class DtoJsonContractTest {
     }
 
     @Test
+    @DisplayName("D-27: ClassEventDto serializes isRegistered / isFull (record components), not registered / full")
+    void classEventDtoBooleanNames() throws Exception {
+        com.classroom.modules.event.dto.ClassEventDto dto = new com.classroom.modules.event.dto.ClassEventDto(
+                "e", "c", null, null, "t", null, null, java.util.List.of(), "ONLINE", null, null, null, null, null, 0,
+                true, true, new com.classroom.modules.classroom.dto.PersonSummaryDto("u", "Ten", null), null, null, "PUBLIC",
+                "SCHEDULED", null);
+
+        String json = mapper.writeValueAsString(dto);
+
+        assertTrue(json.contains("\"isRegistered\":true"), json);
+        assertTrue(json.contains("\"isFull\":true"), json);
+        assertFalse(json.contains("\"registered\":"), json);
+        assertFalse(json.contains("\"full\":"), json);
+        assertTrue(json.contains("\"host\":{\"id\":\"u\",\"fullName\":\"Ten\""), json);
+    }
+
+    @Test
     @DisplayName("UserProfileDto serializes isPro")
     void userProfileDtoProName() throws Exception {
         UserProfileDto dto = new UserProfileDto();

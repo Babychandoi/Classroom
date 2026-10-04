@@ -12,6 +12,8 @@ public class ClassroomDto {
     public static final String MEMBER_STATE_NONE = "NONE";
     /** D-19: a member of a PAID class whose paid access has lapsed - may read About / Store / the paywall only, everything else 403 MEMBERSHIP_EXPIRED. */
     public static final String MEMBER_STATE_EXPIRED = "EXPIRED";
+    /** D-28: the caller asked to join a class with requireApproval and waits for a Studio decision - NOT a member. */
+    public static final String MEMBER_STATE_PENDING = "PENDING";
 
     private String id;
     private String ownerId;
@@ -20,6 +22,26 @@ public class ClassroomDto {
     private String title;
     private String description;
     private String coverImageUrl;
+    /** D-27: short-lived presigned GET of the uploaded cover (media purpose CLASS_COVER), or null. UI: coverUrl ?? coverImageUrl ?? tile. */
+    private String coverUrl;
+    /** D-27: the uploaded cover's media id (Studio settings), or null. */
+    private String coverMediaId;
+    /** D-27: the owner's avatar, shown next to {@link #ownerName} (same exposure as the name). */
+    private String ownerAvatarUrl;
+    /** D-27: SCHEDULED events of the class that have not ended yet. */
+    private long upcomingEventCount;
+    /** D-28: one of ClassCategories.ALL, or null. */
+    private String category;
+    /** D-28: the uploaded square avatar (media purpose CLASS_AVATAR) and its short-lived presigned GET, or null. */
+    private String avatarMediaId;
+    private String avatarUrl;
+    /** D-28: CSS object-position ("50% 30%") of the cover / avatar, null = centre. */
+    private String coverPosition;
+    private String avatarPosition;
+    /** D-28: joins by id wait for approval (memberState PENDING). */
+    private boolean requireApproval;
+    /** D-28: PENDING join requests - only for callers with MEMBER:VIEW (owner included), 0 for everybody else. */
+    private long pendingRequestCount;
     private String status;
     private long memberCount;
     private boolean isOwner;
@@ -150,6 +172,30 @@ public class ClassroomDto {
     public void setCoverImageUrl(String coverImageUrl) {
         this.coverImageUrl = coverImageUrl;
     }
+
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
+    public String getAvatarMediaId() { return avatarMediaId; }
+    public void setAvatarMediaId(String avatarMediaId) { this.avatarMediaId = avatarMediaId; }
+    public String getAvatarUrl() { return avatarUrl; }
+    public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
+    public String getCoverPosition() { return coverPosition; }
+    public void setCoverPosition(String coverPosition) { this.coverPosition = coverPosition; }
+    public String getAvatarPosition() { return avatarPosition; }
+    public void setAvatarPosition(String avatarPosition) { this.avatarPosition = avatarPosition; }
+    public boolean isRequireApproval() { return requireApproval; }
+    public void setRequireApproval(boolean requireApproval) { this.requireApproval = requireApproval; }
+    public long getPendingRequestCount() { return pendingRequestCount; }
+    public void setPendingRequestCount(long pendingRequestCount) { this.pendingRequestCount = pendingRequestCount; }
+
+    public String getCoverUrl() { return coverUrl; }
+    public void setCoverUrl(String coverUrl) { this.coverUrl = coverUrl; }
+    public String getCoverMediaId() { return coverMediaId; }
+    public void setCoverMediaId(String coverMediaId) { this.coverMediaId = coverMediaId; }
+    public String getOwnerAvatarUrl() { return ownerAvatarUrl; }
+    public void setOwnerAvatarUrl(String ownerAvatarUrl) { this.ownerAvatarUrl = ownerAvatarUrl; }
+    public long getUpcomingEventCount() { return upcomingEventCount; }
+    public void setUpcomingEventCount(long upcomingEventCount) { this.upcomingEventCount = upcomingEventCount; }
 
     public String getStatus() {
         return status;

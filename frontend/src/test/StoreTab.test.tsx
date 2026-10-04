@@ -80,10 +80,10 @@ describe('StoreTab idempotency key handling', () => {
 
     render(<StoreTab />);
 
-    await waitFor(() => expect(screen.getByText('Mua ngay')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Nhận quyền lợi')).toBeInTheDocument());
 
     await act(async () => {
-      screen.getByText('Mua ngay').click();
+      screen.getByText('Nhận quyền lợi').click();
     });
 
     await waitFor(() => expect(callCount).toBe(1));
@@ -93,7 +93,7 @@ describe('StoreTab idempotency key handling', () => {
     // Retry: the same key must be reused because the previous failure was a 5xx, not a definitive
     // rejection - the original request may already have been accepted server-side.
     await act(async () => {
-      screen.getByText('Mua ngay').click();
+      screen.getByText('Nhận quyền lợi').click();
     });
 
     await waitFor(() => expect(callCount).toBe(2));
@@ -126,10 +126,10 @@ describe('StoreTab idempotency key handling', () => {
 
     render(<StoreTab />);
 
-    await waitFor(() => expect(screen.getByText('Mua ngay')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Nhận quyền lợi')).toBeInTheDocument());
 
     await act(async () => {
-      screen.getByText('Mua ngay').click();
+      screen.getByText('Nhận quyền lợi').click();
     });
 
     await waitFor(() => expect(callCount).toBe(1));
@@ -137,7 +137,7 @@ describe('StoreTab idempotency key handling', () => {
     expect(firstKey).toBeTruthy();
 
     await act(async () => {
-      screen.getByText('Mua ngay').click();
+      screen.getByText('Nhận quyền lợi').click();
     });
 
     await waitFor(() => expect(callCount).toBe(2));

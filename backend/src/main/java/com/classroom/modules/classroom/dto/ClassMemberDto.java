@@ -10,6 +10,8 @@ public class ClassMemberDto {
     private String role;
     private String state;
     private Instant joinedAt;
+    /** D-28: when a PENDING join request was made (null for every other state). */
+    private Instant requestedAt;
     /** D-19: Studio roster only - when the member's paid access ends (null = no expiry). Never on the peer-visible member listing. */
     private Instant accessExpiresAt;
     private String userFullName;
@@ -64,6 +66,9 @@ public class ClassMemberDto {
     public void setState(String state) {
         this.state = state;
     }
+
+    public Instant getRequestedAt() { return requestedAt; }
+    public void setRequestedAt(Instant requestedAt) { this.requestedAt = requestedAt; }
 
     public Instant getJoinedAt() {
         return joinedAt;

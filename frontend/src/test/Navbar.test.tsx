@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { Navbar } from '../components/Navbar';
 
 /**
@@ -33,7 +33,7 @@ describe('Navbar', () => {
     render(<Navbar />);
 
     expect(screen.queryByText('Đăng nhập')).not.toBeInTheDocument();
-    expect(screen.queryByTitle('Đăng xuất')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Mở menu tài khoản' })).not.toBeInTheDocument();
   });
 
   it('shows "Đăng nhập" to a visitor once the bootstrap has settled without a session', () => {
@@ -45,8 +45,21 @@ describe('Navbar', () => {
     authState = { user: mockUser, isLoading: false };
     render(<Navbar />);
 
-    expect(screen.getByTitle('Đăng xuất')).toBeInTheDocument();
+    const trigger = screen.getByRole('button', { name: 'Mở menu tài khoản' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('Đăng nhập')).not.toBeInTheDocument();
+
+    // The account menu (profile card + logout) opens from the avatar and closes on Escape.
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const menu = screen.getByRole('menu', { name: 'Menu tài khoản' });
+    expect(menu).toHaveTextContent('Student');
+    expect(menu).toHaveTextContent('student@test.local');
+    expect(screen.getByRole('menuitem', { name: 'Đăng xuất' })).toBeInTheDocument();
+    expect(screen.getByText('Hồ sơ của tôi').closest('a')).toHaveAttribute('href', '/me/profile');
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
   it('keeps the brand on a single line and hides the duplicate "Khám phá lớp học" link on phones', () => {

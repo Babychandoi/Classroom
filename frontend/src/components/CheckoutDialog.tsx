@@ -1,9 +1,9 @@
 import React from 'react';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, RotateCcw, XCircle } from 'lucide-react';
 import { Modal } from './Modal';
-import { StatusBadge } from './UIStates';
-import { ORDER_STATUS_COPY, TONE_CLASSES } from '../api/checkout';
-import { durationLabel } from '../api/format';
+import { ORDER_STATUS_COPY, type OrderTone } from '../api/checkout';
+import { durationLabel, formatDong } from '../api/format';
+import { Badge, type BadgeTone, buttonClass } from './ui';
 import type { Checkout } from '../hooks/useCheckout';
 
 interface CheckoutDialogProps {
@@ -11,6 +11,28 @@ interface CheckoutDialogProps {
   /** Extra primary action once the order is PAID (e.g. "Vào lớp học" on the invite page). */
   paidAction?: { label: string; onClick: () => void };
 }
+
+const ORDER_STATUS_LABEL: Record<string, { label: string; tone: BadgeTone }> = {
+  PENDING: { label: 'Chờ xác nhận', tone: 'warn' },
+  PAID: { label: 'Đã thanh toán', tone: 'success' },
+  FAILED: { label: 'Thất bại', tone: 'danger' },
+  REFUNDED: { label: 'Đã hoàn tiền', tone: 'neutral' },
+  CANCELLED: { label: 'Đã hủy', tone: 'neutral' },
+};
+
+/** Vietnamese status pill of an order (never colour alone: the label says it). */
+export const OrderStatusBadge: React.FC<{ status: string }> = ({ status }) => {
+  const meta = ORDER_STATUS_LABEL[status] ?? { label: status, tone: 'neutral' as BadgeTone };
+  return <Badge tone={meta.tone} size="sm">{meta.label}</Badge>;
+};
+
+// The status note's colours, in the design palette (the shared copy only names a tone).
+const NOTE_TONE: Record<OrderTone, { box: string; icon: React.ReactNode }> = {
+  amber: { box: 'border-amber-200 bg-warn-soft text-amber-800', icon: <Clock className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} aria-hidden="true" /> },
+  emerald: { box: 'border-green-200 bg-green-50 text-green-800', icon: <CheckCircle2 className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} aria-hidden="true" /> },
+  rose: { box: 'border-red-200 bg-red-50 text-red-700', icon: <XCircle className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} aria-hidden="true" /> },
+  slate: { box: 'border-slate-200 bg-slate-50 text-slate-600', icon: <RotateCcw className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} aria-hidden="true" /> },
+};
 
 /**
  * The "Trạng thái thanh toán" dialog of the shared checkout (see hooks/useCheckout). Shows the order that was created, what the
@@ -24,81 +46,64 @@ export const CheckoutDialog: React.FC<CheckoutDialogProps> = ({ checkout, paidAc
   const copy = !checkoutAvailable
     ? { title: 'Chưa cấu hình cổng thanh toán', body: 'Chức năng mua sẽ khả dụng khi lớp cấu hình một phương thức thanh toán.', tone: 'amber' as const }
     : ORDER_STATUS_COPY[order.status] || ORDER_STATUS_COPY.PENDING;
+  const note = NOTE_TONE[copy.tone];
 
   return (
     <Modal size="md" ariaLabel="Trạng thái thanh toán" onClose={close}>
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <span className="text-[11px] font-mono font-bold text-indigo-600 uppercase">
-            Mã đơn: {order.orderNumber}
-          </span>
-          <h3 className="text-xl font-bold text-slate-900 mt-0.5">Trạng thái thanh toán</h3>
+      <div className="mb-5 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <span className="text-caption font-semibold text-slate-500 tabular">Mã đơn: {order.orderNumber}</span>
+          <h3 className="mt-1 text-h2-sm font-semibold text-slate-900">Trạng thái thanh toán</h3>
         </div>
-        <StatusBadge status={order.status} />
+        <OrderStatusBadge status={order.status} />
       </div>
 
-      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 mb-6 space-y-2 text-xs">
-        <div className="flex justify-between gap-3">
-          <span className="text-slate-500">Sản phẩm:</span>
-          <span className="font-bold text-slate-800 text-right">{item?.title}</span>
+      <div className="mb-5 divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
+        <div className="flex justify-between gap-3 px-4 py-3 text-meta">
+          <span className="text-slate-600">Sản phẩm</span>
+          <span className="text-right font-semibold text-slate-900">{item?.title}</span>
         </div>
-        <div className="flex justify-between">
-          <span className="text-slate-500">Thời hạn sử dụng:</span>
-          <span className="font-bold text-slate-800">{item ? durationLabel(item.durationDays) : ''}</span>
+        <div className="flex justify-between gap-3 px-4 py-3 text-meta">
+          <span className="text-slate-600">Thời hạn sử dụng</span>
+          <span className="font-semibold text-slate-900 tabular">{item ? durationLabel(item.durationDays) : ''}</span>
         </div>
-        <div className="flex justify-between pt-2 border-t border-slate-200 text-sm">
-          <span className="font-bold text-slate-700">Tổng thanh toán:</span>
-          <span className="font-black text-indigo-600">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(order.totalAmount)}</span>
+        <div className="flex items-baseline justify-between gap-3 px-4 py-3">
+          <span className="text-ui font-semibold text-slate-900">Tổng thanh toán</span>
+          <span className="text-h3-lg font-semibold text-slate-900 tabular">{formatDong(order.totalAmount)}</span>
         </div>
       </div>
 
       {paymentError && (
-        <div role="alert" className="mb-3 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center space-x-2">
-          <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+        <div role="alert" className="mb-3 flex items-center gap-2 rounded-btn border border-red-200 bg-red-50 p-3 text-meta text-red-700">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} aria-hidden="true" />
           <span>{paymentError}</span>
         </div>
       )}
 
-      <div className="space-y-3">
-        <div className={`p-3.5 border rounded-xl text-xs space-y-1 ${TONE_CLASSES[copy.tone]}`}>
-          <div className="font-bold flex items-center space-x-1.5">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+      <div className="space-y-2.5">
+        <div className={`space-y-1 rounded-btn border p-3.5 ${note.box}`}>
+          <div className="flex items-center gap-2 text-meta font-semibold">
+            {note.icon}
             <span>{copy.title}</span>
           </div>
-          <p className="text-[11px] leading-relaxed opacity-90">{copy.body}</p>
+          <p className="text-caption leading-[18px] opacity-90">{copy.body}</p>
         </div>
 
         {order.status === 'PAID' && paidAction && (
-          <button
-            type="button"
-            onClick={paidAction.onClick}
-            className="w-full py-2.5 text-center text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm transition"
-          >
+          <button type="button" onClick={paidAction.onClick} className={buttonClass('primary', 'lg', 'w-full')}>
             {paidAction.label}
           </button>
         )}
 
-        <button
-          disabled={processing}
-          onClick={refreshOrderStatus}
-          className="w-full py-2.5 text-center text-xs font-semibold text-indigo-700 hover:text-indigo-900 disabled:opacity-50"
-        >
+        <button disabled={processing} onClick={refreshOrderStatus} className={buttonClass('secondary', 'md', 'w-full')}>
           Làm mới trạng thái đơn hàng
         </button>
         {order.status === 'PENDING' && (
-          <button
-            disabled={processing}
-            onClick={cancelOrder}
-            className="w-full py-2.5 text-center text-xs font-semibold text-rose-600 hover:text-rose-800 disabled:opacity-50"
-          >
+          <button disabled={processing} onClick={cancelOrder} className={buttonClass('ghost', 'md', 'w-full !text-red-700 hover:!bg-red-50')}>
             Hủy đơn hàng
           </button>
         )}
-        <button
-          disabled={processing}
-          onClick={close}
-          className="w-full py-2.5 text-center text-xs font-semibold text-slate-500 hover:text-slate-800 disabled:opacity-50"
-        >
+        <button disabled={processing} onClick={close} className={buttonClass('ghost', 'md', 'w-full')}>
           {processing ? 'Đang xử lý…' : 'Đóng cửa sổ'}
         </button>
       </div>

@@ -97,6 +97,26 @@ public class AccessPolicy {
     }
 
     /**
+     * D-27: the class gate of the class-scoped reads that guests may use (blog, events) - the same answers the feed gives (R5-04 / D-19):
+     * a class that does not exist, or a PRIVATE class hidden from the viewer, is a 404 with {@code notFoundMessage} (callers addressing a
+     * post / event by its own id pass that resource's "not found" text, so a hidden class and an unknown id are indistinguishable); a
+     * non-private class the viewer may not see (draft / archived) is 401 for a guest and 403 for a signed-in user.
+     */
+    public Classroom requireVisibleClass(String classId, String userId, String notFoundMessage) {
+        Classroom classroom = classId == null ? null : classroomRepository.findById(classId).orElse(null);
+        if (classroom == null || isHiddenPrivateClass(classroom, userId)) {
+            throw new AppException(ErrorCode.NOT_FOUND, notFoundMessage);
+        }
+        if (!isClassVisibleToUser(classroom, userId)) {
+            if (userId == null) {
+                throw new AppException(ErrorCode.UNAUTHORIZED, "Yêu cầu đăng nhập để xem nội dung của lớp học này");
+            }
+            throw new AppException(ErrorCode.FORBIDDEN, "Bạn không có quyền truy cập nội dung của lớp học không công khai này");
+        }
+        return classroom;
+    }
+
+    /**
      * R14-13 (decision D-11): an ARCHIVED class is frozen for NEW activity - no new orders and no new
      * exam attempts - while everything already granted stays readable and in-flight attempts can be
      * finished. Single source of truth for that rule.
@@ -236,6 +256,16 @@ public class AccessPolicy {
             }
         }
 
+        return false;
+    }
+
+    /** D-27: whether any one of {@code actions} on {@code module} is granted (owner always; staff by grant, wildcards included). */
+    public boolean canManageAny(String userId, String classId, String module, String... actions) {
+        if (userId == null || classId == null) return false;
+        if (isOwner(userId, classId)) return true;
+        for (String action : actions) {
+            if (canManage(userId, classId, module, action, null)) return true;
+        }
         return false;
     }
 

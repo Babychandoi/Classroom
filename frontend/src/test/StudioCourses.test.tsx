@@ -202,7 +202,7 @@ describe('StudioCourses — R17-02 expanded course refresh after create', () => 
     fireEvent.change(screen.getByLabelText('Loại bài học'), { target: { value: 'TEXT' } });
     fireEvent.click(screen.getByText('Tạo bài'));
 
-    await waitFor(() => expect(screen.getByText(/Bài mới · TEXT/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Bài mới · Văn bản/)).toBeInTheDocument());
     const lessonPost = server.posts.find((p) => p.url.endsWith('/sections/section-1/lessons'))!;
     expect(lessonPost.body).toMatchObject({ title: 'Bài mới', position: 2 });
     // The expanded detail was re-read (initial expand + refresh after create).

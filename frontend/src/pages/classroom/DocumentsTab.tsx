@@ -1,10 +1,35 @@
-import React, { useEffect, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useOutletContext, Link } from 'react-router-dom';
 import { Classroom, DocumentAsset } from '../../types';
 import { api } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { LoadingSpinner, ErrorBanner, EmptyState } from '../../components/UIStates';
-import { FileText, Download, Lock } from 'lucide-react';
+import { FilterChip, buttonClass } from '../../components/ui';
+import { formatDate } from '../../api/format';
+import { Download, FileArchive, FileImage, FileSpreadsheet, FileText, FileVideo, Search, Star } from 'lucide-react';
+
+/** File kind shown on the tile: label + topic colour + stroke icon (by MIME type, then by extension). */
+function fileKind(doc: DocumentAsset): { label: string; tone: string; Icon: typeof FileText } {
+  const mime = (doc.mimeType || '').toLowerCase();
+  const ext = (doc.filename || '').split('.').pop()?.toLowerCase() || '';
+  if (mime === 'application/pdf' || ext === 'pdf') return { label: 'PDF', tone: 'bg-red-100 text-red-800', Icon: FileText };
+  if (mime.includes('sheet') || mime.includes('excel') || mime === 'text/csv' || ['xls', 'xlsx', 'csv', 'ods'].includes(ext)) return { label: 'Bảng tính', tone: 'bg-green-100 text-green-800', Icon: FileSpreadsheet };
+  if (mime.startsWith('image/')) return { label: 'Hình ảnh', tone: 'bg-sky-100 text-sky-800', Icon: FileImage };
+  if (mime.startsWith('video/') || mime.startsWith('audio/')) return { label: 'Media', tone: 'bg-amber-100 text-amber-800', Icon: FileVideo };
+  if (mime.includes('zip') || mime.includes('compressed') || ['zip', 'rar', '7z'].includes(ext)) return { label: 'Tệp nén', tone: 'bg-violet-100 text-violet-800', Icon: FileArchive };
+  if (mime.includes('word') || mime.includes('presentation') || ['doc', 'docx', 'ppt', 'pptx'].includes(ext)) return { label: ext ? ext.toUpperCase() : 'Tài liệu', tone: 'bg-blue-100 text-blue-800', Icon: FileText };
+  return { label: ext ? ext.toUpperCase() : 'Tài liệu', tone: 'bg-slate-200 text-slate-700', Icon: FileText };
+}
+
+/** 2516582 -> "2,4 MB". */
+function formatBytes(bytes?: number): string {
+  if (!bytes || bytes <= 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
+}
+
+type DocFilter = 'ALL' | 'MEMBERS' | 'PRO';
 
 export const DocumentsTab: React.FC = () => {
   const { classroom } = useOutletContext<{ classroom: Classroom }>();
@@ -59,61 +84,135 @@ export const DocumentsTab: React.FC = () => {
     }
   };
 
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<DocFilter>('ALL');
+  const proCount = documents.filter((d) => d.visibility === 'PRO').length;
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return documents.filter((d) =>
+      (filter === 'ALL' || (filter === 'PRO' ? d.visibility === 'PRO' : d.visibility !== 'PRO'))
+      && (!q || `${d.title} ${d.filename ?? ''} ${d.description ?? ''}`.toLowerCase().includes(q)));
+  }, [documents, query, filter]);
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div>
-        <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Tài liệu học tập</h2>
-        <p className="text-xs text-slate-500">Giáo trình, tài liệu tham khảo và tuyển tập đề thi được giáo viên biên soạn</p>
-      </div>
+    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="min-w-0 space-y-6">
+        <div>
+          <h2 className="text-h2-sm font-semibold text-slate-900">Tài liệu học tập</h2>
+          <p className="mt-0.5 text-meta text-slate-600">Giáo trình, tài liệu tham khảo và tuyển tập đề thi được giáo viên biên soạn</p>
+        </div>
 
-      {loading && <LoadingSpinner message="Đang tải danh sách tài liệu..." />}
-      {error && <ErrorBanner message={error} onRetry={fetchDocuments} />}
-
-      {!loading && !error && documents.length === 0 && (
-        <EmptyState
-          title="Chưa có tài liệu nào"
-          description="Giáo viên chưa tải lên tài liệu cho lớp học này."
-        />
-      )}
-
-      <div className="space-y-3">
-        {documents.map((doc) => (
-          <div
-            key={doc.id}
-            className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex items-center justify-between hover:border-slate-300 transition"
-          >
-            <div className="flex items-center space-x-3.5">
-              <div className="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
-                <FileText className="w-6 h-6" />
+        {!loading && !error && documents.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex h-11 min-w-[240px] flex-1 items-center gap-2.5 rounded-input border border-slate-200 bg-white px-3.5 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-600/20">
+              <Search className="h-4 w-4 flex-shrink-0 text-slate-600" strokeWidth={1.5} aria-hidden="true" />
+              <input
+                type="search"
+                aria-label="Tìm tài liệu"
+                placeholder="Tìm theo tên tài liệu…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="min-w-0 flex-1 bg-transparent text-ui text-slate-900 outline-none placeholder:text-slate-400 focus-visible:outline-none"
+              />
+            </label>
+            {proCount > 0 && (
+              <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Lọc tài liệu">
+                <FilterChip selected={filter === 'ALL'} onClick={() => setFilter('ALL')}>Tất cả</FilterChip>
+                <FilterChip selected={filter === 'MEMBERS'} onClick={() => setFilter('MEMBERS')}>Mọi thành viên</FilterChip>
+                <FilterChip selected={filter === 'PRO'} onClick={() => setFilter('PRO')}>Chỉ PRO</FilterChip>
               </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <h4 className="text-sm font-bold text-slate-900">{doc.title}</h4>
-                  {doc.visibility === 'PRO' && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
-                      Chỉ PRO ⭐
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{doc.description || 'Tài liệu tham khảo đính kèm.'}</p>
-                <div className="text-[11px] text-slate-500 mt-1">
-                  {doc.filename && <span>{doc.filename} • </span>}
-                  <span>{new Date(doc.createdAt).toLocaleDateString('vi-VN')}</span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => handleDownload(doc)}
-              disabled={downloadingId === doc.id}
-              className="inline-flex items-center space-x-1.5 px-4 py-2 bg-slate-900 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold transition shadow-sm disabled:opacity-50 flex-shrink-0"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>{downloadingId === doc.id ? 'Đang chuẩn bị...' : 'Tải xuống'}</span>
-            </button>
+            )}
           </div>
-        ))}
+        )}
+
+        {loading && <LoadingSpinner message="Đang tải danh sách tài liệu..." />}
+        {error && <ErrorBanner message={error} onRetry={fetchDocuments} />}
+
+        {!loading && !error && documents.length === 0 && (
+          <EmptyState
+            title="Chưa có tài liệu nào"
+            description="Giáo viên chưa tải lên tài liệu cho lớp học này."
+          />
+        )}
+
+        {!loading && !error && documents.length > 0 && (
+          <section aria-labelledby="docs-list-title">
+            <h3 id="docs-list-title" className="mb-3 text-body font-semibold text-slate-900">
+              {query || filter !== 'ALL' ? 'Kết quả' : 'Mới chia sẻ'} · <span className="font-medium text-slate-600 tabular">{shown.length}</span>
+            </h3>
+            {shown.length === 0 ? (
+              <p className="rounded-card border border-slate-200 bg-white px-6 py-8 text-center text-ui text-slate-600 shadow-hairline">
+                Không có tài liệu khớp. Thử từ khóa khác hoặc chọn “Tất cả”.
+              </p>
+            ) : (
+              <ul className="divide-y divide-slate-100 overflow-hidden rounded-card border border-slate-200 bg-white shadow-hairline">
+                {shown.map((doc) => {
+                  const kind = fileKind(doc);
+                  const meta = [kind.label, formatBytes(doc.sizeBytes), formatDate(doc.createdAt)].filter(Boolean).join(' · ');
+                  return (
+                    <li key={doc.id} className="grid grid-cols-[44px_minmax(0,1fr)] items-center gap-x-3.5 gap-y-3 px-4 py-4 sm:grid-cols-[44px_minmax(0,1fr)_auto] sm:px-6">
+                      <span aria-hidden="true" className={`inline-flex h-11 w-11 items-center justify-center rounded-btn ${kind.tone}`}>
+                        <kind.Icon className="h-5 w-5" strokeWidth={1.75} />
+                      </span>
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="truncate text-body-sm font-semibold text-slate-900">{doc.title}</span>
+                          {doc.visibility === 'PRO' && (
+                            <span className="inline-flex h-[18px] flex-shrink-0 items-center gap-1 rounded-full bg-amber-100 px-1.5 text-micro-xs font-bold uppercase text-amber-800">
+                              <Star className="h-2.5 w-2.5 fill-current" aria-hidden="true" />
+                              Chỉ PRO
+                            </span>
+                          )}
+                        </span>
+                        {doc.description && <span className="line-clamp-1 text-meta text-slate-600">{doc.description}</span>}
+                        <span className="truncate text-meta text-slate-500 tabular">
+                          {doc.filename ? `${doc.filename} · ` : ''}{meta}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(doc)}
+                        disabled={downloadingId === doc.id}
+                        className={buttonClass('secondary', 'md', 'col-span-2 sm:col-span-1')}
+                      >
+                        <Download className="h-4 w-4 text-slate-600" strokeWidth={1.75} aria-hidden="true" />
+                        <span>{downloadingId === doc.id ? 'Đang chuẩn bị...' : 'Tải xuống'}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        )}
       </div>
+
+      <aside className="min-w-0 space-y-5">
+        {!loading && !error && documents.length > 0 && (
+          <section className="rounded-card border border-slate-200 bg-white p-[22px] shadow-hairline">
+            <h3 className="text-body-sm font-semibold text-slate-900">Kho tài liệu</h3>
+            <dl className="mt-3 space-y-2.5">
+              {[
+                ['Tổng tài liệu', documents.length],
+                ['Cho mọi thành viên', documents.length - proCount],
+                ['Chỉ hội viên PRO', proCount],
+              ].map(([label, value]) => (
+                <div key={label} className="flex items-baseline justify-between gap-3">
+                  <dt className="text-meta text-slate-600">{label}</dt>
+                  <dd className="text-ui font-semibold text-slate-900 tabular">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        )}
+        <section className="rounded-card border border-slate-200 bg-white p-[22px] shadow-hairline">
+          <h3 className="text-body-sm font-semibold text-slate-900">Cần thêm tài liệu?</h3>
+          <p className="mt-2 text-meta text-slate-600">Hỏi giáo viên hoặc các bạn trong Thảo luận — tài liệu mới sẽ được đăng ở đây.</p>
+          <Link to={`/classes/${classroom.slug}/feed`} className="mt-2.5 inline-block text-meta font-medium text-blue-600 hover:text-blue-700">
+            Hỏi trong Thảo luận
+          </Link>
+        </section>
+      </aside>
     </div>
   );
 };

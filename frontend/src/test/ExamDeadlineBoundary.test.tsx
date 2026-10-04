@@ -141,8 +141,10 @@ describe('Exam attempt deadline boundary', () => {
     fireEvent.change(textarea, { target: { value: 'Hà Nội' } });
 
     // Submit immediately, while the 500 ms autosave debounce is still pending.
+    // Connecty reskin: "Nộp bài thi" opens a confirmation dialog; confirming it is what submits.
+    fireEvent.click(screen.getByText('Nộp bài thi'));
     await act(async () => {
-      fireEvent.click(screen.getByText('Nộp bài thi'));
+      fireEvent.click(screen.getByRole('button', { name: 'Xác nhận nộp bài' }));
     });
     await tick(0);
 
@@ -188,8 +190,10 @@ describe('Exam attempt deadline boundary', () => {
     fireEvent.change(textarea, { target: { value: 'Trả lời mới nhất' } });
 
     let submitPromise!: Promise<void>;
+    // Connecty reskin: "Nộp bài thi" opens a confirmation dialog; confirming it is what submits.
+    fireEvent.click(screen.getByText('Nộp bài thi'));
     await act(async () => {
-      fireEvent.click(screen.getByText('Nộp bài thi'));
+      fireEvent.click(screen.getByRole('button', { name: 'Xác nhận nộp bài' }));
       await Promise.resolve();
     });
     finishFirstSave();
@@ -224,8 +228,10 @@ describe('Exam attempt deadline boundary', () => {
     const textarea = screen.getByPlaceholderText('Nhập câu trả lời tự luận của bạn...');
     fireEvent.change(textarea, { target: { value: 'Câu trả lời sát giờ' } });
 
+    // Connecty reskin: "Nộp bài thi" opens a confirmation dialog; confirming it is what submits.
+    fireEvent.click(screen.getByText('Nộp bài thi'));
     await act(async () => {
-      fireEvent.click(screen.getByText('Nộp bài thi'));
+      fireEvent.click(screen.getByRole('button', { name: 'Xác nhận nộp bài' }));
     });
     await tick(0);
 
@@ -275,8 +281,10 @@ describe('Exam attempt deadline boundary', () => {
 
     // Click submit while time still remains (atDeadline starts false) and let the debounced
     // autosave's flush begin.
+    // Connecty reskin: "Nộp bài thi" opens a confirmation dialog; confirming it is what submits.
+    fireEvent.click(screen.getByText('Nộp bài thi'));
     await act(async () => {
-      fireEvent.click(screen.getByText('Nộp bài thi'));
+      fireEvent.click(screen.getByRole('button', { name: 'Xác nhận nộp bài' }));
     });
     await tick(500);
 
@@ -333,5 +341,23 @@ describe('Exam attempt deadline boundary', () => {
     const submitIndex = calls.findIndex((c) => c.url.includes('/submit'));
     expect(submitIndex).toBeGreaterThanOrEqual(0);
     expect(screen.queryByText('Nộp bài thi')).not.toBeInTheDocument();
+  });
+  it('the submit confirmation can be dismissed without submitting, and the deadline still auto-submits while it is open', async () => {
+    await startAttempt('2026-01-01T10:00:05.000Z');
+
+    fireEvent.click(screen.getByText('Nộp bài thi'));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Làm tiếp' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    await tick(0);
+    expect(calls.some((c) => c.url.includes('/submit'))).toBe(false);
+
+    // Re-open the dialog and leave it open: the server deadline must not wait for the student's answer to it.
+    fireEvent.click(screen.getByText('Nộp bài thi'));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    await tick(6000);
+
+    expect(calls.some((c) => c.url.includes('/submit'))).toBe(true);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 });

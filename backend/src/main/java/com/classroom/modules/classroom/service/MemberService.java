@@ -52,6 +52,9 @@ public class MemberService {
     private final ProPolicy proPolicy;
     private final AuditService auditService;
     private final OutboxService outboxService;
+    /** D-28: optional (hand-built unit-test instances): the class row an approval checks (still FREE, not archived). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.classroom.modules.classroom.repository.ClassroomRepository classroomRepository;
 
     public MemberService(ClassMemberRepository memberRepository,
                           StaffAssignmentRepository staffAssignmentRepository,
@@ -75,7 +78,7 @@ public class MemberService {
 
     public static final int STUDIO_MEMBERS_DEFAULT_SIZE = 50;
     public static final int STUDIO_MEMBERS_MAX_SIZE = 200;
-    private static final Set<String> STATE_FILTERS = Set.of("ACTIVE", "EXPIRED", "REMOVED", "BLOCKED", "BANNED");
+    private static final Set<String> STATE_FILTERS = Set.of("ACTIVE", "EXPIRED", "REMOVED", "BLOCKED", "BANNED", "PENDING");
 
     /** Convenience form without paging parameters: the first page at the default size. */
     @Transactional(readOnly = true)
@@ -137,6 +140,7 @@ public class MemberService {
             dto.setState(m.effectiveState(now));
             dto.setJoinedAt(m.getJoinedAt());
             dto.setAccessExpiresAt(m.getAccessExpiresAt());
+            if (ClassMembershipService.isPendingState(m.getState())) dto.setRequestedAt(m.getJoinedAt());
             User u = usersById.get(m.getUserId());
             if (u != null) {
                 dto.setUserFullName(u.getFullName());
@@ -241,6 +245,9 @@ public class MemberService {
         if ("EXPIRED".equalsIgnoreCase(member.getState())) {
             throw new AppException(ErrorCode.BAD_REQUEST, "Thành viên này không bị chặn hay xóa; quyền truy cập đã hết hạn và cần được gia hạn");
         }
+        if (ClassMembershipService.isPendingState(member.getState())) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Đây là yêu cầu tham gia đang chờ duyệt; hãy dùng Duyệt hoặc Từ chối");
+        }
         if (!accessPolicy.isOwner(currentUserId, classId) && restrictionRequiresOwner(classId, member)) {
             throw new AppException(ErrorCode.FORBIDDEN,
                     "Chỉ chủ lớp học (OWNER) mới được mở khóa thành viên do chủ lớp chặn/xóa hoặc thành viên vốn là nhân sự");
@@ -264,6 +271,65 @@ public class MemberService {
                 String.format("{\"targetUserId\":\"%s\"}", targetUserId));
 
         return toDto(classId, member);
+    }
+
+    /**
+     * D-28: approve a PENDING join request -&gt; ACTIVE member (no expiry), with the same MEMBER_JOINED outbox event as a normal join and a
+     * MEMBER_APPROVE audit record. Needs MEMBER:EDIT. Refused (409) when the class is no longer ACTIVE (D-11) or has become PAID (the
+     * person must buy access instead - approval never grants paid access).
+     */
+    @Transactional
+    public ClassMemberDto approveRequest(String classId, String targetUserId, String currentUserId) {
+        accessPolicy.enforceManage(currentUserId, classId, "MEMBER", "EDIT", null);
+        ClassMember member = requirePending(classId, targetUserId);
+        if (classroomRepository != null) {
+            var classroom = classroomRepository.findById(classId)
+                    .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy lớp học"));
+            if (!"ACTIVE".equalsIgnoreCase(classroom.getStatus())) {
+                throw new AppException(ErrorCode.CONFLICT, "Lớp học hiện không mở đăng ký thành viên");
+            }
+            if (classroom.isPaid()) {
+                throw new AppException(ErrorCode.CONFLICT, "Lớp học đã chuyển sang trả phí; người này cần mua quyền truy cập");
+            }
+        }
+        Instant requestedAt = member.getJoinedAt();
+        member.setState("ACTIVE");
+        member.setAccessExpiresAt(null);
+        member.setJoinedAt(Instant.now());
+        memberRepository.save(member);
+        outboxService.recordEvent("CLASSROOM", classId, "MEMBER_JOINED", Map.of(
+                "userId", targetUserId,
+                "classId", classId,
+                "role", member.getRole()
+        ));
+        auditService.record(classId, currentUserId, "MEMBER_APPROVE", "CLASS_MEMBER", member.getId(),
+                String.format("{\"targetUserId\":\"%s\",\"requestedAt\":\"%s\"}", targetUserId, requestedAt));
+        return toDto(classId, member);
+    }
+
+    /**
+     * D-28: reject a PENDING join request: the row is deleted (the person sees memberState NONE and may ask again later) and a
+     * MEMBER_REJECT audit record keeps the decision. Needs MEMBER:EDIT. Returns the rejected row as it was (state PENDING).
+     */
+    @Transactional
+    public ClassMemberDto rejectRequest(String classId, String targetUserId, String currentUserId) {
+        accessPolicy.enforceManage(currentUserId, classId, "MEMBER", "EDIT", null);
+        ClassMember member = requirePending(classId, targetUserId);
+        ClassMemberDto dto = toDto(classId, member);
+        dto.setRequestedAt(member.getJoinedAt());
+        memberRepository.delete(member);
+        auditService.record(classId, currentUserId, "MEMBER_REJECT", "CLASS_MEMBER", member.getId(),
+                String.format("{\"targetUserId\":\"%s\"}", targetUserId));
+        return dto;
+    }
+
+    private ClassMember requirePending(String classId, String targetUserId) {
+        ClassMember member = memberRepository.findByClassIdAndUserIdForUpdate(classId, targetUserId)
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy yêu cầu tham gia"));
+        if (!ClassMembershipService.isPendingState(member.getState())) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Người này không có yêu cầu tham gia đang chờ duyệt");
+        }
+        return member;
     }
 
     /**

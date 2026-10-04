@@ -115,6 +115,33 @@ describe('ClassroomLayout - non-member of a PUBLIC FREE class', () => {
   });
 });
 
+describe('ClassroomLayout - tab strip for people outside the class', () => {
+  it('a visitor of a public class may open Blog / Thảo luận / Sự kiện / Shop / Giới thiệu; the member-only tabs are locked', async () => {
+    current = { ...base, accessType: 'FREE', accessProduct: null };
+    authState = { user: null, isLoading: false };
+    installFetch();
+    render(<ClassroomLayout />);
+    await screen.findByRole('button', { name: /Tham gia lớp ngay/ });
+    const open = tabNames();
+    expect(open).toEqual(expect.arrayContaining(['Blog', 'Thảo luận', 'Sự kiện', 'Shop', 'Giới thiệu']));
+    for (const locked of ['Khóa học', 'Thi', 'Tài liệu', 'Thành viên', 'Bảng xếp hạng']) {
+      expect(open).not.toContain(locked);
+      expect(screen.getByText(locked).closest('[aria-disabled="true"]')).toBeInTheDocument();
+    }
+  });
+
+  it('an ACTIVE member gets every tab as a link', async () => {
+    current = { ...base, isMember: true, userRole: 'STUDENT', memberState: 'ACTIVE' };
+    installFetch();
+    render(<ClassroomLayout />);
+    await waitFor(() => expect(screen.getByTestId('outlet')).toBeInTheDocument());
+    expect(tabNames()).toEqual(expect.arrayContaining([
+      'Blog', 'Thảo luận', 'Khóa học', 'Thi', 'Sự kiện', 'Tài liệu', 'Thành viên', 'Shop', 'Bảng xếp hạng', 'Giới thiệu',
+    ]));
+    expect(document.querySelector('[aria-disabled="true"]')).toBeNull();
+  });
+});
+
 describe('ClassroomLayout - non-member of a PUBLIC PAID class', () => {
   it('shows the paywall (price, length, what you get) above the public feed, and no free-join button', async () => {
     installFetch();
@@ -235,7 +262,7 @@ describe('ClassroomLayout - lapsed (EXPIRED) member', () => {
   const expiredAt = new Date(Date.now() - 3 * DAY).toISOString();
   const expired = () => ({ ...base, memberState: 'EXPIRED', accessExpiresAt: expiredAt }) as Classroom;
 
-  it('limits the tabs to Giới thiệu / Cửa hàng and shows the renewal prompt instead of member-only content (not a raw 403)', async () => {
+  it('limits the tabs to Giới thiệu / Shop and shows the renewal prompt instead of member-only content (not a raw 403)', async () => {
     current = expired();
     installFetch();
     render(<ClassroomLayout />);
@@ -244,8 +271,8 @@ describe('ClassroomLayout - lapsed (EXPIRED) member', () => {
     expect(card).toHaveTextContent(`hết hạn ngày ${formatDate(expiredAt)}`);
     expect(within(card).getByRole('button', { name: 'Gia hạn' })).toBeInTheDocument();
     expect(screen.queryByTestId('outlet')).not.toBeInTheDocument();
-    expect(tabNames()).toEqual(expect.arrayContaining(['Giới thiệu', 'Cửa hàng']));
-    for (const hidden of ['Bảng tin', 'Góc học tập', 'Luyện thi', 'Xếp hạng', 'Tài liệu', 'Thành viên']) {
+    expect(tabNames()).toEqual(expect.arrayContaining(['Giới thiệu', 'Shop']));
+    for (const hidden of ['Blog', 'Thảo luận', 'Khóa học', 'Thi', 'Sự kiện', 'Bảng xếp hạng', 'Tài liệu', 'Thành viên']) {
       expect(tabNames()).not.toContain(hidden);
     }
     expect(screen.queryByText(/403|Forbidden|Failed to fetch/i)).not.toBeInTheDocument();

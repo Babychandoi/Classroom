@@ -85,7 +85,7 @@ async function check(label, fn) { await fn(); passed++; console.log(`PASS ${labe
     assert.equal((await api('GET', '/privacy/me/requests', c.token)).status, 401);
   });
   const browser = await launchBrowser(); const ctx = await newCtx(browser); const page = await ctx.newPage();
-  await page.goto(`${BASE}/login`); await page.getByLabel('Email').fill('owner@classroom.local'); await page.getByLabel('Mật khẩu').fill('Password123!'); await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click(); await page.waitForURL(/\/classes$/);
+  await page.goto(`${BASE}/login`); await page.getByLabel('Email').fill('owner@classroom.local'); await page.getByLabel('Mật khẩu', { exact: true }).fill('Password123!'); await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click(); await page.waitForURL(/\/classes$/);
   await page.goto(`${BASE}/classes/${classroom.slug}/about`);
   await check('About tabs keyboard, uploaded image and HTML escape', async () => {
     const tab = page.getByRole('tab', { name: 'Tổng quan' }); await tab.waitFor(); await tab.focus(); await page.keyboard.press('ArrowRight'); assert.equal(await page.getByRole('tab', { name: 'Lộ trình' }).getAttribute('aria-selected'), 'true');

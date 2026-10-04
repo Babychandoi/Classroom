@@ -97,6 +97,15 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/classes/slug/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/classes/{id}/about").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/classes/{id}/products").permitAll()
+                        // D-27: blog and events are readable by guests for PUBLIC ACTIVE classes (the services apply the class-visibility rule;
+                        // a hidden PRIVATE class is a 404). Single-segment wildcards only: /events/*/registrations stays authenticated.
+                        // /events/upcoming is matched by /events/* as well; both are permitAll, and the controller maps the literal path.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/classes/*/blog-posts").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/classes/*/blog-categories").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/blog-posts/*").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/classes/*/events").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/events/upcoming").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/events/*").permitAll()
                         .requestMatchers("/error").permitAll()
                         // All other APIs require authentication (including /members and /leaderboard)
                         .requestMatchers("/api/v1/**").authenticated()

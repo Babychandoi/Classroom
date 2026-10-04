@@ -3,7 +3,9 @@ import { useOutletContext } from 'react-router-dom';
 import { Classroom } from '../../types';
 import { api } from '../../api/client';
 import { LoadingSpinner, ErrorBanner } from '../../components/UIStates';
-import { ShieldAlert, Activity } from 'lucide-react';
+import { formatDateTime } from '../../api/format';
+import { Card } from '../../components/ui';
+import { EmptyRow, PageHeader, StudioPage, tdClass, thClass } from './studioUi';
 
 interface AuditItem {
   id: string;
@@ -40,44 +42,50 @@ export const StudioAudit: React.FC = () => {
   }, [classroom.id]);
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-black text-slate-900 tracking-tight">Nhật ký kiểm toán (Audit Logs)</h1>
-        <p className="text-xs text-slate-600">
-          Ghi nhận toàn bộ thao tác quan trọng: phân quyền nhân sự, chỉnh sửa điểm số và giao dịch tài chính
-        </p>
-      </div>
+    <StudioPage>
+      <PageHeader
+        title="Nhật ký"
+        description="Ghi lại các thao tác quan trọng trong lớp: phân quyền trợ giảng, sửa điểm và giao dịch thanh toán."
+      />
 
       {loading && <LoadingSpinner message="Đang tải nhật ký kiểm toán..." />}
       {error && <ErrorBanner message={error} onRetry={fetchLogs} />}
 
       {!loading && (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm divide-y divide-slate-100">
-          {logs.map((log) => (
-            <div key={log.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition text-xs">
-              <div className="space-y-0.5">
-                <div className="flex items-center space-x-2">
-                  <span className="font-bold text-slate-900">{log.action}</span>
-                  <span className="px-2 py-0.5 rounded font-mono text-[10px] bg-slate-100 text-slate-600">
-                    {log.targetType}: {log.targetId ? log.targetId.substring(0, 8) : 'N/A'}
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500 font-mono">
-                  Actor ID: {log.actorId ? log.actorId.substring(0, 8) : 'SYSTEM'}
-                </div>
-              </div>
-
-              <span className="text-[11px] text-slate-500">
-                {new Date(log.createdAt).toLocaleString('vi-VN')}
-              </span>
+        <Card padded={false} className="overflow-hidden">
+          {logs.length === 0 ? (
+            <EmptyRow>Chưa ghi nhận sự kiện kiểm toán nào. Các thao tác như phân quyền hay sửa điểm sẽ hiện ở đây.</EmptyRow>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px]">
+                <caption className="sr-only">Nhật ký kiểm toán của lớp</caption>
+                <thead className="border-b border-slate-200 bg-slate-50">
+                  <tr>
+                    <th scope="col" className={thClass}>Thời gian</th>
+                    <th scope="col" className={thClass}>Thao tác</th>
+                    <th scope="col" className={thClass}>Đối tượng</th>
+                    <th scope="col" className={thClass}>Người thực hiện</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {logs.map((log) => (
+                    <tr key={log.id} className="transition-colors duration-micro hover:bg-slate-50">
+                      <td className={`${tdClass} whitespace-nowrap text-meta text-slate-600 tabular`}>{formatDateTime(log.createdAt)}</td>
+                      <td className={`${tdClass} font-semibold`}>{log.action}</td>
+                      <td className={tdClass}>
+                        <span className="inline-flex h-[22px] items-center rounded-full bg-slate-100 px-2 font-mono text-micro font-semibold text-slate-600">
+                          {log.targetType}: {log.targetId ? log.targetId.substring(0, 8) : 'N/A'}
+                        </span>
+                      </td>
+                      <td className={`${tdClass} font-mono text-meta text-slate-500`}>{log.actorId ? log.actorId.substring(0, 8) : 'SYSTEM'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
-
-          {logs.length === 0 && (
-            <div className="p-8 text-center text-xs text-slate-500">Chưa ghi nhận sự kiện kiểm toán nào.</div>
           )}
-        </div>
+        </Card>
       )}
-    </div>
+    </StudioPage>
   );
 };

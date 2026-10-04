@@ -1,10 +1,19 @@
 import React, { useId, useState } from 'react';
-import { useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { useNavigate, useLocation, Navigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { GraduationCap, ArrowRight, ShieldCheck, UserCheck } from 'lucide-react';
+import { Eye, EyeOff, GraduationCap, UserCheck } from 'lucide-react';
 import { ErrorBanner } from '../components/UIStates';
+import { Badge, BadgeTone, buttonClass, inputClass } from '../components/ui';
 
 const DEFAULT_RETURN_TO = '/classes';
+
+const DEMO_ACCOUNTS: { label: string; email: string; role: string; tone: BadgeTone }[] = [
+  { label: 'Thầy Chủ Nhiệm (OWNER)', email: 'owner@classroom.local', role: 'OWNER', tone: 'member' },
+  { label: 'Cô Trợ Giảng (STAFF)', email: 'staff@classroom.local', role: 'STAFF', tone: 'info' },
+  { label: 'Học Viên FREE (Miễn phí)', email: 'student.free@classroom.local', role: 'FREE', tone: 'free' },
+  { label: 'Học Viên VIP (PRO)', email: 'student.pro@classroom.local', role: 'PRO', tone: 'pro' },
+  { label: 'Học Viên Hết Hạn PRO', email: 'student.expired@classroom.local', role: 'EXPIRED', tone: 'danger' },
+];
 
 // R17-01: RequireLogin and ClassroomLayout hand over the page the person wanted as state.from (a router
 // Location). Honor it after login/register - including its query string, which carries e.g. an exam
@@ -28,7 +37,9 @@ export const LoginPage: React.FC = () => {
   const fullNameId = useId();
   const emailId = useId();
   const passwordId = useId();
-  const [isRegister, setIsRegister] = useState(false);
+  // The top bar's "Đăng ký miễn phí" opens this page in register mode (state.mode).
+  const [isRegister, setIsRegister] = useState((location.state as { mode?: string } | null)?.mode === 'register');
+  const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -73,153 +84,128 @@ export const LoginPage: React.FC = () => {
     return <Navigate to={returnTo} replace />;
   }
 
+  const switchMode = () => {
+    setIsRegister(!isRegister);
+    setError(null);
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div className="mx-auto w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-300">
-          <GraduationCap className="w-7 h-7" />
+    <div className="flex flex-1 items-center justify-center px-4 py-10 sm:px-6 sm:py-12">
+      <div className="w-full max-w-[440px] rounded-section border border-slate-200 bg-white px-6 py-8 shadow-e1 sm:px-11 sm:pb-9 sm:pt-10">
+        <div className="flex items-center justify-center gap-2.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-gradient-to-tr from-blue-600 to-sky-400 text-white">
+            <GraduationCap className="h-5 w-5" strokeWidth={1.9} aria-hidden="true" />
+          </span>
+          <span className="text-[17px] font-bold tracking-[-0.4px] text-slate-900">Lớp Học Trực Tuyến</span>
         </div>
-        <h2 className="mt-4 text-3xl font-extrabold text-slate-900 tracking-tight">
-          {isRegister ? 'Đăng ký tài khoản mới' : 'Đăng nhập hệ thống'}
-        </h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Nền tảng lớp học trực tuyến & phân quyền đa vai trò
+        <h1 className="mt-5 text-center text-[22px] font-semibold leading-[30px] tracking-[-0.4px] text-slate-900">
+          {isRegister ? 'Tạo tài khoản' : 'Đăng nhập'}
+        </h1>
+        <p className="mt-1 text-center text-ui text-slate-500">
+          {isRegister ? 'Miễn phí — bắt đầu trong 1 phút.' : 'Chào mừng bạn quay lại.'}
         </p>
-      </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow-xl shadow-slate-200/50 sm:rounded-2xl sm:px-10 border border-slate-200">
-          {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
+        {error && <div className="mt-6"><ErrorBanner message={error} /></div>}
 
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            {isRegister && (
-              <div>
-                <label htmlFor={fullNameId} className="block text-xs font-semibold text-slate-700 uppercase">Họ và tên</label>
-                <input
-                  id={fullNameId}
-                  type="text"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Nguyễn Văn A"
-                  className="mt-1 block w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-            )}
-
+        <form className="mt-6 space-y-3.5" onSubmit={handleSubmit}>
+          {isRegister && (
             <div>
-              <label htmlFor={emailId} className="block text-xs font-semibold text-slate-700 uppercase">Email</label>
+              <label htmlFor={fullNameId} className="block text-meta font-semibold text-slate-900">Họ và tên</label>
               <input
-                id={emailId}
-                type="email"
+                id={fullNameId}
+                type="text"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@example.com"
-                className="mt-1 block w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                autoComplete="name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="VD: Nguyễn Văn A"
+                className={inputClass('mt-1.5 h-[46px]')}
               />
             </div>
+          )}
 
-            <div>
-              <label htmlFor={passwordId} className="block text-xs font-semibold text-slate-700 uppercase">Mật khẩu</label>
-              <input
-                id={passwordId}
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="mt-1 block w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex justify-center items-center space-x-2 py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition disabled:opacity-50"
-            >
-              <span>{isRegister ? 'Tạo tài khoản' : 'Đăng nhập'}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </form>
-
-          <div className="mt-4 text-center">
-            <button
-              onClick={() => {
-                setIsRegister(!isRegister);
-                setError(null);
-              }}
-              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-            >
-              {isRegister ? 'Đã có tài khoản? Đăng nhập ngay' : 'Chưa có tài khoản? Đăng ký mới'}
-            </button>
+          <div>
+            <label htmlFor={emailId} className="block text-meta font-semibold text-slate-900">Email</label>
+            <input
+              id={emailId}
+              type="email"
+              required
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="ban@email.com"
+              className={inputClass('mt-1.5 h-[46px]')}
+            />
           </div>
 
-          {/* Quick Demo Login Grid */}
-          {demoLoginEnabled && <div className="mt-6 pt-6 border-t border-slate-200">
-            <div className="flex items-center space-x-2 mb-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
-              <UserCheck className="w-4 h-4 text-indigo-600" />
-              <span>Đăng nhập nhanh (Tài khoản kiểm thử)</span>
-            </div>
-
-            <div className="space-y-2">
+          <div>
+            <label htmlFor={passwordId} className="block text-meta font-semibold text-slate-900">Mật khẩu</label>
+            <div className="relative mt-1.5">
+              <input
+                id={passwordId}
+                type={showPassword ? 'text' : 'password'}
+                required
+                autoComplete={isRegister ? 'new-password' : 'current-password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={isRegister ? 'Tối thiểu 8 ký tự' : '••••••••'}
+                className={inputClass('h-[46px] pr-11')}
+              />
               <button
-                onClick={() => handleQuick('owner@classroom.local')}
-                className="w-full text-left px-3 py-2 bg-indigo-50/60 hover:bg-indigo-100 rounded-lg text-xs font-medium text-slate-800 flex items-center justify-between border border-indigo-100 transition"
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                aria-pressed={showPassword}
+                className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition-colors duration-micro hover:bg-slate-100 hover:text-slate-600"
               >
-                <div>
-                  <span className="font-bold text-indigo-900 block">Thầy Chủ Nhiệm (OWNER)</span>
-                  <span className="text-[11px] text-slate-600">owner@classroom.local</span>
-                </div>
-                <span className="px-2 py-0.5 rounded bg-indigo-600 text-white font-bold text-[10px]">OWNER</span>
-              </button>
-
-              <button
-                onClick={() => handleQuick('staff@classroom.local')}
-                className="w-full text-left px-3 py-2 bg-blue-50/60 hover:bg-blue-100 rounded-lg text-xs font-medium text-slate-800 flex items-center justify-between border border-blue-100 transition"
-              >
-                <div>
-                  <span className="font-bold text-blue-900 block">Cô Trợ Giảng (STAFF)</span>
-                  <span className="text-[11px] text-slate-600">staff@classroom.local</span>
-                </div>
-                <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-bold text-[10px]">STAFF</span>
-              </button>
-
-              <button
-                onClick={() => handleQuick('student.free@classroom.local')}
-                className="w-full text-left px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-medium text-slate-800 flex items-center justify-between border border-slate-200 transition"
-              >
-                <div>
-                  <span className="font-bold text-slate-900 block">Học Viên FREE (Miễn phí)</span>
-                  <span className="text-[11px] text-slate-600">student.free@classroom.local</span>
-                </div>
-                <span className="px-2 py-0.5 rounded bg-slate-600 text-white font-bold text-[10px]">FREE</span>
-              </button>
-
-              <button
-                onClick={() => handleQuick('student.pro@classroom.local')}
-                className="w-full text-left px-3 py-2 bg-amber-50/60 hover:bg-amber-100 rounded-lg text-xs font-medium text-slate-800 flex items-center justify-between border border-amber-200 transition"
-              >
-                <div>
-                  <span className="font-bold text-amber-900 block">Học Viên VIP (PRO)</span>
-                  <span className="text-[11px] text-slate-600">student.pro@classroom.local</span>
-                </div>
-                <span className="px-2 py-0.5 rounded bg-amber-700 text-white font-bold text-[10px]">PRO</span>
-              </button>
-
-              <button
-                onClick={() => handleQuick('student.expired@classroom.local')}
-                className="w-full text-left px-3 py-2 bg-rose-50/60 hover:bg-rose-100 rounded-lg text-xs font-medium text-slate-800 flex items-center justify-between border border-rose-200 transition"
-              >
-                <div>
-                  <span className="font-bold text-rose-900 block">Học Viên Hết Hạn PRO</span>
-                  <span className="text-[11px] text-slate-600">student.expired@classroom.local</span>
-                </div>
-                <span className="px-2 py-0.5 rounded bg-rose-600 text-white font-bold text-[10px]">EXPIRED</span>
+                {showPassword ? <EyeOff className="h-4 w-4" strokeWidth={1.7} /> : <Eye className="h-4 w-4" strokeWidth={1.7} />}
               </button>
             </div>
-          </div>}
-        </div>
+          </div>
+
+          <button type="submit" disabled={loading} className={buttonClass('primary', 'lg', '!mt-[22px] h-12 w-full')}>
+            {isRegister ? 'Tạo tài khoản' : 'Đăng nhập'}
+          </button>
+        </form>
+
+        <p className="mt-[22px] text-center text-ui text-slate-600">
+          {isRegister ? 'Đã có tài khoản? ' : 'Bạn chưa có tài khoản? '}
+          <button type="button" onClick={switchMode} className="font-semibold text-blue-600 hover:text-blue-700">
+            {isRegister ? 'Đăng nhập' : 'Đăng ký miễn phí'}
+          </button>
+        </p>
+
+        {/* Quick Demo Login Grid */}
+        {demoLoginEnabled && (
+          <div className="mt-7 border-t border-slate-100 pt-6">
+            <p className="mb-3 flex items-center gap-2 text-caption font-semibold uppercase tracking-[0.5px] text-slate-500">
+              <UserCheck className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+              Đăng nhập nhanh (Tài khoản kiểm thử)
+            </p>
+            <div className="space-y-1">
+              {DEMO_ACCOUNTS.map((acc) => (
+                <button
+                  key={acc.email}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => handleQuick(acc.email)}
+                  className="flex min-h-[48px] w-full items-center justify-between gap-3 rounded-btn px-3 py-1.5 text-left transition-colors duration-micro hover:bg-slate-100 disabled:opacity-60"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-meta font-semibold text-slate-900">{acc.label}</span>
+                    <span className="block truncate text-caption text-slate-500">{acc.email}</span>
+                  </span>
+                  <Badge tone={acc.tone} size="xs">{acc.role}</Badge>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <p className="mt-7 text-center text-caption leading-[18px] text-slate-500">
+          Tiếp tục nghĩa là bạn đồng ý với{' '}
+          <Link to="/privacy" className="font-medium text-slate-600 hover:text-slate-900">Chính sách dữ liệu cá nhân</Link>
+        </p>
       </div>
     </div>
   );

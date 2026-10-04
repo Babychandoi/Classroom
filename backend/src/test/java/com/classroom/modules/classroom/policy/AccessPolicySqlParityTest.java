@@ -73,7 +73,7 @@ class AccessPolicySqlParityTest {
     void buildEightClassesAndElevenViewers() {
         owner = user("owner");
         for (String kind : List.of("stranger", "staffActive", "staffRevoked", "memberActive", "memberLapsed", "memberExpired",
-                "removed", "blocked", "banned")) {
+                "removed", "blocked", "banned", "pending")) {
             viewers.put(kind, user(kind));
         }
         for (String visibility : List.of("PUBLIC", "PRIVATE")) {
@@ -103,6 +103,8 @@ class AccessPolicySqlParityTest {
                     row(c, viewers.get("removed"), "REMOVED", null);
                     row(c, viewers.get("blocked"), "BLOCKED", null);
                     row(c, viewers.get("banned"), "BANNED", null);
+                    // D-28: a pending join request is not a relation to the class
+                    row(c, viewers.get("pending"), "PENDING", null);
                 }
             }
         }
@@ -144,7 +146,7 @@ class AccessPolicySqlParityTest {
 
     @ParameterizedTest(name = "viewer = {0}")
     @ValueSource(strings = {"guest", "stranger", "owner", "staffActive", "staffRevoked", "memberActive", "memberLapsed", "memberExpired",
-            "removed", "blocked", "banned"})
+            "removed", "blocked", "banned", "pending"})
     @DisplayName("SQL listing == AccessPolicy.isClassVisibleToUser for all 8 class shapes, per kind of viewer - and so is the paged GET /classes")
     void sqlAndPolicyAgree(String kind) {
         String viewerId = switch (kind) {
@@ -156,8 +158,17 @@ class AccessPolicySqlParityTest {
                 ? mine(classroomRepository.findPubliclyVisible(everything()))
                 : mine(classroomRepository.findVisibleToUser(viewerId, everything()));
         Set<String> paged = pagedListing(viewerId);
+        // D-27: the search / popularity twins of the listing must apply the very same visibility rule.
+        Set<String> searched = viewerId == null
+                ? mine(classroomRepository.searchPubliclyVisible("%parity%", "", everything()))
+                : mine(classroomRepository.searchVisibleToUser(viewerId, "%parity%", "", everything()));
+        Set<String> popular = viewerId == null
+                ? mine(classroomRepository.searchPubliclyVisibleByPopularity("%", "", Instant.now(), PageRequest.of(0, 5000)))
+                : mine(classroomRepository.searchVisibleToUserByPopularity(viewerId, "%", "", Instant.now(), PageRequest.of(0, 5000)));
         for (Classroom c : classes) {
             boolean policy = accessPolicy.isClassVisibleToUser(c, viewerId);
+            assertEquals(policy, searched.contains(c.getId()), kind + " / " + c.getTitle() + ": policy=" + policy + " search=" + searched.contains(c.getId()));
+            assertEquals(policy, popular.contains(c.getId()), kind + " / " + c.getTitle() + ": policy=" + policy + " popular=" + popular.contains(c.getId()));
             assertEquals(policy, sql.contains(c.getId()), kind + " / " + c.getTitle() + ": policy=" + policy + " sql=" + sql.contains(c.getId()));
             assertEquals(policy, paged.contains(c.getId()), kind + " / " + c.getTitle() + ": policy=" + policy + " GET /classes=" + paged.contains(c.getId()));
             if (viewerId != null) {
@@ -182,6 +193,8 @@ class AccessPolicySqlParityTest {
         assertFalse(accessPolicy.isClassVisibleToUser(privateActive, viewers.get("removed").getId()));
         assertFalse(accessPolicy.isClassVisibleToUser(privateActive, viewers.get("blocked").getId()));
         assertFalse(accessPolicy.isClassVisibleToUser(privateActive, viewers.get("banned").getId()));
+        assertFalse(accessPolicy.isClassVisibleToUser(privateActive, viewers.get("pending").getId()), "D-28: a pending request never reveals a private class");
+        assertFalse(accessPolicy.isMember(viewers.get("pending").getId(), publicActive.getId()), "D-28: PENDING is not a member");
         assertTrue(accessPolicy.isClassVisibleToUser(privateActive, viewers.get("memberActive").getId()));
         assertTrue(accessPolicy.isClassVisibleToUser(privateActive, viewers.get("memberExpired").getId()), "a lapsed paid member still sees the class (to renew)");
         assertTrue(accessPolicy.isClassVisibleToUser(privateActive, viewers.get("memberLapsed").getId()));

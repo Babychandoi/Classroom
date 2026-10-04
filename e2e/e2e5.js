@@ -8,7 +8,7 @@
 //       nút Back không quay lại trang chứa mã, vào lại bằng URL lớp không cần mã, mã sai/hỏng -> "Mã mời không hợp lệ hoặc đã hết hạn"
 //   P3  mua lớp trả phí (người dùng mới): tường phí -> thanh toán sandbox -> chủ lớp xác nhận trong Studio -> thành viên (hạn ~30 ngày)
 //   P4  hết hạn không cần sửa mã: chủ lớp hoàn tiền trong Studio -> EXPIRED: banner "Gói thành viên lớp đã hết hạn ngày dd/MM/yyyy",
-//       chỉ còn tab Giới thiệu/Cửa hàng, tab thành viên hiện lời nhắc gia hạn (API 403 MEMBERSHIP_EXPIRED), bộ lọc "Đã hết hạn" của Studio -> gia hạn
+//       chỉ còn tab Giới thiệu/Shop, tab thành viên hiện lời nhắc gia hạn (API 403 MEMBERSHIP_EXPIRED), bộ lọc "Đã hết hạn" của Studio -> gia hạn
 //   P5  Studio trên một lớp riêng mới tạo: tạo lớp riêng tư bằng hộp thoại, đổi hiển thị (bàn phím) và thu phí có xác nhận, tạo liên kết mời
 //       (hiện đúng MỘT lần, sao chép, đóng bằng Escape), tham gia miễn phí bằng liên kết, lớp đổi sang trả phí (thành viên cũ được giữ),
 //       người mới mua qua liên kết mời của lớp RIÊNG TƯ + TRẢ PHÍ, thu hồi liên kết -> liên kết báo không hợp lệ và không mua vòng được
@@ -18,7 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  BASE, PASSWORD, SHOTS_ROOT, log, newRunId, launchBrowser, newCtx, createRunner, settle, register, overflowCheck, unexpectedEvents,
+  BASE, PASSWORD, SHOTS_ROOT, log, newRunId, launchBrowser, newCtx, createRunner, settle, register, createClassViaUI, overflowCheck, unexpectedEvents,
 } = require('./lib');
 
 const API = `${BASE}/api/v1`;
@@ -93,14 +93,14 @@ const DAY = 24 * 60 * 60 * 1000;
   }
   async function formLogin(page, email, password) {
     await page.getByLabel('Email').fill(email);
-    await page.getByLabel('Mật khẩu').fill(password);
+    await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
     await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
   }
   async function demoLogin(page, email) {
     await page.goto(`${BASE}/login`);
     await formLogin(page, email, DEMO_PASSWORD);
     await page.waitForURL(/\/classes$/, { timeout: 15000 });
-    await page.getByTitle('Đăng xuất').waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: 'Mở menu tài khoản' }).waitFor({ timeout: 10000 });
   }
   async function newUser(label, opts) {
     const p = await person(label, opts);
@@ -139,7 +139,17 @@ const DAY = 24 * 60 * 60 * 1000;
     if (!m) throw new Error(`không thấy mã đơn trong: ${text.slice(0, 160)}`);
     return m[0];
   };
-  const classCard = (page, title) => page.locator('div.group', { has: page.getByRole('heading', { name: title }) });
+  // Thẻ lớp (CMP-1) là <article> có tiêu đề lớp. Trang chủ /classes là các rail (một lớp có thể nằm ở nhiều rail) nên lấy thẻ đầu;
+  // danh mục đầy đủ (mỗi lớp đúng một thẻ, có chip lọc học phí) mở bằng "Xem tất cả lớp học".
+  const classCards = (page, title) => page.locator('article', { has: page.getByRole('heading', { name: title, exact: true }) });
+  const classCard = (page, title) => classCards(page, title).first();
+  // Trang chủ chỉ hiện các rail chọn lọc (tối đa 6 thẻ mỗi rail: lớp của bạn / phổ biến / mới mở), nên một lớp cụ thể KHÔNG chắc
+  // có mặt ở đó (vd. chủ lớp demo đã có nhiều lớp e2e5-* mới hơn) - chỉ chờ trang chủ dựng xong rail, còn lớp cụ thể tìm trong danh mục.
+  const homeReady = (page) => page.locator('section[aria-labelledby^="rail-"] article').first().waitFor({ timeout: 15000 });
+  const openCatalog = async (page) => {
+    await page.getByRole('button', { name: 'Xem tất cả lớp học' }).click();
+    await page.getByRole('heading', { name: 'Tất cả lớp học' }).waitFor({ timeout: 10000 });
+  };
 
   // ----- tokens / ids from the seeded demo deployment -----
   const ownerToken = await apiLogin(OWNER, DEMO_PASSWORD);
@@ -151,7 +161,11 @@ const DAY = 24 * 60 * 60 * 1000;
   await step('P1', 'khách: lớp riêng tư KHÔNG có trong danh sách, lớp trả phí có nhãn giá, bộ lọc Miễn phí/Trả phí', guest.page, async () => {
     const g = guest.page;
     await g.goto(`${BASE}/classes`);
+    await homeReady(g);
+    if ((await bodyText(g)).includes(PRIVATE_TITLE)) throw new Error('lớp riêng tư xuất hiện trên trang chủ khám phá của khách');
+    await openCatalog(g);
     await classCard(g, PAID_TITLE).waitFor({ timeout: 15000 });
+    if ((await classCards(g, PAID_TITLE).count()) !== 1) throw new Error('danh mục đầy đủ lặp thẻ lớp trả phí');
     const text = await bodyText(g);
     if (text.includes(PRIVATE_TITLE)) throw new Error('lớp riêng tư xuất hiện trong danh sách khám phá của khách');
     const badge = await classCard(g, PAID_TITLE).innerText();
@@ -163,7 +177,7 @@ const DAY = 24 * 60 * 60 * 1000;
     const afterPaid = await bodyText(g);
     if (/Miễn phí\s*\n?\s*\/LOP-TOAN|Lớp Học Toán Nâng Cao/.test(afterPaid)) throw new Error('lọc Trả phí vẫn còn lớp miễn phí');
     await chips.getByRole('button', { name: 'Miễn phí' }).click();
-    if (await classCard(g, PAID_TITLE).count()) throw new Error('lọc Miễn phí vẫn còn lớp trả phí');
+    if (await classCards(g, PAID_TITLE).count()) throw new Error('lọc Miễn phí vẫn còn lớp trả phí');
     await chips.getByRole('button', { name: 'Tất cả' }).click();
     await shot(g, 'P1-explore-guest');
     return 'không lộ lớp riêng tư; nhãn giá + 3 chip lọc hoạt động';
@@ -192,7 +206,7 @@ const DAY = 24 * 60 * 60 * 1000;
     await shot(g, 'P1-paywall-guest');
     await g.goto(`${BASE}/classes/${PAID_SLUG}/learn`);
     await g.getByTestId('paywall-card').waitFor({ timeout: 10000 });
-    if (await g.locator('[role=alert]').count()) throw new Error('tab Góc học tập của khách hiện [role=alert] thay vì tường phí');
+    if (await g.locator('[role=alert]').count()) throw new Error('tab Khóa học của khách hiện [role=alert] thay vì tường phí');
     await g.goto(`${BASE}/classes/${PAID_SLUG}/feed`);
     await g.getByRole('button', { name: 'Đăng nhập để mua' }).click();
     await g.waitForURL(/\/login$/);
@@ -217,8 +231,12 @@ const DAY = 24 * 60 * 60 * 1000;
     await shot(g, 'P2-invite-guest');
     await g.getByRole('link', { name: 'Khám phá lớp học' }).first().click();
     await g.waitForURL(/\/classes$/);
-    const after = await g.evaluate(() => document.querySelectorAll('meta[name="referrer"]').length);
-    if (after !== 0) throw new Error(`meta referrer còn ${after} thẻ sau khi rời trang mời`);
+    // URL đổi ngay khi bấm, còn trang mời gỡ thẻ meta khi React gỡ trang (sau đó một nhịp render): chờ tối đa 3 s.
+    const gone = await g.waitForFunction(() => document.querySelectorAll('meta[name="referrer"]').length === 0, null, { timeout: 3000 }).then(() => true, () => false);
+    if (!gone) {
+      const after = await g.evaluate(() => document.querySelectorAll('meta[name="referrer"]').length);
+      throw new Error(`meta referrer còn ${after} thẻ sau khi rời trang mời`);
+    }
     return 'referrer no-referrer khi ở trang mời, gỡ khi rời đi';
   });
 
@@ -290,13 +308,15 @@ const DAY = 24 * 60 * 60 * 1000;
 
   const ownerSession = await person('owner');
   const o = ownerSession.page;
-  await step('P3', 'chủ lớp (owner@classroom.local) xác nhận thanh toán sandbox trong Studio > Sản phẩm & Đơn hàng', o, async () => {
+  await step('P3', 'chủ lớp (owner@classroom.local) xác nhận thanh toán sandbox trong Studio > Shop & đơn hàng', o, async () => {
     await demoLogin(o, OWNER);
     await o.goto(`${BASE}/studio/classes/${PAID_ID}/store`);
-    const row = o.locator('div.p-4', { hasText: buyerOrder });
+    // Mỗi đơn là một <li> trong "Lịch sử đơn hàng"; trạng thái hiện bằng nhãn tiếng Việt (mã gốc nằm ở title).
+    const row = o.getByRole('region', { name: /Lịch sử đơn hàng/ }).locator('li', { hasText: buyerOrder });
     await row.first().waitFor({ timeout: 15000 });
     await row.first().getByRole('button', { name: 'Xác nhận thanh toán sandbox' }).click();
-    await o.locator('div.p-4', { hasText: buyerOrder }).first().getByText('PAID', { exact: true }).waitFor({ timeout: 10000 });
+    await row.first().getByText('Đã thanh toán', { exact: true }).waitFor({ timeout: 10000 });
+    if ((await row.first().getByText('Đã thanh toán', { exact: true }).getAttribute('title')) !== 'PAID') throw new Error('nhãn trạng thái không ứng với PAID');
     return 'đơn PAID';
   });
 
@@ -323,16 +343,20 @@ const DAY = 24 * 60 * 60 * 1000;
   // =========================== P4: hết hạn (hoàn tiền) + gia hạn ===========================
   await step('P4', 'chủ lớp hoàn tiền đơn (Studio) -> người mua thành EXPIRED', o, async () => {
     await o.goto(`${BASE}/studio/classes/${PAID_ID}/store`);
-    const row = o.locator('div.p-4', { hasText: buyerOrder }).first();
+    const row = o.getByRole('region', { name: /Lịch sử đơn hàng/ }).locator('li', { hasText: buyerOrder }).first();
     await row.waitFor({ timeout: 15000 });
-    await row.getByRole('button', { name: 'Hoàn tiền sandbox' }).click(); // window.confirm được instrument() tự chấp nhận
-    await o.locator('div.p-4', { hasText: buyerOrder }).first().getByText('REFUNDED', { exact: true }).waitFor({ timeout: 10000 });
+    await row.getByRole('button', { name: 'Hoàn tiền sandbox' }).click();
+    // Xác nhận giờ là hộp thoại trong trang (thay cho window.confirm), nêu mã đơn.
+    const confirm = o.getByRole('alertdialog', { name: 'Hoàn tiền đơn sandbox?' });
+    await confirm.getByText(buyerOrder).waitFor({ timeout: 5000 });
+    await confirm.getByRole('button', { name: 'Hoàn tiền', exact: true }).click();
+    await row.getByText('Đã hoàn tiền', { exact: true }).waitFor({ timeout: 10000 });
     const cls = await must('GET', `/classes/slug/${PAID_SLUG}`, { token: buyer.token });
     if (cls.memberState !== 'EXPIRED') throw new Error(`memberState=${cls.memberState}`);
     return 'EXPIRED';
   });
 
-  await step('P4', 'người mua: banner hết hạn ngày dd/MM/yyyy, chỉ còn tab Giới thiệu/Cửa hàng, tab thành viên hiện lời nhắc gia hạn (không 403 thô)', buyer.page, async () => {
+  await step('P4', 'người mua: banner hết hạn ngày dd/MM/yyyy, chỉ còn tab Giới thiệu/Shop, tab thành viên hiện lời nhắc gia hạn (không 403 thô)', buyer.page, async () => {
     const b = buyer.page;
     await b.goto(`${BASE}/classes/${PAID_SLUG}/about`);
     const banner = b.getByTestId('renewal-banner');
@@ -341,8 +365,8 @@ const DAY = 24 * 60 * 60 * 1000;
     const tb = await banner.innerText();
     if (!tb.includes(`Gói thành viên lớp đã hết hạn ngày ${today}`)) throw new Error(`banner: ${tb.replace(/\n/g, ' | ')} (mong ${today})`);
     const tabs = (await b.locator('a[href^="/classes/lop-tra-phi/"]').allInnerTexts()).map((t) => t.trim());
-    for (const want of ['Giới thiệu', 'Cửa hàng']) if (!tabs.includes(want)) throw new Error(`thiếu tab ${want}: ${tabs}`);
-    for (const nope of ['Bảng tin', 'Góc học tập', 'Luyện thi', 'Xếp hạng', 'Tài liệu', 'Thành viên']) if (tabs.includes(nope)) throw new Error(`vẫn còn tab ${nope}`);
+    for (const want of ['Giới thiệu', 'Shop']) if (!tabs.includes(want)) throw new Error(`thiếu tab ${want}: ${tabs}`);
+    for (const nope of ['Blog', 'Thảo luận', 'Khóa học', 'Thi', 'Sự kiện', 'Bảng xếp hạng', 'Tài liệu', 'Thành viên']) if (tabs.includes(nope)) throw new Error(`vẫn còn tab ${nope}`);
     await shot(b, 'P4-expired-banner');
     for (const t of ['feed', 'learn', 'exams', 'members']) {
       await b.goto(`${BASE}/classes/${PAID_SLUG}/${t}`);
@@ -363,7 +387,7 @@ const DAY = 24 * 60 * 60 * 1000;
     const row = o.locator('div.p-5', { hasText: buyer.user.name });
     await row.waitFor({ timeout: 10000 });
     const t = await row.innerText();
-    if (!t.includes('EXPIRED') || !t.includes(`Hết hạn ${ddmmyyyy(new Date())}`)) throw new Error(`hàng thành viên: ${t.replace(/\n/g, ' | ')}`);
+    if (!t.includes('Đã hết hạn') || !t.includes(`Hết hạn ${ddmmyyyy(new Date())}`)) throw new Error(`hàng thành viên: ${t.replace(/\n/g, ' | ')}`);
     if (!(await row.getByLabel(`Xóa ${buyer.user.name} khỏi lớp`).isVisible())) throw new Error('thiếu nút xóa cho thành viên hết hạn');
     if (!(await row.getByLabel(`Chặn ${buyer.user.name}`).isVisible())) throw new Error('thiếu nút chặn cho thành viên hết hạn');
     await shot(o, 'P4-studio-expired-filter');
@@ -389,25 +413,23 @@ const DAY = 24 * 60 * 60 * 1000;
   });
 
   // =========================== P5: Studio trên lớp riêng mới tạo ===========================
-  const SLUG = `e2e5-${RUN}`;
+  let SLUG = null; // máy chủ sinh slug từ tên lớp (bỏ dấu): đọc lại sau khi tạo
   const TITLE = `E2E5 Lớp ${RUN}`;
   let CLASS_ID = null;
   let linkA = null;
   let codeA = null;
 
-  await step('P5', 'chủ lớp tạo lớp RIÊNG TƯ bằng hộp thoại (chọn "Riêng tư"): khách không thấy trong danh sách / URL', o, async () => {
-    await o.goto(`${BASE}/classes`);
-    await o.getByRole('button', { name: 'Tạo lớp học mới' }).click();
-    const dialog = o.getByRole('dialog', { name: 'Tạo lớp học mới' });
-    await dialog.waitFor();
-    if (!(await dialog.getByRole('radio', { name: /Công khai/ }).isChecked())) throw new Error('mặc định phải là Công khai');
-    await dialog.getByRole('radio', { name: /Riêng tư/ }).check();
-    await dialog.getByLabel('Tên lớp học').fill(TITLE);
-    await dialog.getByLabel('Đường dẫn slug (URL)').fill(SLUG);
-    await dialog.getByRole('button', { name: 'Xác nhận tạo lớp' }).click();
-    await o.waitForURL(new RegExp(`/classes/${SLUG}/feed$`), { timeout: 15000 });
+  await step('P5', 'chủ lớp tạo lớp RIÊNG TƯ ở trang /classes/new (chọn "Riêng tư"): khách không thấy trong danh sách / URL', o, async () => {
+    await o.goto(`${BASE}/classes/new`);
+    const visibility = o.getByRole('group', { name: 'Ai thấy lớp' });
+    await visibility.waitFor({ timeout: 10000 });
+    if ((await visibility.getByRole('button', { name: /^Công khai/ }).getAttribute('aria-pressed')) !== 'true') throw new Error('mặc định phải là Công khai');
+    const created = await createClassViaUI(o, { title: TITLE, category: 'Ôn thi', visibility: 'PRIVATE' });
+    SLUG = created.slug;
+    if (SLUG !== `e2e5-lop-${RUN}`) throw new Error(`slug ${SLUG} (mong đợi e2e5-lop-${RUN})`);
     await o.getByTestId('badge-private').waitFor({ timeout: 10000 });
     CLASS_ID = (await must('GET', `/classes/slug/${SLUG}`, { token: ownerToken })).id;
+    if (CLASS_ID !== created.classId) throw new Error(`classId ${created.classId} != ${CLASS_ID}`);
     const anon = await api('GET', `/classes/slug/${SLUG}`);
     if (anon.status !== 404) throw new Error(`khách xem được lớp riêng: ${anon.status}`);
     const list = await api('GET', '/classes?page=0&size=100');
@@ -552,7 +574,7 @@ const DAY = 24 * 60 * 60 * 1000;
     const cls = await must('GET', `/classes/slug/${SLUG}`, { token });
     const days = (Date.parse(cls.accessExpiresAt) - Date.now()) / DAY;
     if (cls.memberState !== 'ACTIVE' || days < 6 || days > 7.1) throw new Error(`${cls.memberState} ${days}`);
-    // hạn còn <= 7 ngày: chip "Sắp hết hạn" dịu kèm liên kết Gia hạn (tới tab Cửa hàng, nơi "Gia hạn thêm" dùng được)
+    // hạn còn <= 7 ngày: chip "Sắp hết hạn" dịu kèm liên kết Gia hạn (tới tab Shop, nơi "Gia hạn thêm" dùng được)
     const chip = j.getByTestId('expiry-chip');
     await chip.waitFor({ timeout: 10000 });
     if (!/Sắp hết hạn/.test(await chip.innerText())) throw new Error('chip không ghi Sắp hết hạn');
@@ -616,12 +638,24 @@ const DAY = 24 * 60 * 60 * 1000;
   await step('P6', 'axe: khám phá với chip lọc + hộp thoại tạo lớp, Studio Cài đặt (xác nhận mở), Thành viên (mã mời + hộp thoại liên kết + hộp thoại thu hồi)', o, async () => {
     const results = [];
     await o.goto(`${BASE}/classes`);
-    await classCard(o, PAID_TITLE).waitFor({ timeout: 15000 });
+    await homeReady(o);
     results.push(`explore ${await axe(o, 'explore-owner')}`);
-    await o.getByRole('button', { name: 'Tạo lớp học mới' }).click();
-    await o.getByRole('dialog', { name: 'Tạo lớp học mới' }).waitFor();
-    results.push(`create-dialog ${await axe(o, 'create-class-dialog')}`);
-    await o.keyboard.press('Escape');
+    await openCatalog(o);
+    await classCard(o, PAID_TITLE).waitFor({ timeout: 15000 });
+    await o.getByRole('group', { name: 'Lọc theo học phí' }).waitFor();
+    results.push(`catalog ${await axe(o, 'explore-catalog-chips')}`);
+    await o.getByRole('button', { name: 'Về trang chủ' }).click();
+    await o.getByRole('link', { name: 'Tạo lớp học mới' }).click();
+    await o.waitForURL(/\/classes\/new$/);
+    await o.getByRole('heading', { name: 'Tạo lớp học', level: 1 }).waitFor();
+    results.push(`create-page ${await axe(o, 'create-class-page')}`);
+    await o.getByRole('group', { name: 'Học phí' }).getByRole('button', { name: /^Có phí/ }).click();
+    await o.getByLabel('Phí mỗi tháng · bắt buộc').waitFor();
+    await o.waitForTimeout(400); // ô phí hiện bằng hiệu ứng mờ dần 0.25 s - đo độ tương phản sau khi hiệu ứng xong
+    results.push(`create-page-paid ${await axe(o, 'create-class-page-paid')}`);
+    await o.getByRole('button', { name: 'Xem trên điện thoại' }).click();
+    await o.getByTestId('preview-mobile').waitFor();
+    results.push(`create-page-phone-preview ${await axe(o, 'create-class-page-phone-preview')}`);
     await o.goto(`${BASE}/studio/classes/${CLASS_ID}/settings`);
     await o.getByRole('region', { name: /Hiển thị & tham gia/ }).waitFor({ timeout: 15000 });
     await o.getByRole('region', { name: /Hiển thị & tham gia/ }).getByRole('radio', { name: /Công khai/ }).check();
@@ -682,7 +716,14 @@ const DAY = 24 * 60 * 60 * 1000;
     await check('invite-invalid', `${BASE}/join/${'z'.repeat(32)}`, (p) => p.getByRole('heading', { name: 'Mã mời không hợp lệ hoặc đã hết hạn' }).waitFor({ timeout: 15000 }));
     await check('paywall', `${BASE}/classes/${PAID_SLUG}/feed`, (p) => p.getByTestId('paywall-card').waitFor({ timeout: 15000 }), (p) => p.getByRole('button', { name: 'Đăng nhập để mua' }));
     await check('not-found', `${BASE}/classes/${PRIVATE_SLUG}`, (p) => p.getByRole('heading', { name: 'Không tìm thấy lớp học' }).waitFor({ timeout: 15000 }));
-    await check('explore', `${BASE}/classes`, (p) => classCard(p, PAID_TITLE).waitFor({ timeout: 15000 }));
+    await check('explore', `${BASE}/classes`, (p) => homeReady(p));
+    // trang tạo lớp toàn màn hình: ở 390px cột xem trước ẩn, ô ảnh nằm trong form; nút "Tạo lớp học" nằm trọn trong màn hình
+    await demoLogin(m.page, OWNER);
+    await check('create-class', `${BASE}/classes/new`, async (p) => {
+      await p.getByRole('heading', { name: 'Tạo lớp học', level: 1 }).waitFor({ timeout: 15000 });
+      await p.getByTestId('narrow-media').waitFor({ timeout: 5000 });
+    }, (p) => p.getByRole('button', { name: 'Tạo lớp học', exact: true }));
+    await check('explore-catalog', `${BASE}/classes`, async (p) => { await openCatalog(p); await classCard(p, PAID_TITLE).waitFor({ timeout: 15000 }); });
     // người đã đăng nhập: thẻ gia hạn + studio
     const mo = await person('mobile-owner', { width: 390, height: 844 });
     await demoLogin(mo.page, OWNER);
@@ -725,6 +766,66 @@ const DAY = 24 * 60 * 60 * 1000;
     if (ov2.over > 1) throw new Error(`renewal-banner: tràn ngang ${ov2.over}px`);
     await shot(m.page, 'P7-renewal-banner-mobile');
     return `axe ${axeResult}`;
+  });
+
+  // =========================== P9: duyệt thành viên (lớp hạt giống lop-duyet-thanh-vien) ===========================
+  // Dùng một người dùng MỚI mỗi lần chạy (student.free sẽ thành thành viên sau lần chạy đầu, nên không lặp lại được).
+  const APPROVAL_SLUG = 'lop-duyet-thanh-vien';
+  const APPROVAL_TITLE = 'Lớp Duyệt Thành Viên';
+  let applicant = null;
+  let APPROVAL_ID = null;
+  await step('P9', 'lớp cần duyệt: "Xin tham gia" -> trạng thái "Chờ duyệt" (vẫn chưa là thành viên, tab thành viên còn khóa, F5 giữ nguyên)', null, async () => {
+    applicant = await newUser('applicant');
+    const a = applicant.page;
+    await a.goto(`${BASE}/classes/${APPROVAL_SLUG}/feed`);
+    const join = a.getByRole('region', { name: 'Tham gia lớp học' });
+    await join.waitFor({ timeout: 15000 });
+    await join.getByText('Cần duyệt', { exact: true }).waitFor({ timeout: 5000 });
+    const [resp] = await Promise.all([
+      a.waitForResponse((r) => r.request().method() === 'POST' && /\/classes\/[^/]+\/join$/.test(r.url()), { timeout: 10000 }),
+      join.getByRole('button', { name: 'Xin tham gia' }).click(),
+    ]);
+    if (resp.status() !== 200) throw new Error(`POST join -> ${resp.status()}`);
+    const pending = a.getByTestId('join-pending');
+    await pending.waitFor({ timeout: 10000 });
+    await pending.getByText(/chờ người dẫn dắt duyệt/).waitFor();
+    await a.getByTestId('badge-pending').filter({ hasText: 'Chờ duyệt' }).waitFor({ timeout: 5000 });
+    if (await a.getByRole('link', { name: 'Thi', exact: true }).count()) throw new Error('tab Thi mở được khi đang chờ duyệt');
+    await a.reload();
+    await a.getByTestId('join-pending').waitFor({ timeout: 10000 });
+    applicant.token = await apiLogin(applicant.user.email, PASSWORD);
+    const cls = await must('GET', `/classes/slug/${APPROVAL_SLUG}`, { token: applicant.token });
+    if (cls.memberState !== 'PENDING' || cls.isMember) throw new Error(`memberState=${cls.memberState} isMember=${cls.isMember}`);
+    APPROVAL_ID = cls.id;
+    const members = await api('GET', `/classes/${APPROVAL_ID}/members`, { token: applicant.token });
+    if (members.status !== 403) throw new Error(`người chờ duyệt đọc được danh sách thành viên: ${members.status}`);
+    await shot(a, 'P9-pending');
+    return 'PENDING';
+  });
+  await step('P9', 'chủ lớp duyệt trong Studio > Thành viên (mục "Chờ duyệt") -> người xin vào thành thành viên, tab mở khóa', o, async () => {
+    await o.setViewportSize({ width: 1366, height: 900 });
+    await o.goto(`${BASE}/studio/classes/${APPROVAL_ID}/members`);
+    const requests = o.getByRole('list', { name: 'Yêu cầu tham gia' });
+    const row = requests.locator('li', { hasText: applicant.user.name });
+    await row.waitFor({ timeout: 15000 });
+    await shot(o, 'P9-studio-requests');
+    const [resp] = await Promise.all([
+      o.waitForResponse((r) => r.request().method() !== 'GET' && /approve/.test(r.url()), { timeout: 10000 }),
+      row.getByRole('button', { name: `Duyệt ${applicant.user.name}` }).click(),
+    ]);
+    if (resp.status() !== 200) throw new Error(`approve -> ${resp.status()}`);
+    await row.waitFor({ state: 'detached', timeout: 10000 });
+    const a = applicant.page;
+    await a.reload();
+    await a.getByRole('heading', { name: APPROVAL_TITLE, level: 1 }).waitFor({ timeout: 10000 });
+    await a.getByRole('link', { name: 'Thi', exact: true }).waitFor({ timeout: 10000 });
+    if (await a.getByTestId('join-pending').count()) throw new Error('vẫn hiện "Chờ duyệt" sau khi được duyệt');
+    if (await a.getByTestId('badge-pending').count()) throw new Error('nhãn "Chờ duyệt" vẫn còn trên ảnh bìa');
+    const cls = await must('GET', `/classes/slug/${APPROVAL_SLUG}`, { token: applicant.token });
+    if (cls.memberState !== 'ACTIVE' || !cls.isMember) throw new Error(`memberState=${cls.memberState} isMember=${cls.isMember}`);
+    await a.goto(`${BASE}/classes/${APPROVAL_SLUG}/members`);
+    await a.getByRole('heading', { name: /Thành viên/ }).first().waitFor({ timeout: 10000 });
+    return `ACTIVE (${resp.url().replace(/^.*\/api\/v1/, '')})`;
   });
 
   // =========================== P8: sự kiện trình duyệt ===========================

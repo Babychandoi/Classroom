@@ -53,8 +53,10 @@ describe('ClassesPage paging (R16-08)', () => {
     const requested = mockPages([makeClasses(0, 3)]);
     render(<ClassesPage />);
 
-    await waitFor(() => expect(screen.getByText('Lớp số 0')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText('Lớp số 0').length).toBeGreaterThan(0));
     expect(requested[0]).toContain(`page=0&size=${CLASSES_PAGE_SIZE}`);
+    fireEvent.click(screen.getByRole('button', { name: 'Xem tất cả lớp học' }));
+    await waitFor(() => expect(screen.getByText('Lớp số 0')).toBeInTheDocument());
     expect(screen.queryByText('Xem thêm lớp học')).not.toBeInTheDocument();
   });
 
@@ -66,11 +68,14 @@ describe('ClassesPage paging (R16-08)', () => {
     ]);
     render(<ClassesPage />);
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Xem tất cả lớp học' }));
     const more = await screen.findByText('Xem thêm lớp học');
     fireEvent.click(more);
 
     await waitFor(() => expect(screen.getByText(`Lớp số ${CLASSES_PAGE_SIZE + 1}`)).toBeInTheDocument());
-    expect(requested[1]).toContain(`page=1&size=${CLASSES_PAGE_SIZE}`);
+    // (the curated rails ask for their own small pages; only the catalog pages are counted here)
+    const catalogPages = requested.filter((url) => url.includes(`size=${CLASSES_PAGE_SIZE}`));
+    expect(catalogPages[1]).toContain(`page=1&size=${CLASSES_PAGE_SIZE}`);
     expect(screen.getAllByText(`Lớp số ${CLASSES_PAGE_SIZE - 1}`)).toHaveLength(1);
     // The second page was short, so the button is gone.
     expect(screen.queryByText('Xem thêm lớp học')).not.toBeInTheDocument();

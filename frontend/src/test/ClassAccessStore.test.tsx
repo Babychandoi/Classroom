@@ -98,7 +98,7 @@ describe('StudioStore - the class-access product is not a normal product', () =>
     render(<StudioStore />);
 
     await waitFor(() => expect(screen.getByText('Gói PRO 30 ngày')).toBeInTheDocument());
-    expect(screen.getByText('Sản phẩm (1)')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Sản phẩm (1)' })).toBeInTheDocument();
     // only the standard product has product actions
     expect(screen.getAllByRole('button', { name: /Sửa/ })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Gỡ bán' })).toHaveLength(1);
@@ -125,7 +125,7 @@ describe('StudioStore - the class-access product is not a normal product', () =>
 
     const card = await screen.findByTestId('class-access-card');
     expect(card).toHaveTextContent('Lớp đang miễn phí');
-    expect(screen.getByText('Sản phẩm (0)')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Sản phẩm (0)' })).toBeInTheDocument();
   });
 
   it('shows no card for a class that never charged, and lifetime reads "trọn đời"', async () => {
@@ -221,15 +221,15 @@ describe('StoreTab - the class-access product for learners', () => {
 
   it('in a paid class a person who is not a member cannot buy the other products yet', async () => {
     await mount(nonMember);
-    const standardCard = screen.getByText('Gói PRO 30 ngày').closest('div.rounded-3xl') as HTMLElement;
+    const standardCard = screen.getByText('Gói PRO 30 ngày').closest('[data-testid="store-product"]') as HTMLElement;
     const button = within(standardCard).getByRole('button', { name: 'Cần là thành viên' });
     expect(button).toBeDisabled();
     expect(standardCard).toHaveTextContent('Hãy mua gói vào lớp trước');
   });
 
-  it('a FREE class keeps the plain "Mua ngay" on ordinary products (unchanged)', async () => {
+  it('a FREE class keeps the plain "Nhận quyền lợi" (formerly "Mua ngay") on ordinary products', async () => {
     await mount({ id: 'class-1', ownerId: 'o', slug: 's', title: 't', status: 'ACTIVE', memberCount: 1, createdAt: '' } as Classroom, [standard]);
-    expect(screen.getByRole('button', { name: 'Mua ngay' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Nhận quyền lợi' })).toBeEnabled();
   });
 
   it('says "Tạm chưa hỗ trợ thanh toán" on the class-access card where there is no payment rail', async () => {

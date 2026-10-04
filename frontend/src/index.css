@@ -2,8 +2,74 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+@layer base {
+  html, body {
+    background: #F8FAFC;
+  }
+  body {
+    font-family: 'Inter Variable', 'Inter', -apple-system, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+    color: #0F172A;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  input, textarea, select, button {
+    font-family: inherit;
+  }
+  input::placeholder, textarea::placeholder {
+    color: #94A3B8;
+  }
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible,
+  [role="tab"]:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid #2563EB;
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: #DBEAFE;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Horizontal strips (tabs, chip rows, rails) scroll without a visible scrollbar. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  /* Sticky top bar - the only place the design allows blur. */
+  .glass-bar {
+    background: rgba(255, 255, 255, 0.92);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+  .cover-gradient {
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.10) 12%, rgba(15, 23, 42, 0.82) 100%);
+  }
+  .chip-glass {
+    background: rgba(255, 255, 255, 0.16);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .card-hover {
+    transition: transform 200ms cubic-bezier(0, 0, 0.2, 1), box-shadow 200ms cubic-bezier(0, 0, 0.2, 1);
+  }
+  .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.10);
+  }
+  .press:active {
+    transform: scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-hover, .card-hover:hover {
+    transition: none;
+    transform: none;
+  }
 }
 
 /* Custom scrollbar */
@@ -12,12 +78,12 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #F1F5F9;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #CBD5E1;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #94A3B8;
 }

@@ -42,4 +42,47 @@ public interface ClassroomRepository extends JpaRepository<Classroom, String> {
             + " OR EXISTS (SELECT 1 FROM StaffAssignment s WHERE s.classId = c.id AND s.userId = :userId AND UPPER(s.status) = 'ACTIVE')"
             + " OR EXISTS (SELECT 1 FROM ClassMember m WHERE m.classId = c.id AND m.userId = :userId AND UPPER(m.state) IN ('ACTIVE', 'EXPIRED'))")
     List<Classroom> findVisibleToUser(@Param("userId") String userId, Pageable pageable);
+
+    /**
+     * D-27: {@link #findPubliclyVisible} narrowed by a search - {@code pattern} is a lower-cased LIKE pattern matched against the title or
+     * the description ("%" = no search). Order comes from the pageable (newest first).
+     */
+    @Query("SELECT c FROM Classroom c WHERE UPPER(c.status) = 'ACTIVE' AND UPPER(c.visibility) <> 'PRIVATE'"
+            + " AND (:pattern = '%' OR LOWER(c.title) LIKE :pattern OR LOWER(c.description) LIKE :pattern)"
+            + " AND (:category = '' OR c.category = :category)")
+    List<Classroom> searchPubliclyVisible(@Param("pattern") String pattern, @Param("category") String category, Pageable pageable);
+
+    /** D-27: {@link #findVisibleToUser} narrowed by a search (see {@link #searchPubliclyVisible}). */
+    @Query("SELECT c FROM Classroom c WHERE ((UPPER(c.status) = 'ACTIVE' AND UPPER(c.visibility) <> 'PRIVATE') OR c.ownerId = :userId"
+            + " OR EXISTS (SELECT 1 FROM StaffAssignment s WHERE s.classId = c.id AND s.userId = :userId AND UPPER(s.status) = 'ACTIVE')"
+            + " OR EXISTS (SELECT 1 FROM ClassMember m WHERE m.classId = c.id AND m.userId = :userId AND UPPER(m.state) IN ('ACTIVE', 'EXPIRED')))"
+            + " AND (:pattern = '%' OR LOWER(c.title) LIKE :pattern OR LOWER(c.description) LIKE :pattern)"
+            + " AND (:category = '' OR c.category = :category)")
+    List<Classroom> searchVisibleToUser(@Param("userId") String userId, @Param("pattern") String pattern, @Param("category") String category,
+                                        Pageable pageable);
+
+    /**
+     * D-27: {@code sort=popular} for a guest - the publicly visible classes ordered by their CURRENT active member count (the same rule as
+     * {@code ClassMemberRepository#ACTIVE_AT}), newest first on a tie. Native SQL because the order is a correlated count; pass an
+     * unsorted pageable (only offset / limit are applied).
+     */
+    @Query(nativeQuery = true, value = "SELECT c.* FROM classrooms c WHERE UPPER(c.status) = 'ACTIVE' AND UPPER(c.visibility) <> 'PRIVATE'"
+            + " AND (:pattern = '%' OR LOWER(c.title) LIKE :pattern OR LOWER(c.description) LIKE :pattern)"
+            + " AND (:category = '' OR c.category = :category)"
+            + " ORDER BY (SELECT COUNT(*) FROM class_members m WHERE m.class_id = c.id AND m.state = 'ACTIVE'"
+            + " AND (m.access_expires_at IS NULL OR m.access_expires_at > :now)) DESC, c.created_at DESC, c.id ASC")
+    List<Classroom> searchPubliclyVisibleByPopularity(@Param("pattern") String pattern, @Param("category") String category,
+                                                      @Param("now") java.time.Instant now, Pageable pageable);
+
+    /** D-27: {@code sort=popular} for a signed-in user (visibility as in {@link #findVisibleToUser}). */
+    @Query(nativeQuery = true, value = "SELECT c.* FROM classrooms c WHERE ((UPPER(c.status) = 'ACTIVE' AND UPPER(c.visibility) <> 'PRIVATE') OR c.owner_id = :userId"
+            + " OR EXISTS (SELECT 1 FROM staff_assignments s WHERE s.class_id = c.id AND s.user_id = :userId AND UPPER(s.status) = 'ACTIVE')"
+            + " OR EXISTS (SELECT 1 FROM class_members m2 WHERE m2.class_id = c.id AND m2.user_id = :userId AND UPPER(m2.state) IN ('ACTIVE', 'EXPIRED')))"
+            + " AND (:pattern = '%' OR LOWER(c.title) LIKE :pattern OR LOWER(c.description) LIKE :pattern)"
+            + " AND (:category = '' OR c.category = :category)"
+            + " ORDER BY (SELECT COUNT(*) FROM class_members m WHERE m.class_id = c.id AND m.state = 'ACTIVE'"
+            + " AND (m.access_expires_at IS NULL OR m.access_expires_at > :now)) DESC, c.created_at DESC, c.id ASC")
+    List<Classroom> searchVisibleToUserByPopularity(@Param("userId") String userId, @Param("pattern") String pattern,
+                                                    @Param("category") String category,
+                                                    @Param("now") java.time.Instant now, Pageable pageable);
 }

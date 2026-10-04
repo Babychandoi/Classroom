@@ -151,14 +151,23 @@ class PrivateClassHttpExposureTest {
         r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/products", null, true));
         r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/posts", null, true));
         r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/posts?size=5&cursor=abc", null, true));
+        // D-27: blog and events
+        r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/blog-posts", null, true));
+        r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/blog-posts?status=ALL&category=x", null, true));
+        r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/blog-categories", null, true));
+        r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/events", null, true));
+        r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/events?scope=past", null, true));
         // member-only reads
         r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/members", null, false));
         r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/leaderboard", null, false));
+        r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/leaderboard/tiers", null, false));
         r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/documents", null, false));
         r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/courses", null, false));
         r.add(new Route(HttpMethod.GET, "/api/v1/classes/{id}/exams", null, false));
         // writes
         r.add(new Route(HttpMethod.POST, "/api/v1/classes/{id}/join", null, false));
+        r.add(new Route(HttpMethod.POST, "/api/v1/classes/{id}/blog-posts", "{\"title\":\"x\",\"contentMarkdown\":\"y\",\"audience\":\"PUBLIC\"}", false));
+        r.add(new Route(HttpMethod.POST, "/api/v1/classes/{id}/events", "{\"title\":\"x\",\"format\":\"ONLINE\",\"startsAt\":\"2030-01-01T10:00:00Z\",\"endsAt\":\"2030-01-01T11:00:00Z\",\"audience\":\"PUBLIC\"}", false));
         r.add(new Route(HttpMethod.POST, "/api/v1/classes/{id}/posts", "{\"title\":\"x\",\"contentMarkdown\":\"y\",\"visibility\":\"FREE\"}", false));
         r.add(new Route(HttpMethod.PUT, "/api/v1/classes/{id}", "{\"title\":\"hijack\"}", false));
         r.add(new Route(HttpMethod.PUT, "/api/v1/classes/{id}/access", "{\"accessType\":\"PAID\",\"price\":1000,\"durationDays\":1}", false));

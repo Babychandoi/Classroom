@@ -62,6 +62,24 @@ public class MemberController {
         return ResponseEntity.ok(ApiResponse.ok(dto));
     }
 
+    /** D-28: approve a PENDING join request (MEMBER:EDIT). */
+    @PostMapping("/{userId}/approve")
+    public ResponseEntity<ApiResponse<ClassMemberDto>> approveRequest(
+            @PathVariable String classId,
+            @PathVariable String userId,
+            @CurrentUser UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(memberService.approveRequest(classId, userId, principal.getId())));
+    }
+
+    /** D-28: reject a PENDING join request (MEMBER:EDIT); the row is deleted. */
+    @PostMapping("/{userId}/reject")
+    public ResponseEntity<ApiResponse<ClassMemberDto>> rejectRequest(
+            @PathVariable String classId,
+            @PathVariable String userId,
+            @CurrentUser UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(memberService.rejectRequest(classId, userId, principal.getId())));
+    }
+
     @PostMapping("/{userId}/unblock")
     public ResponseEntity<ApiResponse<ClassMemberDto>> unblockMember(
             @PathVariable String classId,

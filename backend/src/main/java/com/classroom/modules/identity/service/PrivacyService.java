@@ -43,7 +43,11 @@ public class PrivacyService {
                 Map.entry("lessonAnswers", "SELECT * FROM lesson_answers WHERE user_id=? ORDER BY id"),
                 Map.entry("assignments", "SELECT * FROM assignment_submissions WHERE user_id=? ORDER BY id"),
                 Map.entry("posts", "SELECT * FROM posts WHERE author_id=? ORDER BY id"),
-                Map.entry("comments", "SELECT * FROM comments WHERE author_id=? ORDER BY id")
+                Map.entry("comments", "SELECT * FROM comments WHERE author_id=? ORDER BY id"),
+                // D-27: blog posts written, events created or hosted, and own event registrations.
+                Map.entry("blogPosts", "SELECT * FROM blog_posts WHERE author_id=? ORDER BY id"),
+                Map.entry("events", "SELECT * FROM class_events WHERE ? IN (created_by, host_user_id) ORDER BY id"),
+                Map.entry("eventRegistrations", "SELECT r.id,r.event_id,e.class_id,e.title,e.starts_at,e.ends_at,r.registered_at FROM class_event_registrations r JOIN class_events e ON e.id=r.event_id WHERE r.user_id=? ORDER BY r.id")
         ).entrySet()) {
             var rows = jdbc.queryForList(entry.getValue() + " LIMIT 1001 OFFSET ?", userId, offset);
             more |= rows.size() > 1000;
@@ -64,6 +68,23 @@ public class PrivacyService {
         jdbc.update("INSERT INTO privacy_requests (user_id,id,status,reason,created_at,updated_at) VALUES (?,?,'PENDING',?,?,?)", userId, UUID.randomUUID().toString(), reason, now, now);
         return jdbc.queryForMap("SELECT * FROM privacy_requests WHERE user_id=?", userId);
     }
+    /**
+     * D-27: a closed account frees its seats in events that have not ended. Same lock order as EventService.register (event row FOR UPDATE,
+     * then the registration row), so registered_count stays equal to the number of registration rows. Registrations of past events stay
+     * as attendance history attached to the anonymised user.
+     */
+    private void releaseUpcomingEventRegistrations(String userId) {
+        List<String> eventIds = jdbc.queryForList("SELECT r.event_id FROM class_event_registrations r JOIN class_events e ON e.id=r.event_id"
+                + " WHERE r.user_id=? AND e.ends_at>=? ORDER BY r.event_id", String.class, userId, Timestamp.from(Instant.now()));
+        for (String eventId : eventIds) {
+            jdbc.queryForList("SELECT id FROM class_events WHERE id=? FOR UPDATE", eventId);
+            int deleted = jdbc.update("DELETE FROM class_event_registrations WHERE event_id=? AND user_id=?", eventId, userId);
+            if (deleted > 0) {
+                jdbc.update("UPDATE class_events SET registered_count=GREATEST(registered_count-?,0) WHERE id=?", deleted, eventId);
+            }
+        }
+    }
+
     @Transactional(readOnly = true)
     public List<Map<String, Object>> requests(String userId, boolean admin) {
         return admin ? jdbc.queryForList("SELECT * FROM privacy_requests ORDER BY created_at LIMIT 1000")
@@ -83,6 +104,8 @@ public class PrivacyService {
             jdbc.update("DELETE FROM refresh_tokens WHERE user_id=?", userId);
             var memberships = jdbc.queryForList("SELECT class_id FROM class_members WHERE user_id=? AND state='ACTIVE'", userId);
             for (var member : memberships) outbox.recordEvent("Class", member.get("class_id").toString(), "MEMBER_REMOVED", Map.of("userId", userId, "classId", member.get("class_id")));
+            // D-28: a pending join request is not a membership - it simply disappears (no REMOVED row left behind).
+            jdbc.update("DELETE FROM class_members WHERE user_id=? AND state='PENDING'", userId);
             jdbc.update("UPDATE class_members SET state='REMOVED' WHERE user_id=?", userId);
             jdbc.update("UPDATE staff_assignments SET status='INACTIVE' WHERE user_id=?", userId);
             jdbc.update("UPDATE posts SET title='Nội dung đã xóa',content_markdown='Nội dung đã xóa theo yêu cầu của tác giả',status='ARCHIVED' WHERE author_id=?", userId);
@@ -90,6 +113,9 @@ public class PrivacyService {
             jdbc.update("UPDATE lesson_questions SET author_name='Tài khoản đã xóa',question_text='Câu hỏi đã xóa theo yêu cầu' WHERE user_id=?", userId);
             jdbc.update("UPDATE lesson_answers SET author_name='Tài khoản đã xóa',answer_text='Nội dung đã xóa theo yêu cầu' WHERE user_id=?", userId);
             jdbc.update("UPDATE privacy_requests SET reason=NULL WHERE user_id=?", userId);
+            releaseUpcomingEventRegistrations(userId);
+            // D-27: blog posts and events the user authored / hosts stay as class content; their byline / host follows the anonymised
+            // user row above (docs/DATA_POLICY.md).
         }
         jdbc.update("UPDATE privacy_requests SET status=?,resolution=?,resolved_by=?,updated_at=? WHERE user_id=?", status, resolution, adminId, Timestamp.from(Instant.now()), userId);
         try { audit.record(null, adminId, "PRIVACY_REQUEST_RESOLVE", "USER", userId, new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(Map.of("status", status, "resolution", resolution))); }

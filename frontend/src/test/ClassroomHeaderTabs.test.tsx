@@ -40,9 +40,9 @@ const classroom: Classroom = {
 } as Classroom;
 
 const TAB_WIDTH = 100;
-const TAB_ORDER = ['feed', 'learn', 'exams', 'leaderboard', 'documents', 'members', 'about', 'store'];
+const TAB_ORDER = ['blog', 'feed', 'learn', 'exams', 'events', 'documents', 'members', 'store', 'leaderboard', 'about'];
 
-// 8 tabs of 100px each; a strip 300px wide shows 3 of them. jsdom itself defines offsetWidth/offsetLeft on
+// 10 tabs of 100px each; a strip 300px wide shows 3 of them. jsdom itself defines offsetWidth/offsetLeft on
 // HTMLElement.prototype, so the originals are kept and put back after each test.
 const FAKED = ['clientWidth', 'scrollWidth', 'offsetWidth', 'offsetLeft'] as const;
 const originals = new Map<string, PropertyDescriptor | undefined>(
@@ -62,7 +62,7 @@ const geometry = (clientWidth: number, scrollWidth: number) => {
   });
 };
 
-const tabStrip = () => screen.getByText('Bảng tin').closest('a')!.parentElement as HTMLElement;
+const tabStrip = () => screen.getByText('Thảo luận').closest('a')!.parentElement as HTMLElement;
 
 describe('ClassroomHeader tab strip scroll affordance (R17-05)', () => {
   afterEach(() => {
@@ -108,7 +108,7 @@ describe('ClassroomHeader tab strip scroll affordance (R17-05)', () => {
 
   it('scrolls a hidden active tab into view on arrival, then leaves the strip alone while the person scrolls it', () => {
     geometry(300, 800);
-    activePath = '/classes/demo-class/store'; // the last tab: offsetLeft 700, hidden beyond the first 300px
+    activePath = '/classes/demo-class/store'; // the 8th tab: offsetLeft 700, hidden beyond the first 300px
     render(<ClassroomHeader classroom={classroom} />);
     const strip = tabStrip();
 
@@ -125,9 +125,50 @@ describe('ClassroomHeader tab strip scroll affordance (R17-05)', () => {
 
   it('does not move a strip whose active tab is already fully visible', () => {
     geometry(300, 800);
-    activePath = '/classes/demo-class/learn'; // offsetLeft 100..200, inside 0..300
+    activePath = '/classes/demo-class/feed'; // offsetLeft 100..200, inside 0..300
     render(<ClassroomHeader classroom={classroom} />);
 
     expect(tabStrip().scrollLeft).toBe(0);
+  });
+});
+
+describe('ClassroomHeader tab set (design order, labels, locking)', () => {
+  const links = () => screen.getAllByRole('link').filter((a) => (a.getAttribute('href') ?? '').startsWith('/classes/demo-class/'));
+
+  it('shows the ten tabs in the design order with the design labels; route paths are unchanged', () => {
+    render(<ClassroomHeader classroom={classroom} />);
+    expect(links().map((a) => a.textContent)).toEqual([
+      'Blog', 'Thảo luận', 'Khóa học', 'Thi', 'Sự kiện', 'Tài liệu', 'Thành viên', 'Shop', 'Bảng xếp hạng', 'Giới thiệu',
+    ]);
+    expect(links().map((a) => a.getAttribute('href')?.split('/').pop())).toEqual(TAB_ORDER);
+  });
+
+  it('renders locked tabs as non-links with a lock and a spoken "dành cho thành viên"', () => {
+    render(<ClassroomHeader classroom={classroom} lockedTabs={['learn', 'exams', 'leaderboard', 'documents', 'members']} />);
+    expect(links().map((a) => a.textContent)).toEqual(['Blog', 'Thảo luận', 'Sự kiện', 'Shop', 'Giới thiệu']);
+    const locked = screen.getByText('Khóa học').closest('span[aria-disabled="true"]') as HTMLElement;
+    expect(locked).toBeInTheDocument();
+    expect(locked).toHaveTextContent('(dành cho thành viên)');
+    expect(locked.closest('a')).toBeNull();
+  });
+
+  it('allowedTabs cuts the strip down (an EXPIRED member keeps Shop + Giới thiệu only)', () => {
+    render(<ClassroomHeader classroom={classroom} allowedTabs={['about', 'store']} />);
+    expect(links().map((a) => a.textContent)).toEqual(['Shop', 'Giới thiệu']);
+  });
+
+  it('hides the strip entirely for a blocked person', () => {
+    render(<ClassroomHeader classroom={classroom} hideTabs />);
+    expect(screen.queryByRole('navigation', { name: 'Các khu vực trong lớp học' })).not.toBeInTheDocument();
+  });
+
+  it('labels an ACTIVE member "Đã tham gia" and links OWNER/STAFF to the Studio', () => {
+    const view = render(<ClassroomHeader classroom={{ ...classroom, isMember: true, memberState: 'ACTIVE' }} />);
+    expect(screen.getByText('Đã tham gia')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Studio quản trị/ })).not.toBeInTheDocument();
+    view.unmount();
+    render(<ClassroomHeader classroom={{ ...classroom, isMember: true, isOwner: true, userRole: 'OWNER' }} />);
+    expect(screen.getByRole('link', { name: /Studio quản trị/ })).toHaveAttribute('href', '/studio/classes/class-1');
+    expect(screen.queryByText('Đã tham gia')).not.toBeInTheDocument();
   });
 });

@@ -7,8 +7,8 @@
 //   G2  R18-01 quét mọi hộp thoại còn lại (lớp/khóa học/kỳ thi/sản phẩm/phân khúc) ở màn hình thấp 1024x420
 //   G3  R18-04 thứ tự khóa học = thứ tự tạo, đổi chỗ bằng mũi tên và giữ sau khi tải lại
 //   G4  R18-07 + R18-06 xóa khóa học đang có quyền trợ giảng gắn riêng -> 409 nêu tên, chỉ hiện trong đúng thẻ khóa
-//   G5  R18-03 Góc học tập: Tab tới từng thẻ khóa học, Enter để chọn
-//   G6  R18-05 Cài đặt lớp: thông báo "Đã lưu…" hiện ra và trang không bị dựng lại
+//   G5  R18-03 Khóa học: Tab tới từng thẻ khóa học, Enter để chọn
+//   G6  R18-05 Studio > Cài đặt: thông báo "Đã lưu…" hiện ra và trang không bị dựng lại
 //   G7  R18-10 khách ở các tab dành cho thành viên thấy lời mời đăng nhập, không có 401, quay lại đúng trang sau khi đăng nhập
 //   G8  R18-09 mất mạng -> thông báo tiếng Việt thay cho "Failed to fetch"
 //   G9  R18-02 15 lần POST /auth/refresh liên tiếp (trải qua > 60s) đều < 1s
@@ -49,7 +49,7 @@ const overlay = (page) => page.locator('[data-modal-overlay]').first();
 
 /** Course titles in list order (Studio courses page: every course card has an h3). */
 const courseTitles = async (page) => (await page.locator('main h3').allInnerTexts()).map((t) => t.trim());
-const cardOf = (page, title) => page.locator('div.p-6', { has: page.locator('h3', { hasText: title }) }).first();
+const cardOf = (page, title) => page.locator('article', { has: page.locator('h3', { hasText: title }) }).first();
 
 (async () => {
   const browser = await launchBrowser();
@@ -82,7 +82,10 @@ const cardOf = (page, title) => page.locator('div.p-6', { has: page.locator('h3'
   });
 
   // ---------------- G1: hộp thoại phân quyền trợ giảng ----------------
-  const staffRow = () => owner.locator('div.p-5', { has: owner.locator('span', { hasText: STAFF.name }) }).first();
+  const staffRow = () => owner.locator('li', { has: owner.locator('span', { hasText: STAFF.name }) }).first();
+  // Hộp thoại phân quyền giờ ghi tên khu vực/quyền bằng tiếng Việt (legend của fieldset = tên khu vực, nhãn ô = tên quyền);
+  // quyền lưu xuống vẫn là MODULE:ACTION (kiểm ở payload PUT và ở nhãn trong danh sách).
+  const MODULE_LEGEND = { STUDIO: 'Tổng quan Xưởng', COURSE: 'Khóa học', FEED: 'Bảng tin' };
   await step('G1', '1366x768: the permission dialog is taller than the window yet scrolls; member picker and "Lưu quyền" are reachable with a mouse', owner, async () => {
     await owner.setViewportSize({ width: 1366, height: 768 });
     await owner.goto(studio('staff'));
@@ -103,10 +106,10 @@ const cardOf = (page, title) => page.locator('div.p-6', { has: page.locator('h3'
   await step('G1', '1366x768: pick a member, tick permissions (incl. a course-scoped one) and save with a real mouse click', owner, async () => {
     const panel = dialog(owner);
     await panel.getByLabel('Thành viên').selectOption({ label: STAFF.name });
-    const group = (module) => panel.locator('fieldset', { has: owner.locator('legend', { hasText: new RegExp(`^${module}$`) }) });
-    await group('STUDIO').getByLabel('VIEW', { exact: true }).click();
-    await group('COURSE').getByLabel('PREVIEW', { exact: true }).click();
-    await group('COURSE').locator('label', { hasText: 'EDIT · khóa:' }).locator('select').selectOption({ label: COURSES[0] });
+    const group = (module) => panel.getByRole('group', { name: MODULE_LEGEND[module], exact: true });
+    await group('STUDIO').getByLabel('Xem', { exact: true }).click();
+    await group('COURSE').getByLabel('Chạy thử', { exact: true }).click();
+    await group('COURSE').getByLabel(/^Sửa · khóa:/).selectOption({ label: COURSES[0] });
     await shot(owner, 'G1-staff-dialog-1366');
     const save = await mouseReach(owner, panel.getByRole('button', { name: 'Lưu quyền' }));
     if (!save.ok) throw new Error('Lưu quyền not reachable after filling the form');
@@ -117,6 +120,9 @@ const cardOf = (page, title) => page.locator('div.p-6', { has: page.locator('h3'
     if (resp.status() !== 200) throw new Error(`PUT permissions -> ${resp.status()}`);
     const sent = JSON.parse(resp.request().postData() || '[]');
     if (!sent.some((p) => p.module === 'COURSE' && p.action === 'EDIT' && p.scopeCourseId)) throw new Error(`scoped grant missing from ${JSON.stringify(sent)}`);
+    for (const [m, a] of [['STUDIO', 'VIEW'], ['COURSE', 'PREVIEW']]) {
+      if (!sent.some((p) => p.module === m && p.action === a && !p.scopeCourseId)) throw new Error(`${m}:${a} missing from ${JSON.stringify(sent)}`);
+    }
     await panel.waitFor({ state: 'detached', timeout: 5000 });
     return `${sent.length} grants`;
   });
@@ -142,7 +148,7 @@ const cardOf = (page, title) => page.locator('div.p-6', { has: page.locator('h3'
     await owner.waitForTimeout(250);
     const scrolled = await panel.evaluate((el) => el.scrollTop);
     if (scrolled <= 0) throw new Error('wheel over the dialog did not scroll it');
-    await panel.locator('fieldset', { has: owner.locator('legend', { hasText: /^FEED$/ }) }).getByLabel('VIEW', { exact: true }).click();
+    await panel.getByRole('group', { name: MODULE_LEGEND.FEED, exact: true }).getByLabel('Xem', { exact: true }).click();
     const save = await mouseReach(owner, panel.getByRole('button', { name: 'Lưu quyền' }));
     if (!save.ok) throw new Error(`"Lưu quyền" unreachable on the phone: ${JSON.stringify({ inView: save.inView, hit: save.hit, box: save.box, vp: save.vp })}`);
     await shot(owner, 'G1-staff-dialog-390');
@@ -175,7 +181,6 @@ const cardOf = (page, title) => page.locator('div.p-6', { has: page.locator('h3'
     ['Studio kỳ thi', () => studio('exams'), 'Tạo kỳ thi mới'],
     ['Studio sản phẩm', () => studio('store'), 'Tạo gói sản phẩm mới'],
     ['Studio phân khúc', () => studio('segments'), 'Tạo nhóm phân khúc'],
-    ['Danh sách lớp', () => `${BASE}/classes`, 'Tạo lớp học mới'],
     ['Studio nhân sự', () => studio('staff'), 'Thêm trợ giảng mới'],
   ];
   for (const [label, url, opener] of dialogs) {
@@ -201,6 +206,30 @@ const cardOf = (page, title) => page.locator('div.p-6', { has: page.locator('h3'
       return `panel ${Math.round(info.h)}px, content ${info.sh}px`;
     });
   }
+
+  // Tạo lớp không còn là hộp thoại mà là trang toàn màn hình /classes/new: kiểm tương đương ở cửa sổ thấp - cột form tự cuộn,
+  // nút "Tạo lớp học" (chân cột, cố định) bấm được bằng chuột thật mà không cần cuộn, và điều khiển cuối của form (công tắc
+  // duyệt thành viên) tới được sau khi cuộn cột form.
+  await step('G2', '1024x420 (short window): the /classes/new form column scrolls; "Tạo lớp học" and the last control are reachable', owner, async () => {
+    await owner.setViewportSize({ width: 1024, height: 420 });
+    await owner.goto(`${BASE}/classes/new`);
+    await owner.getByRole('heading', { name: 'Tạo lớp học', level: 1 }).waitFor({ timeout: 10000 });
+    const cta = owner.getByRole('button', { name: 'Tạo lớp học', exact: true });
+    const ctaReach = await mouseReach(owner, cta);
+    if (!ctaReach.ok) throw new Error(`"Tạo lớp học" unreachable: ${JSON.stringify({ inView: ctaReach.inView, hit: ctaReach.hit, box: ctaReach.box })}`);
+    const sw = owner.getByRole('switch', { name: 'Duyệt từng người trước khi vào' });
+    const scroller = await sw.evaluateHandle((el) => { let p = el.parentElement; while (p && !/(auto|scroll)/.test(getComputedStyle(p).overflowY)) p = p.parentElement; return p; });
+    const info = await scroller.evaluate((el) => el && ({ sh: el.scrollHeight, ch: el.clientHeight }));
+    if (!info) throw new Error('the form column has no scroll container');
+    if (info.sh <= info.ch) throw new Error(`form column does not need scrolling at 420px (${info.sh}/${info.ch}) - this step proves nothing`);
+    await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    const swReach = await mouseReach(owner, sw);
+    if (!swReach.ok) throw new Error(`approval switch unreachable after scrolling: ${JSON.stringify({ inView: swReach.inView, hit: swReach.hit, box: swReach.box })}`);
+    await owner.mouse.click(swReach.cx, swReach.cy);
+    if ((await sw.getAttribute('aria-checked')) !== 'true') throw new Error('mouse click did not toggle the approval switch');
+    if (!(await mouseReach(owner, cta)).ok) throw new Error('"Tạo lớp học" no longer reachable after scrolling the form');
+    return `form column ${info.ch}px, content ${info.sh}px`;
+  });
 
   // ---------------- G3: thứ tự khóa học ----------------
   const expectedOrder = [S.courseTitle, ...COURSES];
@@ -254,7 +283,7 @@ const cardOf = (page, title) => page.locator('div.p-6', { has: page.locator('h3'
     const body = await resp.json();
     if (body.error.code !== 'CONFLICT') throw new Error(`code ${body.error.code}`);
     const message = body.error.message;
-    for (const needle of [STAFF.name, 'COURSE:EDIT', 'Nhân sự & Phân quyền']) {
+    for (const needle of [STAFF.name, 'COURSE:EDIT', 'Studio > Trợ giảng']) {
       if (!message.includes(needle)) throw new Error(`message lacks "${needle}": ${message}`);
     }
     await cardOf(owner, COURSES[0]).getByText(message).waitFor({ timeout: 5000 });
@@ -271,11 +300,11 @@ const cardOf = (page, title) => page.locator('div.p-6', { has: page.locator('h3'
     await owner.locator('h3', { hasText: COURSES[1] }).waitFor({ state: 'detached', timeout: 8000 });
   });
 
-  // ---------------- G5: bàn phím ở Góc học tập ----------------
+  // ---------------- G5: bàn phím ở tab Khóa học ----------------
   await step('G5', 'owner publishes two of the new courses so learners see several cards', owner, async () => {
     for (const title of [COURSES[0], COURSES[2]]) {
       await cardOf(owner, title).getByRole('button', { name: 'Xuất bản' }).click();
-      await cardOf(owner, title).getByText('PUBLISHED').waitFor({ timeout: 8000 });
+      await cardOf(owner, title).getByText('Đã đăng', { exact: true }).waitFor({ timeout: 8000 });
     }
   });
   const stuCtx = await newCtx(browser);
@@ -284,18 +313,20 @@ const cardOf = (page, title) => page.locator('div.p-6', { has: page.locator('h3'
   await step('G5', 'student logs in', stu, async () => { await login(stu, S.student); });
   await step('G5', 'R18-03: Tab reaches every course card (real buttons) and Enter selects the focused one', stu, async () => {
     await stu.goto(classUrl('learn'));
-    const cards = stu.locator('button[aria-pressed]');
+    // Thẻ khóa học = nút aria-pressed trong mục "Tất cả khóa học" (các chip lọc cũng có aria-pressed nhưng nằm trong role=group).
+    const CARD_SEL = 'section[aria-labelledby="all-courses-heading"] .grid > button[aria-pressed]';
+    const cards = stu.locator(CARD_SEL);
     await cards.first().waitFor({ timeout: 10000 });
     const total = await cards.count();
     if (total < 3) throw new Error(`only ${total} course cards; expected >= 3`);
     await stu.locator('body').click({ position: { x: 2, y: 2 } });
     const seen = new Set();
-    const focusedInfo = () => stu.evaluate(() => {
+    const focusedInfo = () => stu.evaluate((sel) => {
       const el = document.activeElement;
-      if (!el || !el.hasAttribute('aria-pressed')) return null;
+      if (!el || !el.matches(sel)) return null;
       const cs = getComputedStyle(el);
-      return { title: el.querySelector('span.text-base, span.font-bold.text-slate-900')?.textContent?.trim() || el.textContent.trim().slice(0, 40), pressed: el.getAttribute('aria-pressed'), shadow: cs.boxShadow, tag: el.tagName };
-    });
+      return { title: el.querySelector('span.truncate.font-semibold')?.textContent?.trim() || el.textContent.trim().slice(0, 40), pressed: el.getAttribute('aria-pressed'), shadow: cs.boxShadow, tag: el.tagName };
+    }, CARD_SEL);
     let target = null;
     for (let i = 0; i < 80 && seen.size < total; i += 1) {
       await stu.keyboard.press('Tab');
@@ -318,13 +349,14 @@ const cardOf = (page, title) => page.locator('div.p-6', { has: page.locator('h3'
     if (!before || !before.title.includes(COURSES[2])) throw new Error(`could not focus the "${COURSES[2]}" card, focused: ${JSON.stringify(before)}`);
     if (before.pressed === 'true') throw new Error('the target card was already selected; pick another for a meaningful check');
     await stu.keyboard.press('Enter');
+    // COURSES[2] chưa có bài học nên Enter chọn nó làm khóa nổi bật (khóa có bài sẽ mở thẳng bài học).
     await stu.waitForFunction((t) => { const el = document.activeElement; return el && el.getAttribute('aria-pressed') === 'true' && el.textContent.includes(t); }, COURSES[2], { timeout: 5000 });
     await stu.getByRole('heading', { name: COURSES[2] }).waitFor({ timeout: 5000 });
     await shot(stu, 'G5-learn-keyboard');
     return `${total} cards reachable; Enter selected "${COURSES[2]}"`;
   });
 
-  // ---------------- G6: Cài đặt lớp ----------------
+  // ---------------- G6: Studio > Cài đặt ----------------
   await step('G6', 'R18-05: saving class settings shows "Đã lưu cài đặt lớp học." and does not remount the page', owner, async () => {
     await owner.goto(studio('settings'));
     const title = owner.getByLabel('Tên lớp học');
@@ -383,7 +415,7 @@ const cardOf = (page, title) => page.locator('div.p-6', { has: page.locator('h3'
     await guest.locator('main').getByRole('link', { name: 'Đăng nhập', exact: true }).click();
     await guest.waitForURL(/\/login/, { timeout: 8000 });
     await guest.getByLabel('Email').fill(S.student.email);
-    await guest.getByLabel('Mật khẩu').fill(S.password);
+    await guest.getByLabel('Mật khẩu', { exact: true }).fill(S.password);
     await guest.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
     await guest.waitForURL(new RegExp(`/classes/${S.classSlug}/learn`), { timeout: 15000 });
     await guest.locator('button[aria-pressed]').first().waitFor({ timeout: 10000 });

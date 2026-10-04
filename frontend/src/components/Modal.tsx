@@ -89,7 +89,7 @@ export const Modal: React.FC<ModalProps> = ({ children, onClose, title, ariaLabe
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-slate-900/50 backdrop-blur-sm" data-modal-overlay="">
+    <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-slate-900/[0.48]" data-modal-overlay="">
       <div className="flex min-h-full items-center justify-center p-4">
         <div
           ref={panelRef}
@@ -98,10 +98,10 @@ export const Modal: React.FC<ModalProps> = ({ children, onClose, title, ariaLabe
           aria-labelledby={title ? titleId : undefined}
           aria-label={title ? undefined : ariaLabel}
           tabIndex={-1}
-          className={`w-full ${SIZE_CLASS[size]} max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl focus:outline-none`}
+          className={`w-full ${SIZE_CLASS[size]} max-h-[90vh] overflow-y-auto rounded-modal bg-white p-6 sm:p-7 shadow-modal focus:outline-none`}
         >
           {title && (
-            <h3 id={titleId} className="mb-4 text-lg font-bold text-slate-900">
+            <h3 id={titleId} className="mb-4 text-h2-sm font-semibold text-slate-900">
               {title}
             </h3>
           )}

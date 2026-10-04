@@ -77,7 +77,7 @@ const JOIN = 'Tham gia lớp ngay';
       await anon.getByRole('button', { name: JOIN }).click();
       await anon.waitForURL(/\/login$/, { timeout: 10000 });
       await anon.getByLabel('Email').fill(USER.email);
-      await anon.getByLabel('Mật khẩu').fill(PASSWORD);
+      await anon.getByLabel('Mật khẩu', { exact: true }).fill(PASSWORD);
       await anon.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
       await anon.waitForURL(new RegExp(`/classes/${slug}/feed$`), { timeout: 15000 });
       await anon.getByRole('button', { name: JOIN }).waitFor({ timeout: 10000 });
@@ -97,7 +97,7 @@ const JOIN = 'Tham gia lớp ngay';
       await page.getByPlaceholder('Tiêu đề bài viết...').waitFor({ timeout: 10000 });
       const url = page.url();
       if (/\/login/.test(url)) throw new Error(`urlAfterJoinClick=${url}`);
-      if (!(await page.getByTitle('Đăng xuất').isVisible())) throw new Error('navbar does not show the signed-in state');
+      if (!(await page.getByRole('button', { name: 'Mở menu tài khoản' }).isVisible())) throw new Error('navbar does not show the signed-in state');
       return `urlAfterJoinClick=${url.replace(BASE, '')}`;
     } finally {
       await page.unroute('**/api/v1/auth/refresh');

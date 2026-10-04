@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link, useOutletContext } from 'react-router-dom';
 import { Classroom, MemberProfile, UserJourney } from '../../types';
 import { api } from '../../api/client';
-import { LoadingSpinner, ErrorBanner, StatusBadge } from '../../components/UIStates';
-import { ArrowLeft, Award, BookOpen, ShieldCheck, Sparkles, Mail, Calendar, UserCheck, GraduationCap, FileCheck2 } from 'lucide-react';
+import { LoadingSpinner, ErrorBanner } from '../../components/UIStates';
+import { Avatar, Badge, CoverImage, ProgressBar } from '../../components/ui';
+import { formatDate } from '../../api/format';
+import { ArrowLeft, Calendar, FileCheck2, GraduationCap, Mail, Star, UserCheck } from 'lucide-react';
 
 export const MemberProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
@@ -53,13 +55,17 @@ export const MemberProfilePage: React.FC = () => {
     fetchJourney();
   }, [classroom.id, userId]);
 
+  const roleText = (p: MemberProfile) =>
+    p.membershipRole === 'OWNER' ? 'Giáo viên chủ nhiệm' : p.membershipRole === 'STAFF' ? 'Trợ giảng' : p.isPro ? 'Học viên PRO' : 'Học viên';
+  const card = 'rounded-card border border-slate-200 bg-white shadow-hairline';
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="space-y-6">
       <Link
         to={`/classes/${classroom.slug}/members`}
-        className="inline-flex items-center space-x-2 text-sm font-semibold text-slate-600 hover:text-indigo-600 transition"
+        className="inline-flex items-center gap-2 text-ui font-medium text-slate-600 transition-colors duration-micro hover:text-slate-900"
       >
-        <ArrowLeft className="w-4 h-4" />
+        <ArrowLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
         <span>Danh sách thành viên</span>
       </Link>
 
@@ -68,157 +74,134 @@ export const MemberProfilePage: React.FC = () => {
 
       {!loading && profile && (
         <div className="space-y-6">
-          {/* Header Card */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-5">
-              <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white text-2xl font-black shadow-md flex-shrink-0">
-                {profile.avatarUrl ? (
-                  <img
-                    src={profile.avatarUrl}
-                    alt={profile.fullName}
-                    className="w-full h-full object-cover rounded-2xl"
-                  />
+          {/* Identity: cover strip (topic tile) + round person avatar overlapping it */}
+          <section className={`overflow-hidden ${card}`}>
+            <div className="h-24 sm:h-32">
+              <CoverImage seed={profile.id || profile.fullName} />
+            </div>
+            <div className="px-5 pb-5 sm:px-7 sm:pb-6">
+              <div className="flex flex-wrap items-end gap-4 sm:gap-5">
+                <Avatar name={profile.fullName} src={profile.avatarUrl} size={96} className="-mt-12 border-4 border-white shadow-hairline" />
+                <div className="min-w-0 flex-1 pt-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="text-h2 font-semibold text-slate-900">{profile.fullName}</h1>
+                    {profile.membershipRole === 'OWNER' && <Badge tone="member" size="sm">Chủ lớp</Badge>}
+                    {profile.membershipRole === 'STAFF' && <Badge tone="neutral" size="sm">Trợ giảng</Badge>}
+                    {profile.isPro && (
+                      <Badge tone="pro" size="sm">
+                        <Star className="h-3 w-3 fill-current" aria-hidden="true" />
+                        PRO
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-ui text-slate-600">{roleText(profile)} · {classroom.title}</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div className="grid items-start gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
+            {/* Left rail: about */}
+            <section className={`px-5 py-5 sm:px-6 ${card}`}>
+              <h2 className="text-body-sm font-semibold text-slate-900">Giới thiệu</h2>
+              <p className="mt-3 text-ui leading-[22px] text-slate-600">{profile.bio || 'Thành viên này chưa viết lời giới thiệu.'}</p>
+              <div className="mt-4 space-y-2 text-meta text-slate-600">
+                {profile.email ? (
+                  <p className="flex items-center gap-2.5 break-all">
+                    <Mail className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                    <span>{profile.email}</span>
+                  </p>
                 ) : (
-                  profile.fullName?.charAt(0)?.toUpperCase() || 'U'
+                  <p className="flex items-center gap-2.5 text-slate-500">
+                    <Mail className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                    <span>Email được bảo vệ quyền riêng tư</span>
+                  </p>
                 )}
+                {profile.createdAt && (
+                  <p className="flex items-center gap-2.5 tabular">
+                    <Calendar className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                    <span>Gia nhập: {formatDate(profile.createdAt)}</span>
+                  </p>
+                )}
+                <p className="flex items-center gap-2.5">
+                  <UserCheck className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                  <span>{roleText(profile)}</span>
+                </p>
               </div>
+              <p className="mt-4 border-t border-slate-100 pt-3 text-caption text-slate-500">Mã thành viên: <span className="font-mono">{profile.id}</span></p>
+            </section>
 
-              <div className="flex-1 space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-black text-slate-900 tracking-tight">{profile.fullName}</h1>
-                  <StatusBadge status={profile.membershipRole || 'STUDENT'} />
-                  {profile.isPro && (
-                    <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-black bg-amber-50 text-amber-700 border border-amber-200">
-                      <Sparkles className="w-3 h-3" />
-                      <span>PRO</span>
-                    </span>
-                  )}
+            {/* Learning & Exam Journey (FR-12) */}
+            <div className="min-w-0 space-y-4">
+              <h2 className="text-h3-lg font-semibold text-slate-900">Hành trình học tập & thành tích</h2>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className={`p-5 ${card}`}>
+                  <span className="text-caption font-semibold uppercase tracking-[0.5px] text-slate-500">Điểm tích lũy</span>
+                  <p className="mt-1 text-h2 font-semibold text-slate-900 tabular">{(profile.totalPoints ?? 0).toLocaleString('vi-VN')}</p>
+                  <p className="text-caption text-slate-600">Từ các kỳ thi đã công bố kết quả</p>
                 </div>
-
-                <p className="text-xs text-slate-500 font-mono">Mã thành viên: {profile.id}</p>
-
-                {profile.bio && <p className="text-sm text-slate-600">{profile.bio}</p>}
-
-                <div className="pt-2 flex flex-wrap gap-4 text-xs text-slate-500">
-                  {profile.email ? (
-                    <div className="flex items-center space-x-1 text-slate-700">
-                      <Mail className="w-3.5 h-3.5 text-indigo-500" />
-                      <span>{profile.email}</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center space-x-1 text-slate-500 italic">
-                      <Mail className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Email được bảo vệ quyền riêng tư</span>
-                    </div>
-                  )}
-
-                  {profile.createdAt && (
-                    <div className="flex items-center space-x-1 text-slate-500">
-                      <Calendar className="w-3.5 h-3.5" />
-                      <span>Gia nhập: {new Date(profile.createdAt).toLocaleDateString('vi-VN')}</span>
-                    </div>
-                  )}
+                <div className={`p-5 ${card}`}>
+                  <span className="text-caption font-semibold uppercase tracking-[0.5px] text-slate-500">Hạng thành tích</span>
+                  <p className="mt-1 text-h2 font-semibold text-slate-900">{profile.rankTier || 'Chưa xếp hạng'}</p>
+                  <p className="text-caption text-slate-600">Xác định theo thang điểm lớp học</p>
                 </div>
               </div>
+
+              {/* R13-05 (FR-12/D-05): per-course progress + published exam results in this class */}
+              {journeyLoading && <LoadingSpinner message="Đang tải hành trình học tập..." />}
+              {journeyError && <ErrorBanner message={journeyError} onRetry={fetchJourney} />}
+
+              {!journeyLoading && !journeyError && journey && (
+                <>
+                  <section className={`p-5 sm:px-6 ${card}`}>
+                    <h3 className="flex items-center gap-2 text-ui font-semibold text-slate-900">
+                      <GraduationCap className="h-4 w-4 text-slate-600" strokeWidth={1.75} aria-hidden="true" />
+                      <span>Tiến độ khóa học</span>
+                    </h3>
+                    {journey.courses.length === 0 ? (
+                      <p className="mt-3 text-meta text-slate-600">Chưa có khóa học nào có thể theo dõi tiến độ.</p>
+                    ) : (
+                      <ul className="mt-4 space-y-4">
+                        {journey.courses.map((c) => {
+                          const pct = c.totalLessons > 0 ? Math.round((c.completedLessons / c.totalLessons) * 100) : 0;
+                          return (
+                            <li key={c.courseId}>
+                              <div className="mb-1.5 flex items-center justify-between gap-3 text-meta">
+                                <span className="font-semibold text-slate-900">{c.courseTitle}</span>
+                                <span className="flex-shrink-0 text-caption text-slate-600 tabular">{c.completedLessons}/{c.totalLessons} bài ({pct}%)</span>
+                              </div>
+                              <ProgressBar value={c.completedLessons} max={c.totalLessons || 1} label={`Tiến độ ${c.courseTitle}`} />
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </section>
+
+                  <section className={`p-5 sm:px-6 ${card}`}>
+                    <h3 className="flex items-center gap-2 text-ui font-semibold text-slate-900">
+                      <FileCheck2 className="h-4 w-4 text-slate-600" strokeWidth={1.75} aria-hidden="true" />
+                      <span>Kết quả thi đã công bố</span>
+                    </h3>
+                    {journey.examResults.length === 0 ? (
+                      <p className="mt-3 text-meta text-slate-600">Chưa có kết quả thi nào được công bố.</p>
+                    ) : (
+                      <ul className="mt-2 divide-y divide-slate-100">
+                        {journey.examResults.map((r, i) => (
+                          <li key={`${r.examId}-${i}`} className="flex items-center justify-between gap-3 py-3 text-ui">
+                            <span className="font-semibold text-slate-900">{r.examTitle}</span>
+                            <span className="flex-shrink-0 text-meta text-slate-600 tabular">
+                              {r.score != null ? `${r.score}%` : '—'}
+                              {r.submittedAt && ` · ${formatDate(r.submittedAt)}`}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                </>
+              )}
             </div>
-          </div>
-
-          {/* Learning & Exam Journey (FR-12) */}
-          <div className="space-y-4">
-            <h2 className="text-lg font-extrabold text-slate-900 tracking-tight flex items-center space-x-2">
-              <Award className="w-5 h-5 text-indigo-600" />
-              <span>Hành trình học tập & thành tích</span>
-            </h2>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-1">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Điểm tích lũy</span>
-                <p className="text-2xl font-black text-indigo-600">{profile.totalPoints ?? 0}</p>
-                <p className="text-xs text-slate-500">Từ các kỳ thi đã công bố kết quả</p>
-              </div>
-
-              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-1">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Hạng thành tích</span>
-                <p className="text-2xl font-black text-slate-800">{profile.rankTier || 'Chưa xếp hạng'}</p>
-                <p className="text-xs text-slate-500">Xác định theo thang điểm lớp học</p>
-              </div>
-
-              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-1">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Vai trò trong lớp</span>
-                <div className="flex items-center space-x-2 pt-1">
-                  <UserCheck className="w-5 h-5 text-emerald-600" />
-                  <span className="text-base font-bold text-slate-800">
-                    {profile.membershipRole === 'OWNER'
-                      ? 'Giáo viên chủ nhiệm'
-                      : profile.membershipRole === 'STAFF'
-                      ? 'Trợ giảng'
-                      : profile.isPro
-                      ? 'Học viên PRO'
-                      : 'Học viên'}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500">{classroom.title}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* R13-05 (FR-12/D-05): per-course progress + published exam results in this class */}
-          <div className="space-y-4">
-            {journeyLoading && <LoadingSpinner message="Đang tải hành trình học tập..." />}
-            {journeyError && <ErrorBanner message={journeyError} onRetry={fetchJourney} />}
-
-            {!journeyLoading && !journeyError && journey && (
-              <>
-                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-3">
-                  <h3 className="text-sm font-extrabold text-slate-800 flex items-center space-x-2">
-                    <GraduationCap className="w-4 h-4 text-indigo-600" />
-                    <span>Tiến độ khóa học</span>
-                  </h3>
-                  {journey.courses.length === 0 ? (
-                    <p className="text-xs text-slate-500">Chưa có khóa học nào có thể theo dõi tiến độ.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {journey.courses.map((c) => {
-                        const pct = c.totalLessons > 0 ? Math.round((c.completedLessons / c.totalLessons) * 100) : 0;
-                        return (
-                          <div key={c.courseId}>
-                            <div className="flex justify-between items-center text-xs font-semibold text-slate-600 mb-1">
-                              <span>{c.courseTitle}</span>
-                              <span>{c.completedLessons}/{c.totalLessons} bài ({pct}%)</span>
-                            </div>
-                            <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-indigo-600 rounded-full" style={{ width: `${pct}%` }} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-3">
-                  <h3 className="text-sm font-extrabold text-slate-800 flex items-center space-x-2">
-                    <FileCheck2 className="w-4 h-4 text-indigo-600" />
-                    <span>Kết quả thi đã công bố</span>
-                  </h3>
-                  {journey.examResults.length === 0 ? (
-                    <p className="text-xs text-slate-500">Chưa có kết quả thi nào được công bố.</p>
-                  ) : (
-                    <ul className="divide-y divide-slate-100">
-                      {journey.examResults.map((r, i) => (
-                        <li key={`${r.examId}-${i}`} className="flex items-center justify-between py-2 text-sm">
-                          <span className="font-semibold text-slate-800">{r.examTitle}</span>
-                          <span className="text-xs text-slate-500">
-                            {r.score != null ? `${r.score}%` : '—'}
-                            {r.submittedAt && ` · ${new Date(r.submittedAt).toLocaleDateString('vi-VN')}`}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </>
-            )}
           </div>
         </div>
       )}

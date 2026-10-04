@@ -1,10 +1,12 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
+import { Compass } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
 import { RequireSignIn } from './components/RequireSignIn';
 import { LoginPage } from './pages/LoginPage';
 import { ClassesPage } from './pages/ClassesPage';
+import { CreateClassPage } from './pages/CreateClassPage';
 import { MyProfilePage } from './pages/MyProfilePage';
 import { ClassroomLayout } from './pages/ClassroomLayout';
 import { JoinByInvitePage } from './pages/JoinByInvitePage';
@@ -22,6 +24,10 @@ import { MemberProfilePage } from './pages/classroom/MemberProfilePage';
 import { AboutTab } from './pages/classroom/AboutTab';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { StoreTab } from './pages/classroom/StoreTab';
+import { BlogTab } from './pages/classroom/BlogTab';
+import { BlogPostPage } from './pages/classroom/BlogPostPage';
+import { EventsTab } from './pages/classroom/EventsTab';
+import { EventDetailPage } from './pages/classroom/EventDetailPage';
 
 import { StudioLayout } from './pages/studio/StudioLayout';
 import { StudioOverview } from './pages/studio/StudioOverview';
@@ -36,11 +42,20 @@ import { StudioSegments } from './pages/studio/StudioSegments';
 import { StudioStore } from './pages/studio/StudioStore';
 import { StudioAudit } from './pages/studio/StudioAudit';
 import { StudioAbout, StudioDocuments, StudioFeed } from './pages/studio/StudioCommunity';
+import { StudioBlog } from './pages/studio/StudioBlog';
+import { StudioEvents } from './pages/studio/StudioEvents';
 
 const RequireLogin: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading, isReconnecting, retryReconnect } = useAuth();
   const location = useLocation();
-  if (isLoading) return <div role="status" className="p-8">Đang xác thực...</div>;
+  if (isLoading) {
+    return (
+      <div role="status" aria-live="polite" className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-16">
+        <span aria-hidden="true" className="h-8 w-8 animate-spin rounded-full border-[3px] border-slate-200 border-t-blue-600" />
+        <p className="text-meta font-medium text-slate-500">Đang xác thực...</p>
+      </div>
+    );
+  }
   // R9-05/R10-01: bootstrap could not reach the backend (429/5xx/network) even after retrying -
   // this is not the same as "no session" (401), so keep showing a reconnecting state here instead
   // of bouncing an otherwise still-logged-in user to /login. AuthContext keeps retrying with
@@ -48,19 +63,25 @@ const RequireLogin: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   // manual retry and a way out to the login page in case the user's session did in fact end.
   if (isReconnecting && !user) {
     return (
-      <div role="status" className="p-8 space-y-3">
-        <p>Đang kết nối lại...</p>
-        <div className="flex items-center space-x-3">
-          <button
-            type="button"
-            onClick={retryReconnect}
-            className="px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition"
-          >
-            Thử lại
-          </button>
-          <Link to="/login" className="text-xs font-bold text-indigo-600 hover:underline">
-            Đăng nhập
-          </Link>
+      <div className="flex flex-1 items-center justify-center px-4 py-16">
+        <div role="status" className="w-full max-w-md rounded-card border border-slate-200 bg-white p-8 text-center shadow-hairline">
+          <span aria-hidden="true" className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-community bg-slate-100">
+            <span className="h-6 w-6 animate-spin rounded-full border-[3px] border-slate-200 border-t-blue-600" />
+          </span>
+          <p className="text-h3 font-semibold text-slate-900">Đang kết nối lại...</p>
+          <p className="mt-1 text-ui text-slate-600">Máy chủ chưa phản hồi. Bạn có thể thử lại ngay hoặc đăng nhập lại.</p>
+          <div className="mt-5 flex items-center justify-center gap-4">
+            <button
+              type="button"
+              onClick={retryReconnect}
+              className="press inline-flex h-10 items-center rounded-btn border border-slate-200 bg-white px-4 text-ui font-semibold text-slate-900 transition-colors duration-micro hover:bg-slate-100"
+            >
+              Thử lại
+            </button>
+            <Link to="/login" className="text-ui font-medium text-blue-600 hover:text-blue-700">
+              Đăng nhập
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -68,12 +89,38 @@ const RequireLogin: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   return user ? <>{children}</> : <Navigate to="/login" state={{ from: location }} replace />;
 };
 
+// Fallback for an unknown URL: a calm empty state that says what to do next.
+const NotFound: React.FC = () => (
+  <div className="flex flex-1 items-center justify-center px-4 py-16">
+    <div role="alert" className="w-full max-w-md rounded-card border border-slate-200 bg-white p-8 text-center shadow-hairline sm:p-10">
+      <span aria-hidden="true" className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-community bg-slate-100 text-slate-500">
+        <Compass className="h-6 w-6" strokeWidth={1.7} />
+      </span>
+      <h1 className="text-h3-lg font-semibold text-slate-900">Không tìm thấy trang yêu cầu.</h1>
+      <p className="mt-1 text-ui text-slate-600">Liên kết có thể đã cũ hoặc gõ nhầm. Hãy quay về danh sách lớp để tìm tiếp.</p>
+      <Link
+        to="/classes"
+        className="press mt-5 inline-flex h-10 items-center rounded-btn border border-slate-200 bg-white px-4 text-ui font-semibold text-slate-900 transition-colors duration-micro hover:bg-slate-100"
+      >
+        Về danh sách lớp
+      </Link>
+    </div>
+  </div>
+);
+
+/** Full-screen pages that bring their own header (close-X + logo) render without the global top bar. */
+const FULL_SCREEN_PATHS = ['/classes/new'];
+export const AppNavbar: React.FC = () => {
+  const { pathname } = useLocation();
+  return FULL_SCREEN_PATHS.includes(pathname.replace(/\/+$/, '')) ? null : <Navbar />;
+};
+
 export const App: React.FC = () => {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
-          <Navbar />
+        <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
+          <AppNavbar />
           <div className="flex-1 flex flex-col">
             <Routes>
               {/* Home & Auth */}
@@ -81,6 +128,7 @@ export const App: React.FC = () => {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/classes" element={<ClassesPage />} />
+              <Route path="/classes/new" element={<RequireLogin><CreateClassPage /></RequireLogin>} />
               {/* D-19: where an invite link lands (public: a guest sees the class card and is asked to sign in). */}
               <Route path="/join/:code" element={<JoinByInvitePage />} />
               <Route path="/me/profile" element={<RequireLogin><MyProfilePage /></RequireLogin>} />
@@ -89,6 +137,11 @@ export const App: React.FC = () => {
               <Route path="/classes/:slug" element={<ClassroomLayout />}>
                 <Route index element={<Navigate to="feed" replace />} />
                 <Route path="feed" element={<FeedTab />} />
+                {/* Blog and events are readable by every class viewer (guests included on a public class). */}
+                <Route path="blog" element={<BlogTab />} />
+                <Route path="blog/:postId" element={<BlogPostPage />} />
+                <Route path="events" element={<EventsTab />} />
+                <Route path="events/:eventId" element={<EventDetailPage />} />
                 {/* R18-10: everything below except feed/about/store is member-only on the server (401 for a
                     guest). RequireSignIn shows a sign-in prompt to a visitor instead of firing requests that
                     can only fail (each one also cost an extra /auth/refresh). */}
@@ -124,10 +177,12 @@ export const App: React.FC = () => {
                 <Route path="feed" element={<StudioFeed />} />
                 <Route path="documents" element={<StudioDocuments />} />
                 <Route path="about" element={<StudioAbout />} />
+                <Route path="blog" element={<StudioBlog />} />
+                <Route path="events" element={<StudioEvents />} />
               </Route>
 
               {/* Fallback */}
-              <Route path="*" element={<div role="alert" className="p-8">Không tìm thấy trang yêu cầu. <a href="/classes">Về danh sách lớp</a></div>} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </div>
         </div>

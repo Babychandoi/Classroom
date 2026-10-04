@@ -148,9 +148,9 @@ describe('ClassroomLayout membership state (R16-01)', () => {
 
     expect(await screen.findByText('Bạn đã bị chặn khỏi lớp học này')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Tham gia/ })).not.toBeInTheDocument();
-    // Member tabs (Bảng tin, Góc học tập, ...) are hidden and the routed content is not rendered.
-    expect(screen.queryByText('Bảng tin')).not.toBeInTheDocument();
-    expect(screen.queryByText('Góc học tập')).not.toBeInTheDocument();
+    // Member tabs (Thảo luận, Khóa học, ...) are hidden and the routed content is not rendered.
+    expect(screen.queryByText('Thảo luận')).not.toBeInTheDocument();
+    expect(screen.queryByText('Khóa học')).not.toBeInTheDocument();
     expect(screen.queryByTestId('outlet')).not.toBeInTheDocument();
   });
 
@@ -170,7 +170,7 @@ describe('ClassroomLayout membership state (R16-01)', () => {
     await waitFor(() => expect(screen.getByTestId('outlet')).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /Tham gia/ })).not.toBeInTheDocument();
     expect(screen.queryByText('Bạn đã bị chặn khỏi lớp học này')).not.toBeInTheDocument();
-    expect(screen.getByText('Bảng tin')).toBeInTheDocument();
+    expect(screen.getByText('Thảo luận')).toBeInTheDocument();
   });
 
   it('never treats the owner as removed/blocked even if a stale state slipped through', async () => {

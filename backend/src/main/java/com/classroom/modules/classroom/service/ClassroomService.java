@@ -72,6 +72,19 @@ public class ClassroomService {
     private final ClassMembershipService membershipService;
     private final ClassAccessService accessService;
 
+    /** D-27: optional collaborators (absent in the hand-built unit-test instances): cover URLs and upcoming-event counts. */
+    @Autowired(required = false)
+    @org.springframework.context.annotation.Lazy
+    private com.classroom.modules.media.service.MediaService mediaService;
+    @Autowired(required = false)
+    private com.classroom.modules.event.repository.ClassEventRepository eventRepository;
+
+    public static final String COVER_MEDIA_PURPOSE = "CLASS_COVER";
+    public static final String AVATAR_MEDIA_PURPOSE = "CLASS_AVATAR";
+    public static final String SORT_NEWEST = "newest";
+    public static final String SORT_POPULAR = "popular";
+    public static final int MAX_QUERY_LENGTH = 100;
+
     /** Kept for callers (and unit tests) that build the service by hand: membership work is real, the paid-access read model is absent (accessProduct stays null). */
     public ClassroomService(ClassroomRepository classroomRepository,
                             ClassMemberRepository memberRepository,
@@ -120,10 +133,7 @@ public class ClassroomService {
 
     @Transactional
     public ClassroomDto createClassroom(String ownerId, CreateClassroomRequest req) {
-        String slug = req.getSlug().toLowerCase().trim();
-        if (classroomRepository.existsBySlug(slug)) {
-            throw new AppException(ErrorCode.CONFLICT, "Đường dẫn slug này đã được sử dụng");
-        }
+        String slug = resolveSlug(req.getSlug(), req.getTitle());
 
         Classroom classroom = new Classroom();
         classroom.setOwnerId(ownerId);
@@ -133,6 +143,11 @@ public class ClassroomService {
         classroom.setCoverImageUrl(req.getCoverImageUrl());
         classroom.setStatus("ACTIVE");
         classroom.setVisibility(normalizeVisibility(req.getVisibility(), Classroom.VISIBILITY_PUBLIC));
+        // D-28: category / approval / focal points. Cover and avatar media need the class id, so they are attached by a PUT afterwards.
+        classroom.setCategory(req.getCategory() == null || req.getCategory().isBlank() ? null : ClassCategories.require(req.getCategory()));
+        classroom.setRequireApproval(Boolean.TRUE.equals(req.getRequireApproval()));
+        classroom.setCoverPosition(ObjectPositions.require(req.getCoverPosition(), "bìa"));
+        classroom.setAvatarPosition(ObjectPositions.require(req.getAvatarPosition(), "đại diện"));
 
         Classroom saved = classroomRepository.save(classroom);
 
@@ -158,6 +173,35 @@ public class ClassroomService {
         return toDto(saved, ownerId);
     }
 
+    /**
+     * D-28: an explicit slug keeps the old rules (lower-cased, 3..100 characters, 409 when taken). Without one the slug is derived from the
+     * title ({@link SlugGenerator}); a taken one gets "-2" .. "-6", then a short random suffix. A concurrent create that still collides
+     * is stopped by the unique index (DataIntegrityViolation -&gt; 409).
+     */
+    private String resolveSlug(String rawSlug, String title) {
+        if (rawSlug != null && !rawSlug.isBlank()) {
+            String slug = rawSlug.toLowerCase(java.util.Locale.ROOT).trim();
+            if (slug.length() < 3 || slug.length() > 100) {
+                throw new AppException(ErrorCode.BAD_REQUEST, "Slug từ 3 đến 100 ký tự");
+            }
+            if (classroomRepository.existsBySlug(slug)) {
+                throw new AppException(ErrorCode.CONFLICT, "Đường dẫn slug này đã được sử dụng");
+            }
+            return slug;
+        }
+        String base = SlugGenerator.fromTitle(title);
+        if (!classroomRepository.existsBySlug(base)) return base;
+        for (int n = 2; n <= 6; n++) {
+            String candidate = SlugGenerator.withSuffix(base, String.valueOf(n));
+            if (!classroomRepository.existsBySlug(candidate)) return candidate;
+        }
+        for (int attempt = 0; attempt < 10; attempt++) {
+            String candidate = SlugGenerator.withSuffix(base, java.util.UUID.randomUUID().toString().substring(0, 6));
+            if (!classroomRepository.existsBySlug(candidate)) return candidate;
+        }
+        throw new AppException(ErrorCode.CONFLICT, "Không tạo được đường dẫn cho lớp học; hãy nhập slug khác");
+    }
+
     /** R3-08: cap on page size for the paginated listing. */
     public static final int MAX_PAGE_SIZE = 100;
 
@@ -181,6 +225,57 @@ public class ClassroomService {
      */
     @Transactional(readOnly = true)
     public List<ClassroomDto> getAllClassrooms(String currentUserId, int page, int size) {
+        return getAllClassrooms(currentUserId, page, size, null, null);
+    }
+
+    /**
+     * D-27: the listing with an optional search ({@code q}: case-insensitive match on title / description, trimmed, at most 100 characters)
+     * and {@code sort} ({@code newest} - the default, unchanged - or {@code popular}: current active member count, highest first). The
+     * visibility rule is the same query-side rule as without them, so a search never reveals a class the caller may not see.
+     */
+    @Transactional(readOnly = true)
+    public List<ClassroomDto> getAllClassrooms(String currentUserId, int page, int size, String q, String sort) {
+        return getAllClassrooms(currentUserId, page, size, q, sort, null);
+    }
+
+    /** D-28: plus an optional {@code category} filter (exact, one of ClassCategories.ALL; 400 otherwise). */
+    @Transactional(readOnly = true)
+    public List<ClassroomDto> getAllClassrooms(String currentUserId, int page, int size, String q, String sort, String category) {
+        String categoryFilter = category == null || category.isBlank() ? "" : ClassCategories.require(category);
+        String needle = q == null ? "" : q.trim();
+        if (needle.length() > MAX_QUERY_LENGTH) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Từ khóa tìm kiếm tối đa " + MAX_QUERY_LENGTH + " ký tự");
+        }
+        String sortKey = sort == null || sort.isBlank() ? SORT_NEWEST : sort.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!SORT_NEWEST.equals(sortKey) && !SORT_POPULAR.equals(sortKey)) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Cách sắp xếp chỉ có thể là newest hoặc popular");
+        }
+        if (needle.isEmpty() && SORT_NEWEST.equals(sortKey) && categoryFilter.isEmpty()) {
+            return listNewest(currentUserId, page, size);
+        }
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        // LIKE wildcards typed by the user are plain text here (same normalisation as the Studio roster search).
+        String cleaned = needle.toLowerCase(java.util.Locale.ROOT).replace('%', ' ').replace('_', ' ').replace('\\', ' ').trim();
+        String pattern = cleaned.isEmpty() ? "%" : "%" + cleaned + "%";
+        List<Classroom> pageOfClasses;
+        if (SORT_POPULAR.equals(sortKey)) {
+            Pageable unsorted = PageRequest.of(safePage, safeSize);
+            Instant now = Instant.now();
+            pageOfClasses = currentUserId == null
+                    ? classroomRepository.searchPubliclyVisibleByPopularity(pattern, categoryFilter, now, unsorted)
+                    : classroomRepository.searchVisibleToUserByPopularity(currentUserId, pattern, categoryFilter, now, unsorted);
+        } else {
+            Pageable pageable = PageRequest.of(safePage, safeSize,
+                    Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.ASC, "id")));
+            pageOfClasses = currentUserId == null
+                    ? classroomRepository.searchPubliclyVisible(pattern, categoryFilter, pageable)
+                    : classroomRepository.searchVisibleToUser(currentUserId, pattern, categoryFilter, pageable);
+        }
+        return toDtos(pageOfClasses, currentUserId);
+    }
+
+    private List<ClassroomDto> listNewest(String currentUserId, int page, int size) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
         Pageable pageable = PageRequest.of(safePage, safeSize,
@@ -241,6 +336,45 @@ public class ClassroomService {
         classroom.setTitle(req.getTitle().trim());
         classroom.setDescription(req.getDescription());
         classroom.setCoverImageUrl(req.getCoverImageUrl());
+        // D-27: absent / null = unchanged, "" = no uploaded cover, otherwise an UPLOADED CLASS_COVER image of this class.
+        String coverBefore = classroom.getCoverMediaId();
+        if (req.getCoverMediaId() != null) {
+            String cover = req.getCoverMediaId().trim();
+            if (cover.isEmpty()) {
+                classroom.setCoverMediaId(null);
+            } else if (!cover.equals(coverBefore)) {
+                if (mediaService == null) {
+                    throw new IllegalStateException("MediaService is required to attach a class cover");
+                }
+                classroom.setCoverMediaId(mediaService.requireAttachableImage(cover, classId, COVER_MEDIA_PURPOSE));
+            }
+        }
+        // D-28: avatar (same semantics as the cover), category, focal points, approval - absent = unchanged.
+        if (req.getAvatarMediaId() != null) {
+            String avatar = req.getAvatarMediaId().trim();
+            if (avatar.isEmpty()) {
+                classroom.setAvatarMediaId(null);
+            } else if (!avatar.equals(classroom.getAvatarMediaId())) {
+                if (mediaService == null) {
+                    throw new IllegalStateException("MediaService is required to attach a class avatar");
+                }
+                classroom.setAvatarMediaId(mediaService.requireAttachableImage(avatar, classId, AVATAR_MEDIA_PURPOSE));
+            }
+        }
+        if (req.getCategory() != null) {
+            classroom.setCategory(req.getCategory().isBlank() ? null : ClassCategories.require(req.getCategory()));
+        }
+        if (req.getCoverPosition() != null) {
+            classroom.setCoverPosition(ObjectPositions.require(req.getCoverPosition(), "bìa"));
+        }
+        if (req.getAvatarPosition() != null) {
+            classroom.setAvatarPosition(ObjectPositions.require(req.getAvatarPosition(), "đại diện"));
+        }
+        boolean approvalBefore = classroom.isRequireApproval();
+        if (req.getRequireApproval() != null) {
+            // Turning approval OFF does not approve anybody: PENDING requests stay until the Studio handles them.
+            classroom.setRequireApproval(req.getRequireApproval());
+        }
         // D-19: absent = unchanged. PUBLIC -> PRIVATE keeps every existing member (they simply stop being discoverable by others);
         // PRIVATE -> PUBLIC lists the class and lets anyone join (invites stay valid but are no longer needed).
         classroom.setVisibility(normalizeVisibility(req.getVisibility(), visibilityBefore));
@@ -249,6 +383,10 @@ public class ClassroomService {
         auditService.record(classId, currentUserId, "CLASS_SETTINGS_UPDATE", "CLASSROOM", classId,
                 String.format("{\"title\":\"%s\",\"visibilityBefore\":\"%s\",\"visibilityAfter\":\"%s\"}",
                         saved.getTitle().replace("\"", "'"), visibilityBefore, saved.isPrivate() ? Classroom.VISIBILITY_PRIVATE : Classroom.VISIBILITY_PUBLIC));
+        if (approvalBefore != saved.isRequireApproval()) {
+            auditService.record(classId, currentUserId, "CLASS_APPROVAL_SETTING", "CLASSROOM", classId,
+                    String.format("{\"requireApprovalBefore\":%s,\"requireApprovalAfter\":%s}", approvalBefore, saved.isRequireApproval()));
+        }
 
         return toDto(saved, currentUserId);
     }
@@ -332,7 +470,7 @@ public class ClassroomService {
             throw new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy lớp học");
         }
 
-        // There is no approval flow: only active classes accept joins.
+        // Only active classes accept joins (or join requests, D-28).
         if (!"ACTIVE".equalsIgnoreCase(classroom.getStatus())) {
             throw new AppException(ErrorCode.FORBIDDEN, "Lớp học hiện không mở đăng ký thành viên");
         }
@@ -356,7 +494,38 @@ public class ClassroomService {
         if (classroom.isPrivate()) {
             throw new AppException(ErrorCode.INVITE_REQUIRED);
         }
+        if (classroom.isRequireApproval()) {
+            // D-28: the join becomes a request (state PENDING, not a member) until the Studio approves or rejects it.
+            membershipService.requestToJoin(classroom, userId);
+            return toDto(classroom, userId);
+        }
         membershipService.joinFree(classroom, userId);
+        return toDto(classroom, userId);
+    }
+
+    /**
+     * D-28: DELETE /classes/{id}/join-request - the caller withdraws their PENDING request (the row is deleted: memberState becomes NONE
+     * and they may ask again). Idempotent: no pending request is a no-op. A caller who holds a pending request may always withdraw it, even
+     * if the class has since become hidden from them; the answer is then {@code null} (no class data), otherwise the class.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public ClassroomDto withdrawJoinRequest(String classId, String userId) {
+        Classroom classroom = classroomRepository.findById(classId)
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy lớp học"));
+        boolean withdrawn = membershipService.withdrawRequest(classId, userId);
+        if (!accessPolicy.isClassVisibleToUser(classroom, userId)) {
+            if (withdrawn) {
+                return null;
+            }
+            if (classroom.isPrivate()) {
+                throw new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy lớp học");
+            }
+            throw new AppException(ErrorCode.FORBIDDEN, "Bạn không có quyền truy cập thông tin lớp học không công khai này");
+        }
+        if (withdrawn) {
+            auditService.record(classId, userId, "MEMBER_REQUEST_WITHDRAW", "CLASSROOM", classId,
+                    String.format("{\"userId\":\"%s\"}", userId));
+        }
         return toDto(classroom, userId);
     }
 
@@ -436,6 +605,7 @@ public class ClassroomService {
             case "ACTIVE" -> ClassroomDto.MEMBER_STATE_ACTIVE;
             case "EXPIRED" -> ClassroomDto.MEMBER_STATE_EXPIRED;
             case "REMOVED" -> ClassroomDto.MEMBER_STATE_REMOVED;
+            case "PENDING" -> ClassroomDto.MEMBER_STATE_PENDING;
             default -> ClassroomDto.MEMBER_STATE_BLOCKED;
         };
     }
@@ -448,6 +618,19 @@ public class ClassroomService {
         dto.setTitle(classroom.getTitle());
         dto.setDescription(classroom.getDescription());
         dto.setCoverImageUrl(classroom.getCoverImageUrl());
+        // D-27: the uploaded cover is signed only here, i.e. for a caller who already passed the class-visibility check (detail
+        // endpoints) or whose listing query only returned visible classes.
+        dto.setCoverMediaId(classroom.getCoverMediaId());
+        dto.setCoverUrl(lookups.coverUrl(classroom));
+        dto.setUpcomingEventCount(lookups.upcomingEventCount(classroom.getId()));
+        // D-28: the avatar is signed under the same rule as the cover.
+        dto.setCategory(classroom.getCategory());
+        dto.setAvatarMediaId(classroom.getAvatarMediaId());
+        dto.setAvatarUrl(lookups.avatarUrl(classroom));
+        dto.setCoverPosition(classroom.getCoverPosition());
+        dto.setAvatarPosition(classroom.getAvatarPosition());
+        dto.setRequireApproval(classroom.isRequireApproval());
+        dto.setPendingRequestCount(currentUserId == null ? 0 : lookups.pendingRequestCount(classroom, currentUserId));
         dto.setStatus(classroom.getStatus());
         dto.setVisibility(classroom.isPrivate() ? Classroom.VISIBILITY_PRIVATE : Classroom.VISIBILITY_PUBLIC);
         dto.setAccessType(classroom.isPaid() ? Classroom.ACCESS_PAID : Classroom.ACCESS_FREE);
@@ -461,6 +644,7 @@ public class ClassroomService {
         if (ownerName != null) {
             dto.setOwnerName(ownerName);
         }
+        dto.setOwnerAvatarUrl(lookups.ownerAvatarUrl(classroom.getOwnerId()));
 
         if (currentUserId != null) {
             boolean isOwner = classroom.getOwnerId().equals(currentUserId);
@@ -510,7 +694,7 @@ public class ClassroomService {
                                 .toList());
                     });
                 } else {
-                    // Never joined, EXPIRED, REMOVED or BLOCKED: not a member. memberState tells the UI which
+                    // Never joined, PENDING (D-28), EXPIRED, REMOVED or BLOCKED: not a member. memberState tells the UI which
                     // of the four it is (join / renew / rejoin / blocked notice).
                     dto.setMember(false);
                     dto.setUserRole("GUEST");
@@ -535,8 +719,26 @@ public class ClassroomService {
      * with its own query (right for a single class); {@link BatchLookups} preloads them for a whole page
      * of classes so the listing needs a fixed number of queries.
      */
+    /** Mirrors the grant match of AccessPolicy.canManage for MEMBER:VIEW (module / action wildcards, whole-class scope only). */
+    static boolean grantsMemberView(StaffPermission p) {
+        boolean module = "MEMBER".equalsIgnoreCase(p.getModule()) || "*".equals(p.getModule());
+        boolean action = "VIEW".equalsIgnoreCase(p.getAction()) || "*".equals(p.getAction());
+        return module && action && p.getScopeCourseId() == null;
+    }
+
     private interface DtoLookups {
         String ownerName(String ownerId);
+
+        String ownerAvatarUrl(String ownerId);
+
+        long upcomingEventCount(String classId);
+
+        String coverUrl(Classroom classroom);
+
+        String avatarUrl(Classroom classroom);
+
+        /** PENDING join requests, only for a caller holding MEMBER:VIEW (0 otherwise). */
+        long pendingRequestCount(Classroom classroom, String userId);
 
         long activeMemberCount(String classId);
 
@@ -552,9 +754,46 @@ public class ClassroomService {
     }
 
     private final class DirectLookups implements DtoLookups {
+        private Optional<User> owner;
+
+        private Optional<User> owner(String ownerId) {
+            if (owner == null) {
+                owner = userRepository.findById(ownerId);
+            }
+            return owner;
+        }
+
         @Override
         public String ownerName(String ownerId) {
-            return userRepository.findById(ownerId).map(User::getFullName).orElse(null);
+            return owner(ownerId).map(User::getFullName).orElse(null);
+        }
+
+        @Override
+        public String ownerAvatarUrl(String ownerId) {
+            return owner(ownerId).map(User::getAvatarUrl).orElse(null);
+        }
+
+        @Override
+        public long upcomingEventCount(String classId) {
+            return eventRepository == null ? 0 : eventRepository.countUpcomingByClassId(classId, Instant.now());
+        }
+
+        @Override
+        public String coverUrl(Classroom classroom) {
+            return mediaService == null || classroom.getCoverMediaId() == null ? null
+                    : mediaService.presignedImageUrl(classroom.getCoverMediaId(), COVER_MEDIA_PURPOSE);
+        }
+
+        @Override
+        public String avatarUrl(Classroom classroom) {
+            return mediaService == null || classroom.getAvatarMediaId() == null ? null
+                    : mediaService.presignedImageUrl(classroom.getAvatarMediaId(), AVATAR_MEDIA_PURPOSE);
+        }
+
+        @Override
+        public long pendingRequestCount(Classroom classroom, String userId) {
+            if (!accessPolicy.canManage(userId, classroom.getId(), "MEMBER", "VIEW", null)) return 0;
+            return memberRepository.countRawByClassIdAndState(classroom.getId(), ClassMembershipService.STATE_PENDING);
         }
 
         @Override
@@ -590,6 +829,11 @@ public class ClassroomService {
 
     private final class BatchLookups implements DtoLookups {
         private final Map<String, String> ownerNames = new HashMap<>();
+        private final Map<String, String> ownerAvatars = new HashMap<>();
+        private final Map<String, Long> upcomingEvents = new HashMap<>();
+        private final Map<String, String> coverUrls;
+        private final Map<String, String> avatarUrls;
+        private final Map<String, Long> pendingCounts = new HashMap<>();
         private final Map<String, Long> activeCounts = new HashMap<>();
         private final Map<String, ClassMember> memberships = new HashMap<>();
         private final Map<String, StaffAssignment> assignments = new HashMap<>();
@@ -601,7 +845,21 @@ public class ClassroomService {
             List<String> classIds = classrooms.stream().map(Classroom::getId).toList();
             List<String> ownerIds = classrooms.stream().map(Classroom::getOwnerId).distinct().toList();
 
-            userRepository.findAllById(ownerIds).forEach(u -> ownerNames.put(u.getId(), u.getFullName()));
+            userRepository.findAllById(ownerIds).forEach(u -> {
+                ownerNames.put(u.getId(), u.getFullName());
+                if (u.getAvatarUrl() != null) ownerAvatars.put(u.getId(), u.getAvatarUrl());
+            });
+            if (eventRepository != null) {
+                for (Object[] row : eventRepository.countUpcomingByClassIds(classIds, Instant.now())) {
+                    upcomingEvents.put((String) row[0], ((Number) row[1]).longValue());
+                }
+            }
+            List<String> coverIds = classrooms.stream().map(Classroom::getCoverMediaId).filter(java.util.Objects::nonNull).distinct().toList();
+            this.coverUrls = mediaService == null || coverIds.isEmpty() ? Map.of()
+                    : mediaService.presignedImageUrls(coverIds, COVER_MEDIA_PURPOSE);
+            List<String> avatarIds = classrooms.stream().map(Classroom::getAvatarMediaId).filter(java.util.Objects::nonNull).distinct().toList();
+            this.avatarUrls = mediaService == null || avatarIds.isEmpty() ? Map.of()
+                    : mediaService.presignedImageUrls(avatarIds, AVATAR_MEDIA_PURPOSE);
             for (Object[] row : memberRepository.countActiveByClassIds(classIds)) {
                 activeCounts.put((String) row[0], ((Number) row[1]).longValue());
             }
@@ -629,6 +887,22 @@ public class ClassroomService {
                                     .computeIfAbsent(p.getAssignmentId(), k -> new ArrayList<>()).add(p));
                 }
             }
+            // D-28: pendingRequestCount for the classes the caller administers (owner, or ACTIVE staff + active member holding MEMBER:VIEW,
+            // wildcards included - the same rule as AccessPolicy.canManage) - ONE grouped query, from the grants loaded above.
+            if (currentUserId != null) {
+                java.util.Set<String> administered = new HashSet<>(owned);
+                assignments.forEach((classId, a) -> {
+                    if ("ACTIVE".equalsIgnoreCase(a.getStatus()) && activeMemberOf.contains(classId)
+                            && permissionsByAssignment.getOrDefault(a.getId(), List.of()).stream().anyMatch(ClassroomService::grantsMemberView)) {
+                        administered.add(classId);
+                    }
+                });
+                if (!administered.isEmpty()) {
+                    for (Object[] row : memberRepository.countRawByClassIdsAndState(administered, ClassMembershipService.STATE_PENDING)) {
+                        pendingCounts.put((String) row[0], ((Number) row[1]).longValue());
+                    }
+                }
+            }
             this.proClassIds = currentUserId == null
                     ? java.util.Set.of()
                     : proPolicy.proClassIds(currentUserId, owned, activeMemberOf);
@@ -643,6 +917,31 @@ public class ClassroomService {
         @Override
         public long activeMemberCount(String classId) {
             return activeCounts.getOrDefault(classId, 0L);
+        }
+
+        @Override
+        public String ownerAvatarUrl(String ownerId) {
+            return ownerAvatars.get(ownerId);
+        }
+
+        @Override
+        public long upcomingEventCount(String classId) {
+            return upcomingEvents.getOrDefault(classId, 0L);
+        }
+
+        @Override
+        public String coverUrl(Classroom classroom) {
+            return classroom.getCoverMediaId() == null ? null : coverUrls.get(classroom.getCoverMediaId());
+        }
+
+        @Override
+        public String avatarUrl(Classroom classroom) {
+            return classroom.getAvatarMediaId() == null ? null : avatarUrls.get(classroom.getAvatarMediaId());
+        }
+
+        @Override
+        public long pendingRequestCount(Classroom classroom, String userId) {
+            return pendingCounts.getOrDefault(classroom.getId(), 0L);
         }
 
         @Override

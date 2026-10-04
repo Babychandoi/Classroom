@@ -84,6 +84,22 @@ public class MediaController {
                     throw new AppException(ErrorCode.BAD_REQUEST, "Ảnh giới thiệu cần JPG/PNG/WebP/GIF, tối đa 5 MB");
                 }
             }
+            // D-27: the class cover and blog / event cover images - same rules as an About image (JPG/PNG/WebP/GIF, <= 5 MB),
+            // authorised by the grant of the thing the image is for.
+            case "CLASS_COVER", "CLASS_AVATAR" -> {
+                accessPolicy.enforceManage(userId, classId, "CLASS", "EDIT", null);
+                requireCoverImage(request);
+            }
+            case "BLOG" -> {
+                requireAny(userId, classId,
+                        new String[][]{{"BLOG", "CREATE", null}, {"BLOG", "EDIT", null}, {"MEDIA", "CREATE", null}}, null);
+                requireCoverImage(request);
+            }
+            case "EVENT" -> {
+                requireAny(userId, classId,
+                        new String[][]{{"EVENT", "CREATE", null}, {"EVENT", "EDIT", null}, {"MEDIA", "CREATE", null}}, null);
+                requireCoverImage(request);
+            }
             case "DOCUMENT" -> requireAny(userId, classId,
                     new String[][]{{"DOCUMENT", "CREATE", null}, {"MEDIA", "CREATE", null}}, null);
             case "COURSE", "LESSON" -> requireAny(userId, classId,
@@ -94,6 +110,13 @@ public class MediaController {
             case "STORE", "PRODUCT" -> requireAny(userId, classId,
                     new String[][]{{"STORE", "CREATE", null}, {"MEDIA", "CREATE", null}}, null);
             default -> accessPolicy.enforceManage(userId, classId, "MEDIA", "CREATE", null);
+        }
+    }
+
+    private static void requireCoverImage(UploadIntentRequest request) {
+        String mime = request.getMimeType() == null ? "" : request.getMimeType().trim().toLowerCase(java.util.Locale.ROOT);
+        if (!MediaService.IMAGE_MIME_TYPES.contains(mime) || request.getSizeBytes() > MediaService.MAX_IMAGE_BYTES) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Ảnh bìa cần JPG/PNG/WebP/GIF, tối đa 5 MB");
         }
     }
 

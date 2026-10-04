@@ -153,6 +153,19 @@ public class LeaderboardService {
      * omitted (there is nothing to rank them on), mirroring how the class-wide board only ever
      * contains members with a leaderboard entry.
      */
+    /**
+     * The class's rank tiers, lowest threshold first, for members: the same access rule as {@link #getLeaderboard} (active members, owner,
+     * staff; a PRIVATE class hidden from the caller is a 404).
+     */
+    @Transactional(readOnly = true)
+    public List<com.classroom.modules.ranking.dto.RankTierDto> getTiers(String classId, String currentUserId) {
+        accessPolicy.enforceMember(currentUserId, classId);
+        return rankTierRepository.findByClassIdOrderByMinPointsAsc(classId).stream()
+                .map(t -> new com.classroom.modules.ranking.dto.RankTierDto(
+                        t.getTierName(), t.getTierName(), t.getMinPoints(), t.getBadgeUrl(), t.getDescription()))
+                .toList();
+    }
+
     @Transactional(readOnly = true)
     public List<LeaderboardEntryDto> getLeaderboard(String classId, String currentUserId, String examId) {
         accessPolicy.enforceMember(currentUserId, classId);

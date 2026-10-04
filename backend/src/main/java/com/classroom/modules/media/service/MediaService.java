@@ -294,6 +294,13 @@ public class MediaService {
         String scope = asset.getScopeCourseId();
         boolean authorized = switch (purpose) {
             case "ABOUT" -> accessPolicy.canManage(userId, asset.getClassId(), "ABOUT", "EDIT", null);
+            case "CLASS_COVER", "CLASS_AVATAR" -> accessPolicy.canManage(userId, asset.getClassId(), "CLASS", "EDIT", null);
+            case "BLOG" -> accessPolicy.canManage(userId, asset.getClassId(), "BLOG", "CREATE", null)
+                    || accessPolicy.canManage(userId, asset.getClassId(), "BLOG", "EDIT", null)
+                    || accessPolicy.canManage(userId, asset.getClassId(), "MEDIA", "CREATE", null);
+            case "EVENT" -> accessPolicy.canManage(userId, asset.getClassId(), "EVENT", "CREATE", null)
+                    || accessPolicy.canManage(userId, asset.getClassId(), "EVENT", "EDIT", null)
+                    || accessPolicy.canManage(userId, asset.getClassId(), "MEDIA", "CREATE", null);
             case "DOCUMENT" -> accessPolicy.canManage(userId, asset.getClassId(), "DOCUMENT", "CREATE", null)
                     || accessPolicy.canManage(userId, asset.getClassId(), "MEDIA", "CREATE", null);
             case "LESSON", "COURSE" -> accessPolicy.canManage(userId, asset.getClassId(), "COURSE", "EDIT", scope)
@@ -556,6 +563,15 @@ public class MediaService {
                     // course, not just the class-wide CREATE checked above — a scoped-only staff
                     // member uploading their own lesson media must still be able to download their
                     // own not-yet-attached draft.
+                    // D-27: the author of a not-yet-attached cover image may preview it under the grant it was uploaded with.
+                    || (("CLASS_COVER".equals(asset.getUploadPurpose()) || "CLASS_AVATAR".equals(asset.getUploadPurpose()))
+                        && accessPolicy.canManage(userId, asset.getClassId(), "CLASS", "EDIT", null))
+                    || ("BLOG".equals(asset.getUploadPurpose())
+                        && (accessPolicy.canManage(userId, asset.getClassId(), "BLOG", "CREATE", null)
+                            || accessPolicy.canManage(userId, asset.getClassId(), "BLOG", "EDIT", null)))
+                    || ("EVENT".equals(asset.getUploadPurpose())
+                        && (accessPolicy.canManage(userId, asset.getClassId(), "EVENT", "CREATE", null)
+                            || accessPolicy.canManage(userId, asset.getClassId(), "EVENT", "EDIT", null)))
                     || ("LESSON".equalsIgnoreCase(asset.getUploadPurpose()) && asset.getScopeCourseId() != null
                         && (accessPolicy.canManage(userId, asset.getClassId(), "COURSE", "EDIT", asset.getScopeCourseId())
                             || accessPolicy.canManage(userId, asset.getClassId(), "COURSE", "CREATE", asset.getScopeCourseId())));
@@ -676,6 +692,74 @@ public class MediaService {
         } catch (Exception e) {
             log.error("Failed to generate download presigned URL for asset {}", asset.getId(), e);
             throw ObjectStoreFailure.classify(e, new AppException(ErrorCode.INTERNAL_SERVER_ERROR, "Không thể khởi tạo liên kết tải xuống"));
+        }
+    }
+
+    /** D-27: image uploads (About sections, class cover, blog / event covers): these types only, at most 5 MB. */
+    public static final java.util.Set<String> IMAGE_MIME_TYPES = java.util.Set.of("image/jpeg", "image/png", "image/webp", "image/gif");
+    public static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
+
+    /**
+     * D-27: the media id an entity (class cover, blog post, event) may point at - an UPLOADED image of the SAME class uploaded for
+     * {@code purpose}. Anything else is a 400, so a cover can never borrow a file of another class or a protected document.
+     */
+    @Transactional(readOnly = true)
+    public String requireAttachableImage(String assetId, String classId, String purpose) {
+        MediaAsset asset = mediaAssetRepository.findById(assetId.trim())
+                .orElseThrow(() -> new AppException(ErrorCode.BAD_REQUEST, "Không tìm thấy ảnh bìa"));
+        if (!isUsableImage(asset, purpose) || !asset.getClassId().equals(classId)) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Ảnh bìa phải là ảnh đã tải xong của lớp học này");
+        }
+        return asset.getId();
+    }
+
+    private static boolean isUsableImage(MediaAsset asset, String purpose) {
+        return asset != null && "UPLOADED".equalsIgnoreCase(asset.getStatus())
+                && purpose.equals(asset.getUploadPurpose())
+                && asset.getMimeType() != null && IMAGE_MIME_TYPES.contains(asset.getMimeType().toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * D-27: short-lived presigned GET URLs (same TTL as every other download, R8-01) for a batch of cover images, keyed by asset id - ONE
+     * query for a whole listing; signing is local (the presigning client has a fixed region), so no network call per row. Only call this
+     * AFTER the caller has passed the class-visibility check of the entity that references the images. Assets that are missing, not
+     * uploaded, not images or of another purpose are simply absent from the map (the UI then falls back to its tile).
+     */
+    @Transactional(readOnly = true)
+    public Map<String, String> presignedImageUrls(java.util.Collection<String> assetIds, String purpose) {
+        Map<String, String> urls = new HashMap<>();
+        if (assetIds == null) return urls;
+        List<String> ids = assetIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) return urls;
+        for (MediaAsset asset : mediaAssetRepository.findAllById(ids)) {
+            if (!isUsableImage(asset, purpose)) continue;
+            String url = signInlineImage(asset);
+            if (url != null) urls.put(asset.getId(), url);
+        }
+        return urls;
+    }
+
+    /** D-27: single-entity form of {@link #presignedImageUrls}. */
+    @Transactional(readOnly = true)
+    public String presignedImageUrl(String assetId, String purpose) {
+        if (assetId == null || assetId.isBlank()) return null;
+        return presignedImageUrls(List.of(assetId), purpose).get(assetId);
+    }
+
+    private String signInlineImage(MediaAsset asset) {
+        try {
+            return presigningClient.getPresignedObjectUrl(
+                    GetPresignedObjectUrlArgs.builder()
+                            .method(Method.GET)
+                            .bucket(minioProperties.getBucket())
+                            .object(asset.getObjectKey())
+                            .expiry((int) PRESIGNED_DOWNLOAD_TTL_MINUTES, TimeUnit.MINUTES)
+                            .extraQueryParams(Map.of("response-content-type", asset.getMimeType()))
+                            .build());
+        } catch (Exception e) {
+            // A cover is decoration: a signing failure must not fail the page that shows it.
+            log.warn("Could not sign the image URL of asset {}: {}", asset.getId(), e.toString());
+            return null;
         }
     }
 

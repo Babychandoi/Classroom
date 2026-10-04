@@ -3,8 +3,11 @@ import { useOutletContext } from 'react-router-dom';
 import { Classroom } from '../../types';
 import { api } from '../../api/client';
 import { AboutSections, AboutSectionsEditor, AboutSection } from '../../components/AboutSections';
+import { SafeMarkdown } from '../../components/SafeMarkdown';
 import { LoadingSpinner, ErrorBanner } from '../../components/UIStates';
-import { Info, ShieldAlert, Edit3, Check } from 'lucide-react';
+import { Avatar, buttonClass, inputClass } from '../../components/ui';
+import { accessPriceLabel } from '../../api/format';
+import { Check, Coins, Edit3, Gift, Globe, Info, Lock, ShieldCheck, Tag, Users } from 'lucide-react';
 
 interface ClassAbout {
   id: string;
@@ -76,100 +79,185 @@ export const AboutTab: React.FC = () => {
   if (loading) return <LoadingSpinner message="Đang tải trang giới thiệu..." />;
   if (error) return <ErrorBanner message={error} onRetry={fetchAbout} />;
 
+  const created = monthYear(classroom.createdAt);
+  const isPrivate = classroom.visibility === 'PRIVATE';
+  const product = classroom.accessProduct;
+  const textareaClass = inputClass('py-3 font-mono leading-[22px]');
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex flex-wrap gap-4 justify-between items-center">
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Giới thiệu & Nội quy</h2>
-          <p className="text-xs text-slate-500">Thông tin tổng quan về mục tiêu lớp học và quy định văn hóa lớp</p>
+          <h2 className="text-h2-sm font-semibold text-slate-900">Giới thiệu & Nội quy</h2>
+          <p className="mt-0.5 text-meta text-slate-600">Lớp học này dành cho ai, học được gì và những quy tắc chung của lớp</p>
         </div>
 
         {canEdit && !editing && (
-          <button
-            onClick={() => setEditing(true)}
-            className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold transition"
-          >
-            <Edit3 className="w-3.5 h-3.5" />
+          <button type="button" onClick={() => setEditing(true)} className={buttonClass('secondary', 'md')}>
+            <Edit3 className="h-4 w-4 text-slate-600" strokeWidth={1.75} aria-hidden="true" />
             <span>Chỉnh sửa nội dung</span>
           </button>
         )}
 
         {editing && (
-          <div className="flex space-x-2">
-            <button
-              onClick={() => setEditing(false)}
-              className="px-3 py-1.5 border border-slate-300 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50"
-            >
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setEditing(false)} className={buttonClass('secondary', 'md')}>
               Hủy
             </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="inline-flex items-center space-x-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition disabled:opacity-50"
-            >
-              <Check className="w-3.5 h-3.5" />
+            <button type="button" onClick={handleSave} disabled={saving} className={buttonClass('primary', 'md')}>
+              <Check className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
               <span>{saving ? 'Đang lưu...' : 'Lưu thay đổi'}</span>
             </button>
           </div>
         )}
       </div>
 
-      {saveError && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{saveError}</p>}
+      {saveError && <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-ui text-red-700">{saveError}</p>}
       {editing ? (
-        <div className="space-y-6 bg-white p-6 rounded-2xl border border-slate-200">
+        <div className="space-y-6 rounded-card border border-slate-200 bg-white p-5 shadow-hairline sm:p-7">
           <AboutSectionsEditor classId={classroom.id} sections={sections} onChange={setSections} />
           <div>
-            <label htmlFor={contentId} className="block text-xs font-bold text-slate-700 uppercase mb-2">
+            <label htmlFor={contentId} className="mb-1.5 block text-meta font-semibold text-slate-900">
               Nội dung giới thiệu lớp học (Markdown)
             </label>
-            <textarea
-              id={contentId}
-              rows={8}
-              value={contentDraft}
-              onChange={(e) => setContentDraft(e.target.value)}
-              className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
-            />
+            <textarea id={contentId} rows={8} value={contentDraft} onChange={(e) => setContentDraft(e.target.value)} className={textareaClass} />
           </div>
 
           <div>
-            <label htmlFor={rulesId} className="block text-xs font-bold text-slate-700 uppercase mb-2">
+            <label htmlFor={rulesId} className="mb-1.5 block text-meta font-semibold text-slate-900">
               Nội quy lớp học (Markdown)
             </label>
-            <textarea
-              id={rulesId}
-              rows={6}
-              value={rulesDraft}
-              onChange={(e) => setRulesDraft(e.target.value)}
-              className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
-            />
+            <textarea id={rulesId} rows={6} value={rulesDraft} onChange={(e) => setRulesDraft(e.target.value)} className={textareaClass} />
           </div>
         </div>
       ) : (
-        <div className="space-y-6">
-          <AboutSections sections={about?.sections || []} />
-          {/* Main introduction */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 md:p-8 shadow-sm">
-            <div className="flex items-center space-x-2 text-indigo-600 mb-4">
-              <Info className="w-5 h-5" />
-              <span className="text-xs font-bold uppercase tracking-wider">Thông tin chi tiết</span>
-            </div>
-            <div className="prose prose-slate max-w-none text-slate-700 leading-relaxed whitespace-pre-line text-sm md:text-base">
-              {about?.contentMarkdown || 'Lớp học chưa có mô tả giới thiệu.'}
-            </div>
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="min-w-0 space-y-4">
+            {/* 1. Name + one-line pitch + facts the system knows */}
+            <section className="rounded-card border border-slate-200 bg-white p-5 shadow-hairline sm:px-7 sm:py-6">
+              <h3 className="text-h2-sm font-semibold text-slate-900 sm:text-h2">{classroom.title}</h3>
+              {classroom.description && <p className="mt-2 text-body-sm text-slate-600">{classroom.description}</p>}
+              <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-slate-100 pt-3.5 text-meta font-medium text-slate-600">
+                {classroom.category && (
+                  <span data-testid="about-category" className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-slate-100 px-2.5 text-caption font-semibold text-slate-600">
+                    <Tag className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                    {classroom.category}
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1.5">
+                  {isPrivate ? <Lock className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" /> : <Globe className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />}
+                  {isPrivate ? 'Riêng tư' : 'Công khai'}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Users className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                  <strong className="font-semibold text-slate-900 tabular">{(classroom.memberCount ?? 0).toLocaleString('vi-VN')}</strong> thành viên
+                </span>
+                {classroom.accessType === 'PAID' ? (
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-violet-800 tabular">
+                    <Coins className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                    {product ? accessPriceLabel(product.price, product.durationDays, product.lifetime) : 'Trả phí'}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-green-700">
+                    <Gift className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                    Miễn phí
+                  </span>
+                )}
+                {classroom.ownerName && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Avatar name={classroom.ownerName} src={classroom.ownerAvatarUrl} size={20} />
+                    bởi <strong className="font-semibold text-slate-900">{classroom.ownerName}</strong>
+                  </span>
+                )}
+              </div>
+            </section>
+
+            <AboutSections sections={about?.sections || []} />
+
+            {/* 2. The owner's own description */}
+            <section className="rounded-card border border-slate-200 bg-white p-5 shadow-hairline sm:px-7 sm:py-6">
+              <div className="mb-3 flex items-center gap-2 text-slate-600">
+                <Info className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                <span className="text-caption font-semibold uppercase tracking-[0.5px]">Thông tin chi tiết</span>
+              </div>
+              {about?.contentMarkdown
+                ? <SafeMarkdown source={about.contentMarkdown} size="body" className="max-w-reading" />
+                : <p className="text-body-sm text-slate-600">Lớp học chưa có mô tả giới thiệu.</p>}
+            </section>
+
+            {/* 3. House rules */}
+            <section className="rounded-card border border-slate-200 bg-white p-5 shadow-hairline sm:px-7 sm:py-6">
+              <div className="mb-3 flex items-center gap-2 text-slate-600">
+                <ShieldCheck className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                <span className="text-caption font-semibold uppercase tracking-[0.5px]">Nội quy lớp học</span>
+              </div>
+              {about?.rulesMarkdown
+                ? <SafeMarkdown source={about.rulesMarkdown} size="body" className="max-w-reading [&_li]:text-ui [&_p]:text-ui" />
+                : <p className="text-ui text-slate-600">Nội quy đang được cập nhật.</p>}
+            </section>
+
+            {/* 4. Who leads the class (dark band) */}
+            {classroom.ownerName && (
+              <section className="rounded-card bg-slate-900 p-5 sm:px-7 sm:py-6">
+                <p className="text-caption font-semibold uppercase tracking-[0.7px] text-blue-300">Người dẫn dắt</p>
+                <div className="mt-3.5 flex items-center gap-4">
+                  <Avatar name={classroom.ownerName} src={classroom.ownerAvatarUrl} size={56} />
+                  <div className="min-w-0">
+                    <p className="text-body font-semibold text-white">{classroom.ownerName}</p>
+                    <p className="mt-0.5 text-meta text-slate-300">Chủ lớp{created ? ` · dẫn dắt lớp từ ${created}` : ''}</p>
+                  </div>
+                </div>
+              </section>
+            )}
           </div>
 
-          {/* Rules */}
-          <div className="bg-amber-50/50 rounded-2xl border border-amber-200/80 p-6 md:p-8 shadow-sm">
-            <div className="flex items-center space-x-2 text-amber-700 mb-4">
-              <ShieldAlert className="w-5 h-5" />
-              <span className="text-xs font-bold uppercase tracking-wider">Nội quy học tập bắt buộc</span>
+          {/* Right rail: the class at a glance (real numbers only). */}
+          <aside className="min-w-0 lg:sticky lg:top-[128px]">
+            <div className="rounded-card border border-slate-200 bg-white p-5 shadow-hairline">
+              <p className="text-h3 font-semibold text-slate-900">{classroom.title}</p>
+              <p className="mt-0.5 truncate text-caption text-slate-500">/classes/{classroom.slug}</p>
+              <div className={`mt-4 grid border-y border-slate-100 py-3 text-center ${classroom.upcomingEventCount != null ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                <span>
+                  <span className="block text-body font-semibold text-slate-900 tabular">{(classroom.memberCount ?? 0).toLocaleString('vi-VN')}</span>
+                  <span className="mt-0.5 block text-micro text-slate-500">Thành viên</span>
+                </span>
+                <span className="border-l border-slate-100">
+                  <span className="block text-body font-semibold text-slate-900 tabular">{created || '—'}</span>
+                  <span className="mt-0.5 block text-micro text-slate-500">Thành lập</span>
+                </span>
+                {classroom.upcomingEventCount != null && (
+                  <span className="border-l border-slate-100">
+                    <span className="block text-body font-semibold text-slate-900 tabular">{classroom.upcomingEventCount}</span>
+                    <span className="mt-0.5 block text-micro text-slate-500">Sự kiện sắp tới</span>
+                  </span>
+                )}
+              </div>
+              <ul className="mt-4 space-y-2">
+                {[
+                  isPrivate ? 'Lớp riêng tư — vào lớp bằng liên kết mời của chủ lớp' : 'Lớp công khai — ai cũng xem được trang giới thiệu',
+                  classroom.accessType === 'PAID'
+                    ? `Gói vào lớp ${product ? accessPriceLabel(product.price, product.durationDays, product.lifetime) : 'trả phí'}`
+                    : 'Tham gia miễn phí',
+                  ...(classroom.requireApproval && classroom.accessType !== 'PAID' ? ['Người dẫn dắt duyệt từng người trước khi vào lớp'] : []),
+                ].map((text) => (
+                  <li key={text} className="flex items-start gap-2 text-meta text-slate-600">
+                    <Check className="mt-0.5 h-[13px] w-[13px] flex-shrink-0 text-green-600" strokeWidth={2.4} aria-hidden="true" />
+                    <span className="tabular">{text}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-            <div className="prose prose-amber max-w-none text-slate-800 leading-relaxed whitespace-pre-line text-sm">
-              {about?.rulesMarkdown || 'Nội quy đang được cập nhật.'}
-            </div>
-          </div>
+          </aside>
         </div>
       )}
     </div>
   );
 };
+
+/** ISO instant -> "mm/yyyy" ('' when absent). */
+function monthYear(instant?: string | null): string {
+  if (!instant) return '';
+  const d = new Date(instant);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}

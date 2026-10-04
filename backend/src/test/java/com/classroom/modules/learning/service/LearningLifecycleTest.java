@@ -441,7 +441,7 @@ class LearningLifecycleTest {
         assertEquals(ErrorCode.CONFLICT, ex.getErrorCode());
         assertTrue(ex.getMessage().contains("Nguyễn Trợ Giảng"), ex.getMessage());
         assertTrue(ex.getMessage().contains("COURSE:EDIT") && ex.getMessage().contains("EXAM:CREATE"), ex.getMessage());
-        assertTrue(ex.getMessage().contains("Nhân sự & Phân quyền"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("Studio > Trợ giảng"), ex.getMessage());
         verify(sectionRepository, never()).deleteByCourseId(any());
         verify(courseRepository, never()).delete(any());
     }

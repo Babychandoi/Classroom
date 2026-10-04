@@ -28,7 +28,7 @@ const scopedStaff = {
 const course = (id: string, title: string): Course => ({ id, classId: 'class-1', title, status: 'DRAFT', accessMode: 'FREE', position: 0 }) as Course;
 const courses = [course('a', 'Course A'), course('b', 'Course B'), course('c', 'Course C')];
 
-const cardOf = (title: string) => screen.getByRole('heading', { name: title }).closest('div.p-6') as HTMLElement;
+const cardOf = (title: string) => screen.getByRole('heading', { name: title }).closest('article') as HTMLElement;
 const titlesInOrder = () => screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
 
 function mockApi(overrides: (url: string, method: string, body: unknown) => Response | undefined = () => undefined) {

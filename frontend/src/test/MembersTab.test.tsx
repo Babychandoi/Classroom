@@ -95,8 +95,8 @@ describe('MembersTab — headline count is ACTIVE members only (R15-04)', () => 
     expect(screen.getByText('1 thành viên')).toBeInTheDocument();
     expect(screen.queryByText('3 thành viên')).not.toBeInTheDocument();
     // The administrator still sees the state of each row.
-    expect(screen.getByText('BLOCKED')).toBeInTheDocument();
-    expect(screen.getByText('REMOVED')).toBeInTheDocument();
+    expect(screen.getByText('Đã chặn')).toBeInTheDocument();
+    expect(screen.getByText('Đã xóa khỏi lớp')).toBeInTheDocument();
   });
 });
 
@@ -131,9 +131,11 @@ describe('MembersTab — administrators see who REMOVED/BLOCKED members are (R16
     expect(screen.queryByText('Thành viên ẩn danh')).not.toBeInTheDocument();
     // The administrator can still open their profile.
     expect(screen.getByText('Học viên Bị Chặn').closest('a')).toHaveAttribute('href', '/classes/demo-class/members/user-2');
-    // The state stays visible and is colour-coded so it is not mistaken for an active member.
-    expect(screen.getByText('BLOCKED')).toHaveClass('text-rose-600');
-    expect(screen.getByText('REMOVED')).toHaveClass('text-amber-700');
-    expect(screen.getByText('ACTIVE')).not.toHaveClass('text-rose-600');
+    // The state stays visible (in words) and is colour-coded so it is not mistaken for an active member.
+    expect(screen.getByText('Đã chặn')).toHaveClass('text-red-600');
+    expect(screen.getByText('Đã xóa khỏi lớp')).toHaveClass('text-amber-700');
+    // An active row carries no state label at all; the inactive rows are grouped under their own heading.
+    expect(screen.getByText('Học viên Một').closest('li')).not.toHaveTextContent(/Đã chặn|Đã xóa/);
+    expect(screen.getByText('Đã rời lớp hoặc bị chặn')).toBeInTheDocument();
   });
 });

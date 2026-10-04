@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LogIn } from 'lucide-react';
+import { Lock, LogIn } from 'lucide-react';
+import { buttonClass } from './ui';
 import { useAuth } from '../context/AuthContext';
 import { LoadingSpinner } from './UIStates';
 
@@ -14,22 +15,19 @@ import { LoadingSpinner } from './UIStates';
 export const SignInPrompt: React.FC = () => {
   const location = useLocation();
   return (
-    <div className="max-w-xl mx-auto flex flex-col items-center text-center p-10 bg-white rounded-2xl border border-slate-200 shadow-sm">
-      <div className="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 mb-4">
-        <LogIn className="w-6 h-6" />
+    <div className="mx-auto flex max-w-xl flex-col items-center rounded-card border border-slate-200 bg-white p-8 text-center shadow-hairline sm:p-10">
+      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-tint text-blue-600">
+        <Lock className="h-6 w-6" strokeWidth={1.75} aria-hidden="true" />
       </div>
-      <h2 className="text-lg font-bold text-slate-900 mb-1">Đăng nhập để xem nội dung này</h2>
-      <p className="text-sm text-slate-600 max-w-md mb-6">
+      <h2 className="mb-1.5 text-h2-sm font-semibold text-slate-900">Đăng nhập để xem nội dung này</h2>
+      <p className="mb-6 max-w-md text-ui text-slate-600">
         Nội dung này chỉ dành cho thành viên của lớp. Đăng nhập rồi tham gia lớp để học tập, luyện thi và xem tài liệu.
       </p>
-      <Link
-        to="/login"
-        state={{ from: location }}
-        className="inline-flex items-center space-x-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl shadow-sm transition"
-      >
-        <LogIn className="w-4 h-4" />
+      <Link to="/login" state={{ from: location }} className={buttonClass('primary', 'lg')}>
+        <LogIn className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
         <span>Đăng nhập</span>
       </Link>
+      <p className="mt-3 text-caption text-slate-500">Sau khi đăng nhập, bạn quay lại đúng trang này.</p>
     </div>
   );
 };
@@ -46,13 +44,9 @@ export const RequireSignIn: React.FC<{ children: React.ReactNode }> = ({ childre
   if (user) return <>{children}</>;
   if (isReconnecting) {
     return (
-      <div role="status" className="max-w-xl mx-auto p-8 space-y-3 text-center">
-        <p className="text-sm text-slate-700">Đang kết nối lại...</p>
-        <button
-          type="button"
-          onClick={retryReconnect}
-          className="px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition"
-        >
+      <div role="status" className="mx-auto max-w-xl space-y-3 rounded-card border border-slate-200 bg-white p-8 text-center shadow-hairline">
+        <p className="text-ui text-slate-600">Đang kết nối lại...</p>
+        <button type="button" onClick={retryReconnect} className={buttonClass('secondary', 'md')}>
           Thử lại
         </button>
       </div>

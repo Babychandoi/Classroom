@@ -7,7 +7,7 @@ import type { Classroom, Product } from '../types';
 
 /**
  * R19-06: a buyer whose only entitlement starts in the future (pre-sale purchase) already owns the product. The
- * store must say so ("Đã mua — bắt đầu từ dd/MM/yyyy") instead of showing "Mua ngay" as if nothing was bought;
+ * store must say so ("Đã mua — bắt đầu từ dd/MM/yyyy") instead of showing "Nhận quyền lợi" as if nothing was bought;
  * a further purchase is a renewal ("Gia hạn thêm"), which the backend stacks after the paid period.
  */
 
@@ -64,19 +64,19 @@ describe('StoreTab — pre-sale purchase (R19-06)', () => {
     window.alert = vi.fn();
   });
 
-  it('shows "Đã mua — bắt đầu từ dd/MM/yyyy" and a renewal CTA, not "Mua ngay", for an owned-upcoming product', async () => {
+  it('shows "Đã mua — bắt đầu từ dd/MM/yyyy" and a renewal CTA, not "Nhận quyền lợi", for an owned-upcoming product', async () => {
     mockProducts([{ ...base, userOwnsUpcoming: true, entitlementStartsAt: '2026-10-15T12:00:00Z', entitlementExpiresAt: '2026-11-14T12:00:00Z' }]);
 
     render(<StoreTab />);
 
     await waitFor(() => expect(screen.getByText('Đã mua — bắt đầu từ 15/10/2026')).toBeInTheDocument());
     expect(screen.getByText('Gia hạn thêm')).toBeInTheDocument();
-    expect(screen.queryByText('Mua ngay')).not.toBeInTheDocument();
+    expect(screen.queryByText('Nhận quyền lợi')).not.toBeInTheDocument();
     expect(screen.queryByText('Đang sở hữu')).not.toBeInTheDocument();
     expect(screen.getByText('Hết hạn: 14/11/2026')).toBeInTheDocument();
   });
 
-  it('keeps "Đang sở hữu" for a running entitlement and "Mua ngay" for a product the viewer does not own', async () => {
+  it('keeps "Đang sở hữu" for a running entitlement and "Nhận quyền lợi" for a product the viewer does not own', async () => {
     mockProducts([
       { ...base, id: 'prod-active', title: 'Đang chạy', userHasActiveEntitlement: true, entitlementExpiresAt: '2026-12-01T12:00:00Z' },
       { ...base, id: 'prod-free', title: 'Chưa mua' },
@@ -85,7 +85,7 @@ describe('StoreTab — pre-sale purchase (R19-06)', () => {
     render(<StoreTab />);
 
     await waitFor(() => expect(screen.getByText('Đang sở hữu')).toBeInTheDocument());
-    expect(screen.getAllByText('Mua ngay')).toHaveLength(1);
+    expect(screen.getAllByText('Nhận quyền lợi')).toHaveLength(1);
     expect(screen.getAllByText('Gia hạn thêm')).toHaveLength(1);
     expect(screen.queryByText(/Đã mua — bắt đầu từ/)).not.toBeInTheDocument();
   });

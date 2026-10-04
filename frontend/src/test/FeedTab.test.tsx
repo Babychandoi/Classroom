@@ -22,6 +22,7 @@ const mockUser = { id: 'u1', fullName: 'Learner', email: 'learner@test.local', r
 
 vi.mock('react-router-dom', () => ({
   useOutletContext: () => ({ classroom: outletClassroom }),
+  Link: ({ children, to }: { children?: React.ReactNode; to: string }) => <a href={to}>{children}</a>,
 }));
 
 vi.mock('../context/AuthContext', () => ({

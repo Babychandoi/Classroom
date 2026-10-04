@@ -28,8 +28,8 @@ function request(route, { method = 'GET', body, token } = {}) {
   // Windows trusts the public internal CA installed by enable-lan-access.ps1; Chrome must verify it.
   const ctx = await browser.newContext({ locale: 'vi-VN', viewport: { width: 1366, height: 900 } });
   const page = await ctx.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message));
-  await page.goto(origin + '/login'); await page.getByLabel('Email').fill(account.email); await page.getByLabel('Mật khẩu').fill(account.password); await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click(); await page.waitForURL(/\/classes$/);
-  await page.reload(); await page.getByTitle('Đăng xuất').waitFor(); assert.ok((await ctx.cookies()).some(c => c.secure && c.httpOnly)); console.log('PASS Chrome login and refresh through HTTPS load balancer');
+  await page.goto(origin + '/login'); await page.getByLabel('Email').fill(account.email); await page.getByLabel('Mật khẩu', { exact: true }).fill(account.password); await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click(); await page.waitForURL(/\/classes$/);
+  await page.reload(); await page.getByRole('button', { name: 'Mở menu tài khoản' }).waitFor(); assert.ok((await ctx.cookies()).some(c => c.secure && c.httpOnly)); console.log('PASS Chrome login and refresh through HTTPS load balancer');
   await page.goto(origin + '/me/profile'); await page.getByText('Dữ liệu cá nhân', { exact: false }).first().waitFor();
   fs.mkdirSync('../.artifacts/server', { recursive: true }); await page.screenshot({ path: '../.artifacts/server/profile-https.png', fullPage: true });
   assert.equal(errors.length, 0); await browser.close(); console.log('SERVER SMOKE PASSED');

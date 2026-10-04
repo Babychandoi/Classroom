@@ -32,6 +32,29 @@ public class Classroom {
     @Column(name = "cover_image_url", length = 512)
     private String coverImageUrl;
 
+    /** D-27: an UPLOADED image (media purpose CLASS_COVER) of this class; served as a short-lived presigned URL ({@code coverUrl}). */
+    @Column(name = "cover_media_id", length = 36)
+    private String coverMediaId;
+
+    /** D-28: one of {@link com.classroom.modules.classroom.service.ClassCategories#ALL}; null for classes created before V46. */
+    @Column(length = 40)
+    private String category;
+
+    /** D-28: an UPLOADED image (media purpose CLASS_AVATAR) of this class, served as a presigned {@code avatarUrl}. */
+    @Column(name = "avatar_media_id", length = 36)
+    private String avatarMediaId;
+
+    /** D-28: CSS object-position of the cover / avatar ("50% 30%"); null = centre. */
+    @Column(name = "cover_position", length = 16)
+    private String coverPosition;
+
+    @Column(name = "avatar_position", length = 16)
+    private String avatarPosition;
+
+    /** D-28: joins by id wait for a Studio decision (member state PENDING). */
+    @Column(name = "require_approval", nullable = false)
+    private boolean requireApproval;
+
     @Column(nullable = false, length = 32)
     private String status = "ACTIVE";
 
@@ -129,6 +152,25 @@ public class Classroom {
     public void setCoverImageUrl(String coverImageUrl) {
         this.coverImageUrl = coverImageUrl;
     }
+
+    public String getCoverMediaId() {
+        return coverMediaId;
+    }
+
+    public void setCoverMediaId(String coverMediaId) {
+        this.coverMediaId = coverMediaId;
+    }
+
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
+    public String getAvatarMediaId() { return avatarMediaId; }
+    public void setAvatarMediaId(String avatarMediaId) { this.avatarMediaId = avatarMediaId; }
+    public String getCoverPosition() { return coverPosition; }
+    public void setCoverPosition(String coverPosition) { this.coverPosition = coverPosition; }
+    public String getAvatarPosition() { return avatarPosition; }
+    public void setAvatarPosition(String avatarPosition) { this.avatarPosition = avatarPosition; }
+    public boolean isRequireApproval() { return requireApproval; }
+    public void setRequireApproval(boolean requireApproval) { this.requireApproval = requireApproval; }
 
     public String getStatus() {
         return status;

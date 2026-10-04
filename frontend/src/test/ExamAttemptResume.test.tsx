@@ -182,8 +182,10 @@ describe('ExamAttemptPage — resume-only mount and post-submit navigation (R8-0
     renderApp();
     await waitFor(() => expect(screen.getByText('Nộp bài thi')).toBeInTheDocument());
 
+    // Connecty reskin: "Nộp bài thi" opens a confirmation dialog; confirming it is what submits.
+    fireEvent.click(screen.getByText('Nộp bài thi'));
     await act(async () => {
-      fireEvent.click(screen.getByText('Nộp bài thi'));
+      fireEvent.click(screen.getByRole('button', { name: 'Xác nhận nộp bài' }));
     });
 
     // Landing on ExamResultPage's "Kết quả bài thi" heading confirms the navigate(replace) fired.

@@ -23,7 +23,8 @@ export type ClassVisibility = 'PUBLIC' | 'PRIVATE';
 /** D-19: how a class is joined. PAID classes sell a CLASS_ACCESS product (see ClassAccessProduct). */
 export type ClassAccessType = 'FREE' | 'PAID';
 /** D-19: the caller's membership lifecycle. EXPIRED = paid access has lapsed (renew to come back). */
-export type MemberState = 'ACTIVE' | 'EXPIRED' | 'REMOVED' | 'BLOCKED' | 'NONE';
+// PENDING = asked to join a class that requires approval (requireApproval); not a member until the owner approves.
+export type MemberState = 'ACTIVE' | 'EXPIRED' | 'REMOVED' | 'BLOCKED' | 'PENDING' | 'NONE';
 
 /**
  * D-19: what a PAID class sells. `id` is the productId of POST /orders; `durationDays == null` (lifetime = true) means the
@@ -45,6 +46,10 @@ export interface Classroom {
   title: string;
   description?: string;
   coverImageUrl?: string;
+  /** Short-lived presigned URL of an uploaded cover (preferred over coverImageUrl). */
+  coverUrl?: string | null;
+  ownerAvatarUrl?: string | null;
+  upcomingEventCount?: number;
   status: string;
   memberCount: number;
   isOwner?: boolean;
@@ -63,6 +68,18 @@ export interface Classroom {
   accessProduct?: ClassAccessProduct | null;
   studioPermissions?: string[];
   studioScopedPermissions?: { module: string; action: string; courseId: string }[];
+  /** One of GET /classes/categories (null for older classes). */
+  category?: string | null;
+  avatarMediaId?: string | null;
+  /** Short-lived presigned URL of the square class avatar. */
+  avatarUrl?: string | null;
+  /** CSS object-position ("50% 30%") of the cover / the avatar; null = centred. */
+  coverPosition?: string | null;
+  avatarPosition?: string | null;
+  /** Join requests wait for the owner's approval (memberState PENDING until then). */
+  requireApproval?: boolean;
+  /** PENDING join requests (only filled for callers with MEMBER:VIEW). */
+  pendingRequestCount?: number;
   createdAt: string;
 }
 
@@ -403,4 +420,77 @@ export interface InvitePreview {
   durationDays?: number | null;
   lifetime?: boolean | null;
   ownerName?: string | null;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Blog & events (see docs/API.md "Blog" / "Sự kiện").
+
+export interface PersonSummary {
+  id: string;
+  fullName: string;
+  avatarUrl?: string | null;
+}
+
+export type BlogAudience = 'PUBLIC' | 'MEMBERS';
+export type BlogStatus = 'DRAFT' | 'PUBLISHED';
+
+export interface BlogPost {
+  id: string;
+  classId: string;
+  title: string;
+  excerpt?: string | null;
+  category?: string | null;
+  /** null in list responses and when `locked`. */
+  contentMarkdown?: string | null;
+  coverMediaId?: string | null;
+  coverUrl?: string | null;
+  audience: BlogAudience;
+  status: BlogStatus;
+  /** The caller may see the card but not the content (MEMBERS post, caller is not a member). */
+  locked: boolean;
+  readingMinutes: number;
+  author: PersonSummary;
+  publishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BlogPostPage {
+  items: BlogPost[];
+  nextCursor?: string | null;
+}
+
+export type EventFormat = 'ONLINE' | 'OFFLINE';
+export type EventStatus = 'SCHEDULED' | 'CANCELLED';
+
+export interface ClassEvent {
+  id: string;
+  classId: string;
+  classTitle?: string;
+  classSlug?: string;
+  title: string;
+  description?: string | null;
+  forWhom?: string | null;
+  takeaways: string[];
+  format: EventFormat;
+  location?: string | null;
+  /** Only returned to registered people and to managers. */
+  meetingUrl?: string | null;
+  startsAt: string;
+  endsAt: string;
+  capacity?: number | null;
+  registeredCount: number;
+  isRegistered: boolean;
+  isFull: boolean;
+  host: PersonSummary;
+  coverMediaId?: string | null;
+  coverUrl?: string | null;
+  audience: 'PUBLIC' | 'MEMBERS';
+  status: EventStatus;
+  createdAt: string;
+}
+
+export interface EventRegistrant {
+  user: PersonSummary;
+  registeredAt: string;
 }

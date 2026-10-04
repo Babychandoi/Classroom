@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   BASE, FIXTURES, SHOTS_ROOT, log, newRunId, launchBrowser, newCtx, createRunner, settle,
-  register, login, isLoggedIn, overflowCheck, saveState, assertSafeTarget, unexpectedEvents,
+  register, login, isLoggedIn, createClassViaUI, overflowCheck, saveState, assertSafeTarget, unexpectedEvents,
 } = require('./lib');
 
 assertSafeTarget();
@@ -13,7 +13,9 @@ assertSafeTarget();
 const RUN = newRunId();
 const OWNER = { name: `E2E Owner ${RUN}`, email: `e2e.owner.${RUN}@example.com` };
 const STUDENT = { name: `E2E Student ${RUN}`, email: `e2e.student.${RUN}@example.com` };
-const CLASS = { title: `E2E Class ${RUN}`, slug: `e2e-class-${RUN}`, desc: 'Lop kiem thu E2E trinh duyet that' };
+// slug do máy chủ sinh từ tên lớp (đọc lại sau khi tạo); giá trị dưới đây chỉ là dự đoán ban đầu.
+const CLASS = { title: `E2E Class ${RUN}`, slug: `e2e-class-${RUN}`, desc: 'Lop kiem thu E2E trinh duyet that', category: 'Ôn thi' };
+const PAID_CLASS = { title: `E2E Lớp Có Phí ${RUN}`, desc: 'Lop co phi co anh bia', category: 'Tiếng Anh', price: '79.000' };
 const COURSE = `E2E Course ${RUN}`;
 const SECTION = `Chuong 1 ${RUN}`;
 const LESSON = `Bai video ${RUN}`;
@@ -42,35 +44,65 @@ const persist = () => saveState({
 
   await step('J1', 'register owner via UI', owner, async () => { await register(owner, OWNER); });
   await step('J1', 'create class via UI', owner, async () => {
-    await owner.getByRole('button', { name: 'Tạo lớp học mới' }).click();
-    await owner.getByLabel('Tên lớp học').fill(CLASS.title);
-    await owner.getByLabel('Đường dẫn slug (URL)').fill(CLASS.slug);
-    await owner.getByLabel('Mô tả ngắn').fill(CLASS.desc);
-    await owner.getByRole('button', { name: 'Xác nhận tạo lớp' }).click();
-    await owner.waitForURL(new RegExp(`/classes/${CLASS.slug}/feed`), { timeout: 15000 });
-    await owner.getByRole('heading', { name: CLASS.title }).waitFor({ timeout: 10000 });
-    const href = await owner.getByRole('link', { name: 'Studio Quản Trị' }).getAttribute('href');
-    state.classId = href.split('/').pop();
+    // Lời gọi "Tạo lớp học mới" ở trang chủ dẫn tới trang toàn màn hình /classes/new (không còn hộp thoại).
+    await owner.getByRole('link', { name: 'Tạo lớp học mới' }).click();
+    await owner.waitForURL(/\/classes\/new$/, { timeout: 10000 });
+    await owner.getByRole('heading', { name: 'Tạo lớp học', level: 1 }).waitFor({ timeout: 10000 });
+    if (await owner.getByRole('button', { name: 'Mở menu tài khoản' }).count()) throw new Error('trang tạo lớp toàn màn hình vẫn hiện thanh điều hướng');
+    const { slug, classId } = await createClassViaUI(owner, { title: CLASS.title, desc: CLASS.desc, category: CLASS.category });
+    if (slug !== CLASS.slug) throw new Error(`slug máy chủ sinh từ "${CLASS.title}" là ${slug}, mong đợi ${CLASS.slug}`);
+    CLASS.slug = slug;
+    state.classId = classId;
+    await owner.getByTestId('class-category').filter({ hasText: CLASS.category }).waitFor({ timeout: 5000 });
     persist();
-    return `classId=${state.classId}`;
+    return `slug=${slug} classId=${classId}`;
+  });
+  await step('J1', 'create a PAID class with a cover image via /classes/new: class page shows the cover, category and price', owner, async () => {
+    const { slug, classId } = await createClassViaUI(owner, {
+      title: PAID_CLASS.title, desc: PAID_CLASS.desc, category: PAID_CLASS.category, paid: { price: PAID_CLASS.price },
+      cover: path.join(FIXTURES, 'cover.png'),
+    });
+    // slug bỏ dấu tiếng Việt: "E2E Lớp Có Phí <run>" -> e2e-lop-co-phi-<run>
+    if (slug !== `e2e-lop-co-phi-${RUN}`) throw new Error(`slug ${slug}`);
+    const img = owner.getByRole('img', { name: `Ảnh bìa lớp học ${PAID_CLASS.title}` });
+    await img.waitFor({ timeout: 10000 });
+    await owner.waitForFunction((alt) => { const el = Array.from(document.images).find((i) => i.alt === alt); return el && el.complete && el.naturalWidth > 0; }, `Ảnh bìa lớp học ${PAID_CLASS.title}`, { timeout: 10000 });
+    const natural = await img.evaluate((el) => `${el.naturalWidth}x${el.naturalHeight}`);
+    if (natural !== '480x180') throw new Error(`ảnh bìa không phải ảnh đã tải lên: ${natural}`);
+    await owner.getByTestId('class-category').filter({ hasText: PAID_CLASS.category }).waitFor({ timeout: 5000 });
+    const badge = await owner.getByTestId('badge-paid').innerText();
+    if (!badge.includes(`${PAID_CLASS.price}đ`)) throw new Error(`nhãn phí: ${badge}`);
+    await shot(owner, 'J1-paid-class-cover');
+    return `slug=${slug} classId=${classId} cover=${natural} badge=${badge.replace(/\s+/g, ' ')}`;
+  });
+  await step('J1', 'back to the first class', owner, async () => {
+    await owner.goto(`${BASE}/classes/${CLASS.slug}/feed`);
+    await owner.getByRole('heading', { name: CLASS.title, level: 1 }).waitFor({ timeout: 10000 });
   });
   await step('J1', 'F5 keeps session (refresh-cookie bootstrap)', owner, async () => {
     await owner.reload();
     await owner.getByRole('heading', { name: CLASS.title }).waitFor({ timeout: 15000 });
-    await owner.getByTitle('Đăng xuất').waitFor({ timeout: 10000 });
-    await owner.getByRole('link', { name: 'Studio Quản Trị' }).waitFor({ timeout: 5000 });
+    await owner.getByRole('button', { name: 'Mở menu tài khoản' }).waitFor({ timeout: 10000 });
+    await owner.getByRole('link', { name: 'Studio quản trị' }).waitFor({ timeout: 5000 });
   });
   let owner2;
   await step('J1', 'second tab still logged in', owner, async () => {
     owner2 = await ownerCtx.newPage();
     instrument(owner2, 'owner-tab2');
     await owner2.goto(`${BASE}/classes/${CLASS.slug}/feed`);
-    await owner2.getByTitle('Đăng xuất').waitFor({ timeout: 15000 });
-    await owner2.getByRole('link', { name: 'Studio Quản Trị' }).waitFor({ timeout: 5000 });
+    await owner2.getByRole('button', { name: 'Mở menu tài khoản' }).waitFor({ timeout: 15000 });
+    await owner2.getByRole('link', { name: 'Studio quản trị' }).waitFor({ timeout: 5000 });
   });
   await step('J1', 'classes list shows new class + owner badge', owner, async () => {
     await owner.goto(`${BASE}/classes`);
-    await owner.getByText(`/${CLASS.slug}`).waitFor({ timeout: 10000 });
+    // Thẻ lớp mới không còn in slug/nhãn chủ lớp: lớp phải nằm trong rail "Lớp của bạn" (nhận ra là lớp của mình)
+    // với lời gọi "Vào lớp" trỏ đúng /classes/<slug>/feed.
+    const mine = owner.getByRole('region', { name: 'Lớp của bạn' });
+    const card = mine.locator('article', { has: owner.getByRole('heading', { name: CLASS.title, exact: true }) });
+    await card.waitFor({ timeout: 10000 });
+    const href = await card.getByRole('link', { name: 'Vào lớp' }).getAttribute('href');
+    if (href !== `/classes/${CLASS.slug}/feed`) throw new Error(`"Vào lớp" href=${href}`);
+    return href;
   });
   await step('J1', 'signed-in user opening /login is sent on, not stranded (R17-01)', owner, async () => {
     await owner.goto(`${BASE}/login`);
@@ -85,7 +117,7 @@ const persist = () => saveState({
     await settle(owner);
     return owner.url();
   });
-  const courseCard = () => owner.locator('div.p-6', { has: owner.locator('h3', { hasText: COURSE }) }).first();
+  const courseCard = () => owner.locator('article', { has: owner.locator('h3', { hasText: COURSE }) }).first();
   await step('J2', 'create course', owner, async () => {
     await owner.goto(`${S()}/courses`);
     await owner.getByRole('button', { name: 'Tạo khóa học mới' }).click();
@@ -120,20 +152,23 @@ const persist = () => saveState({
     return `uploadHost=${state.uploadHost}`;
   });
   await step('J2', 'new lesson visible in expanded course without re-toggle (R17-02)', owner, async () => {
-    await owner.getByText(`${LESSON} · VIDEO`).waitFor({ timeout: 4000 });
+    await courseCard().getByText(`${LESSON} · Video`).waitFor({ timeout: 4000 });
   });
   await step('J2', 'lesson visible after collapse/expand', owner, async () => {
     const card = courseCard();
     if (await card.getByRole('button', { name: 'Ẩn nội dung' }).isVisible()) await card.getByRole('button', { name: 'Ẩn nội dung' }).click();
     await card.getByRole('button', { name: 'Xem bài học' }).click();
-    await owner.getByText(`${LESSON} · VIDEO`).waitFor({ timeout: 8000 });
+    await card.getByText(`${LESSON} · Video`).waitFor({ timeout: 8000 });
   });
   await step('J2', 'publish course', owner, async () => {
     await courseCard().getByRole('button', { name: 'Xuất bản' }).click();
-    await courseCard().getByText('PUBLISHED').waitFor({ timeout: 10000 });
+    await courseCard().getByText('Đã đăng', { exact: true }).waitFor({ timeout: 10000 });
+    if (await courseCard().getByRole('button', { name: 'Xuất bản' }).count()) throw new Error('Xuất bản still offered after publish');
   });
 
-  const examCard = () => owner.locator('div.p-5', { has: owner.locator('h3', { hasText: EXAM }) }).first();
+  const examCard = () => owner.locator('article', { has: owner.locator('h3', { hasText: EXAM }) }).first();
+  // Bảng soạn đề in số câu dạng <dt>Số câu hỏi</dt><dd>n</dd>.
+  const questionCount = (n) => examCard().locator('div', { has: owner.locator('dt', { hasText: 'Số câu hỏi' }) }).locator('dd', { hasText: new RegExp(`^${n}$`) });
   await step('J2', 'create exam', owner, async () => {
     await owner.goto(`${S()}/exams`);
     await owner.getByRole('button', { name: 'Tạo kỳ thi mới' }).click();
@@ -151,7 +186,7 @@ const persist = () => saveState({
     await owner.getByLabel('Lựa chọn B', { exact: true }).fill('4');
     await owner.getByLabel('Đáp án đúng', { exact: true }).selectOption('B');
     await owner.getByRole('button', { name: 'Thêm câu hỏi' }).click();
-    await examCard().getByText('Số câu hỏi: 1').waitFor({ timeout: 10000 });
+    await questionCount(1).waitFor({ timeout: 10000 });
   });
   await step('J2', 'added question listed in authoring panel (R17-03)', owner, async () => {
     await examCard().getByText('1. 2 + 2 = ?').waitFor({ timeout: 4000 });
@@ -160,12 +195,13 @@ const persist = () => saveState({
     await owner.getByLabel('Nội dung câu hỏi', { exact: true }).fill('Giai thich vi sao 2 + 2 = 4');
     await owner.getByLabel('Loại câu hỏi', { exact: true }).selectOption('ESSAY');
     await owner.getByRole('button', { name: 'Thêm câu hỏi' }).click();
-    await examCard().getByText('Số câu hỏi: 2').waitFor({ timeout: 10000 });
+    await questionCount(2).waitFor({ timeout: 10000 });
     await examCard().getByText('2. Giai thich vi sao 2 + 2 = 4').waitFor({ timeout: 4000 });
   });
   await step('J2', 'publish exam', owner, async () => {
     await examCard().getByRole('button', { name: 'Công bố' }).click();
     await examCard().getByRole('button', { name: 'Đóng kỳ thi' }).waitFor({ timeout: 10000 });
+    await examCard().getByText('Đã đăng', { exact: true }).waitFor({ timeout: 5000 });
   });
 
   await step('J2', 'create product (no target course)', owner, async () => {
@@ -180,13 +216,13 @@ const persist = () => saveState({
     await owner.getByRole('button', { name: 'Xuất bản' }).first().click();
     await settle(owner);
     if (await owner.getByRole('button', { name: 'Xuất bản' }).count()) throw new Error('Xuất bản button still visible after publish');
-    return (await owner.locator('main').innerText()).match(/PUBLISHED|Đang bán|ĐANG BÁN/i)?.[0] || 'status text not found';
+    return (await owner.locator('main').innerText()).match(/Đã đăng|PUBLISHED|Đang bán|ĐANG BÁN/i)?.[0] || 'status text not found';
   });
   await step('J2', 'upload + create document (Studio Documents)', owner, async () => {
     await owner.goto(`${S()}/documents`);
     await owner.getByLabel('Tên tài liệu').fill(DOC);
     await owner.getByLabel('Tệp').setInputFiles(path.join(FIXTURES, 'tiny.pdf'));
-    await owner.getByText('Tệp đã tải lên và sẵn sàng đính kèm.').waitFor({ timeout: 15000 });
+    await owner.getByText(/Tệp đã tải lên và sẵn sàng đính kèm: tiny\.pdf\./).waitFor({ timeout: 15000 });
     await owner.getByRole('button', { name: 'Tạo tài liệu' }).click();
     await owner.getByText('Đã tạo tài liệu.').waitFor({ timeout: 10000 });
   });
@@ -205,7 +241,7 @@ const persist = () => saveState({
   });
   await step('J3', 'post in feed', stu, async () => {
     await stu.getByPlaceholder('Tiêu đề bài viết...').fill(`Hello ${RUN}`);
-    await stu.getByPlaceholder('Bạn muốn chia sẻ điều gì với thầy cô và bạn bè?...').fill('Xin chao ca lop, day la bai viet E2E.');
+    await stu.getByLabel('Nội dung bài viết mới').fill('Xin chao ca lop, day la bai viet E2E.');
     await stu.getByRole('button', { name: 'Đăng bài' }).click();
     await stu.getByText(`Hello ${RUN}`).first().waitFor({ timeout: 10000 });
     await stu.reload();
@@ -213,7 +249,9 @@ const persist = () => saveState({
   });
   await step('J3', 'open lesson; video loads from MinIO (presigned GET + CSP media-src)', stu, async () => {
     await stu.goto(`${C()}/learn`);
-    await stu.getByRole('link', { name: 'Vào học' }).first().click();
+    // Thẻ khóa nổi bật có nút chính "Vào học" (hoặc "Học tiếp") dẫn thẳng vào bài.
+    await stu.getByRole('button', { name: /^(Vào học|Học tiếp)$/ }).first().click();
+    await stu.waitForURL(/\/learn\/lessons\//, { timeout: 10000 });
     await stu.locator('video').waitFor({ timeout: 10000 });
     await stu.waitForFunction(() => { const v = document.querySelector('video'); return v && (v.readyState >= 2 || v.error); }, null, { timeout: 15000 }).catch(() => {});
     const info = await stu.evaluate(() => { const v = document.querySelector('video'); return { src: v.currentSrc.replace(/\?.*/, ''), readyState: v.readyState, networkState: v.networkState, error: v.error && v.error.code, duration: v.duration }; });
@@ -231,7 +269,7 @@ const persist = () => saveState({
     await stu.getByText(DOC).first().waitFor({ timeout: 10000 });
     const [dl] = await Promise.all([
       stu.waitForEvent('download', { timeout: 15000 }),
-      stu.locator('div.p-5', { has: stu.locator('h4', { hasText: DOC }) }).getByRole('button', { name: 'Tải xuống' }).click(),
+      stu.locator('li', { hasText: DOC }).getByRole('button', { name: 'Tải xuống' }).click(),
     ]);
     const p = await dl.path();
     const size = fs.statSync(p).size;
@@ -242,7 +280,7 @@ const persist = () => saveState({
   await step('J3', 'exam: start attempt', stu, async () => {
     await stu.goto(`${C()}/exams`);
     await stu.getByText(EXAM).first().waitFor({ timeout: 10000 });
-    await stu.getByRole('link', { name: /Vào thi ngay/ }).first().click();
+    await stu.getByRole('link', { name: /^(Làm bài|Làm tiếp)$/ }).first().click();
     await stu.getByRole('button', { name: 'Bắt đầu làm bài' }).click();
     await stu.getByText('2 + 2 = ?').waitFor({ timeout: 10000 });
   });
@@ -255,7 +293,7 @@ const persist = () => saveState({
     await stu.waitForTimeout(800);
   });
   await step('J3', 'exam: F5 mid-exam resumes same attempt with answers', stu, async () => {
-    const before = await stu.locator('span.font-mono').first().innerText().catch(() => '');
+    const before = await stu.getByRole('timer', { name: 'Thời gian còn lại' }).innerText().catch(() => '');
     await stu.reload();
     await stu.getByText('2 + 2 = ?').waitFor({ timeout: 10000 });
     if (await stu.getByRole('button', { name: 'Bắt đầu làm bài' }).isVisible()) throw new Error('reload showed start screen instead of resuming');
@@ -265,7 +303,11 @@ const persist = () => saveState({
     return `timer before=${before}`;
   });
   await step('J3', 'exam: submit -> result page', stu, async () => {
-    await stu.getByRole('button', { name: 'Hoàn tất & Nộp bài thi' }).click();
+    await stu.getByRole('button', { name: 'Hoàn tất & nộp bài' }).click();
+    // Nộp bài giờ qua hộp thoại xác nhận (nêu số câu đã trả lời).
+    const confirm = stu.getByRole('alertdialog', { name: 'Nộp bài và kết thúc lượt làm?' });
+    await confirm.getByText('2/2').waitFor({ timeout: 5000 });
+    await confirm.getByRole('button', { name: 'Xác nhận nộp bài' }).click();
     await stu.waitForURL(/\/result\?attemptId=/, { timeout: 15000 });
     await settle(stu);
     await shot(stu, 'J3-result-before-grading');
@@ -275,7 +317,7 @@ const persist = () => saveState({
     await stu.goto(`${C()}/exams`);
     await stu.getByText(EXAM).first().waitFor({ timeout: 10000 });
     const txt = (await stu.locator('main').innerText()).replace(/\s+/g, ' ');
-    const m = txt.match(/(\d+) \/ 2 lượt/);
+    const m = txt.match(/Lượt làm (\d+)\/2/);
     if (!m || m[1] !== '1') throw new Error(`attempt count text: ${m && m[0]}`);
     return m[0];
   });
@@ -293,7 +335,7 @@ const persist = () => saveState({
   });
   await step('J4', 'student result page shows graded score', stu, async () => {
     await stu.goto(`${C()}/exams`);
-    await stu.getByRole('link', { name: 'Xem kết quả bài thi' }).first().click();
+    await stu.getByRole('link', { name: 'Xem kết quả' }).first().click();
     await settle(stu);
     await shot(stu, 'J4-result-after-grading');
     const txt = (await stu.locator('main').innerText()).replace(/\s+/g, ' ');
@@ -309,7 +351,7 @@ const persist = () => saveState({
     return 'student listed';
   });
   // Mọi trang phải render không có [role=alert] và không phát sinh lỗi console/CSP/mạng (trừ nhiễu đã biết: xem unexpectedEvents trong lib.js).
-  for (const p of ['overview', 'members', 'settings', 'leaderboard', 'staff', 'segments', 'audit', 'about', 'feed', 'documents', 'store', 'courses', 'exams', 'grading']) {
+  for (const p of ['overview', 'members', 'settings', 'leaderboard', 'staff', 'segments', 'audit', 'about', 'feed', 'blog', 'events', 'documents', 'store', 'courses', 'exams', 'grading']) {
     await step('J4', `studio page renders: ${p}`, owner, async () => {
       const before = events.length;
       await owner.goto(`${S()}/${p}`);
@@ -321,7 +363,7 @@ const persist = () => saveState({
       if (newEv.length) throw new Error(`events: ${newEv.map((e) => e.kind + ' ' + e.text).join(' / ').slice(0, 300)}`);
     });
   }
-  for (const p of ['feed', 'learn', 'exams', 'leaderboard', 'documents', 'members', 'about', 'store']) {
+  for (const p of ['blog', 'feed', 'learn', 'exams', 'events', 'documents', 'members', 'store', 'leaderboard', 'about']) {
     await step('J4', `student tab renders: ${p}`, stu, async () => {
       const before = events.length;
       await stu.goto(`${C()}/${p}`);
@@ -336,13 +378,18 @@ const persist = () => saveState({
   // ---------------- Journey 5: đăng xuất giữa nhiều tab ----------------
   await step('J5', 'logout in tab1 -> tab2 logged out on next action', owner2, async () => {
     await owner2.goto(`${C()}/feed`);
-    await owner2.getByTitle('Đăng xuất').waitFor({ timeout: 10000 });
+    await owner2.getByRole('button', { name: 'Mở menu tài khoản' }).waitFor({ timeout: 10000 });
     await owner.goto(`${C()}/feed`);
-    await owner.getByTitle('Đăng xuất').click();
+    await owner.getByRole('button', { name: 'Mở menu tài khoản' }).click();
+    await owner.getByRole('menuitem', { name: 'Đăng xuất' }).click();
     await owner.waitForURL(/\/login/, { timeout: 10000 });
     await owner2.waitForTimeout(800);
     const immediately = !(await isLoggedIn(owner2));
-    await owner2.getByRole('link', { name: 'Luyện thi' }).click().catch(() => {});
+    // Hành động kế tiếp ở tab 2: mở tab Thi nếu còn là liên kết (vẫn đăng nhập), còn khi đã mất phiên thì tab Thi
+    // bị khóa với khách (không phải liên kết) - mở tab Giới thiệu (luôn mở với khách) để vẫn có một điều hướng thật.
+    const examsTab = owner2.getByRole('link', { name: 'Thi', exact: true });
+    if (await examsTab.count()) await examsTab.click();
+    else await owner2.getByRole('link', { name: 'Giới thiệu', exact: true }).click();
     await settle(owner2);
     const loggedIn = await isLoggedIn(owner2);
     if (loggedIn) throw new Error('tab2 still logged in after tab1 logout');
@@ -355,7 +402,7 @@ const persist = () => saveState({
   await step('J5', 'login again', owner, async () => {
     await login(owner, OWNER);
     await owner.goto(`${C()}/feed`);
-    await owner.getByRole('link', { name: 'Studio Quản Trị' }).waitFor({ timeout: 10000 });
+    await owner.getByRole('link', { name: 'Studio quản trị' }).waitFor({ timeout: 10000 });
   });
 
   // ---------------- Journey 6: giao diện điện thoại (390px) ----------------
@@ -366,7 +413,9 @@ const persist = () => saveState({
   await step('J6', 'mobile login student', mob, async () => { await login(mob, STUDENT); });
   const mobilePages = [
     ['classes', `${BASE}/classes`],
+    ['blog', `${C()}/blog`],
     ['feed', `${C()}/feed`],
+    ['events', `${C()}/events`],
     ['learn', `${C()}/learn`],
     ['exams', `${C()}/exams`],
     ['leaderboard', `${C()}/leaderboard`],
@@ -388,7 +437,7 @@ const persist = () => saveState({
   }
   await step('J6', 'mobile lesson page', mob, async () => {
     await mob.goto(`${C()}/learn`);
-    await mob.getByRole('link', { name: 'Vào học' }).first().click();
+    await mob.getByRole('button', { name: /^(Vào học|Học tiếp)$/ }).first().click();
     await mob.locator('video').waitFor({ timeout: 10000 });
     await settle(mob);
     const o = await overflowCheck(mob);
@@ -399,7 +448,7 @@ const persist = () => saveState({
   const mobO = await mobOwnerCtx.newPage();
   instrument(mobO, 'mobile-owner');
   await step('J6', 'mobile login owner', mobO, async () => { await login(mobO, OWNER); });
-  for (const p of ['courses', 'exams', 'grading', 'store', 'members']) {
+  for (const p of ['courses', 'exams', 'grading', 'store', 'members', 'blog', 'events']) {
     await step('J6', `mobile studio ${p}`, mobO, async () => {
       await mobO.goto(`${S()}/${p}`);
       await settle(mobO, 800);

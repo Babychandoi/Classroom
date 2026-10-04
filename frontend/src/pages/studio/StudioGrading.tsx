@@ -3,6 +3,8 @@ import { useOutletContext } from 'react-router-dom';
 import { Classroom } from '../../types';
 import { api } from '../../api/client';
 import { hasAnyStudioPermission, hasCoursePermission } from '../../api/permissions';
+import { Avatar, Badge, Button, Card, inputClass } from '../../components/ui';
+import { CardHeader, Notice, PageHeader, StudioPage, rowActionClass } from './studioUi';
 
 // R13-07 gap fix: the class's exams, filtered to ones this grader can actually grade (class-wide
 // EXAM:GRADE, or a course-scoped grant matching the exam's targetCourseId) — used to seed
@@ -206,93 +208,120 @@ export const StudioGrading: React.FC = () => {
     }
   };
 
-  return <div className="max-w-5xl mx-auto space-y-6">
-    <header><h1 className="text-2xl font-black text-slate-900">Chấm bài</h1><p className="text-sm text-slate-600">Bài thi và bài tập chờ chấm · {classroom.title}</p></header>
+  const alertBox = (message: string) => (
+    <div role="alert" className="rounded-btn border border-red-200 bg-red-50 px-3.5 py-3 text-meta font-medium text-red-700">{message}</div>
+  );
 
-    {canGradeAssignments && <section className="space-y-4 rounded-2xl border bg-white p-5">
-      <h2 className="text-lg font-bold">Bài tập</h2>
-      {assignmentError && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{assignmentError}</div>}
-      {assignmentLoading ? <p>Đang tải…</p> : assignmentQueue.length === 0 ? <p className="text-sm text-slate-500">Chưa có bài nộp cần chấm.</p> : <div className="space-y-3">
-        {assignmentQueue.map(submission => <article key={submission.submissionId} className="space-y-2 rounded-lg bg-slate-50 p-3">
-          <p className="text-xs text-slate-600">{submission.courseTitle ?? 'Khóa học'} · {submission.lessonTitle ?? 'Bài tập'} · Học viên {submission.learner.displayName} · Lần {submission.attemptNumber}</p><p className="whitespace-pre-wrap text-sm">{submission.submissionText}</p>
-          <div className="flex flex-wrap gap-2"><label className="text-sm">Điểm<input type="number" min="0" step="0.01" value={assignmentScores[submission.submissionId] ?? (submission.score == null ? '' : String(submission.score))} onChange={event => setAssignmentScores(current => ({ ...current, [submission.submissionId]: event.target.value }))} className="ml-2 w-28 rounded border p-2" /></label>
-          <input aria-label="Phản hồi bài tập" placeholder="Phản hồi" value={assignmentFeedback[submission.submissionId] ?? submission.feedback ?? ''} onChange={event => setAssignmentFeedback(current => ({ ...current, [submission.submissionId]: event.target.value }))} className="min-w-48 flex-1 rounded border p-2" />
-          <button type="button" onClick={() => void gradeAssignment(submission)} disabled={!((assignmentScores[submission.submissionId] ?? (submission.score == null ? '' : String(submission.score))).trim())} className="rounded bg-indigo-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50">Lưu điểm</button></div>
-        </article>)}
+  return <StudioPage>
+    <PageHeader title="Chấm bài" description={`Bài thi và bài tập học viên đã nộp đang chờ bạn chấm · ${classroom.title}`} />
+
+    {canGradeAssignments && <Card as="section" aria-labelledby="assignment-title" className="space-y-4">
+      <CardHeader
+        id="assignment-title"
+        title="Bài tập"
+        action={!assignmentLoading && assignmentQueue.length > 0 ? <Badge tone="warn" size="sm" className="tabular">{assignmentQueue.length} chờ chấm</Badge> : undefined}
+      />
+      {assignmentError && alertBox(assignmentError)}
+      {assignmentLoading ? <p className="text-meta text-slate-500">Đang tải…</p> : assignmentQueue.length === 0 ? <p className="text-meta text-slate-500">Chưa có bài nộp cần chấm.</p> : <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200">
+        {assignmentQueue.map(submission => {
+          const scoreValue = assignmentScores[submission.submissionId] ?? (submission.score == null ? '' : String(submission.score));
+          return <article key={submission.submissionId} className="space-y-3 p-4">
+            <div className="flex items-start gap-3">
+              <Avatar name={submission.learner.displayName} size={32} />
+              <div className="min-w-0">
+                <p className="text-ui font-semibold text-slate-900">{submission.learner.displayName}</p>
+                <p className="text-caption text-slate-500">{submission.courseTitle ?? 'Khóa học'} · {submission.lessonTitle ?? 'Bài tập'} · Lần {submission.attemptNumber}</p>
+              </div>
+            </div>
+            <p className="whitespace-pre-wrap rounded-btn bg-slate-50 p-3 text-ui text-slate-900">{submission.submissionText}</p>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-caption font-semibold text-slate-600">Điểm
+                <input type="number" min="0" step="0.01" value={scoreValue} onChange={event => setAssignmentScores(current => ({ ...current, [submission.submissionId]: event.target.value }))} className={inputClass('mt-1 h-10 w-28 tabular')} />
+              </label>
+              <input aria-label="Phản hồi bài tập" placeholder="Phản hồi cho học viên" value={assignmentFeedback[submission.submissionId] ?? submission.feedback ?? ''} onChange={event => setAssignmentFeedback(current => ({ ...current, [submission.submissionId]: event.target.value }))} className={inputClass('h-10 min-w-48 flex-1')} />
+              <Button size="md" variant="secondary" onClick={() => void gradeAssignment(submission)} disabled={!scoreValue.trim()}>Lưu điểm</Button>
+            </div>
+          </article>;
+        })}
       </div>}
-    </section>}
+    </Card>}
 
     {canGradeExams && <>
-      {examError && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{examError}</div>}
-      {gradeError && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{gradeError}</div>}
+      {examError && alertBox(examError)}
+      {gradeError && alertBox(gradeError)}
       <div className="grid gap-5 lg:grid-cols-[minmax(16rem,0.8fr)_minmax(0,1.2fr)]">
-        <section className="rounded-2xl border bg-white p-4" aria-label="Hàng đợi chấm bài">
-          <h2 className="mb-3 font-bold">Hàng đợi</h2>
-          {examLoading ? <p>Đang tải…</p> : queue.length === 0 ? <p className="text-sm text-slate-500">Không có bài cần chấm.</p> : <ul className="space-y-2">
-            {queue.map(attempt => <li key={attempt.id}><button type="button" onClick={() => void openAttempt(attempt.id)} className="w-full rounded-xl border p-3 text-left hover:bg-slate-50">
-              <span className="block font-semibold">{attempt.examTitle}</span><span className="text-xs text-slate-500">{attempt.learnerDisplayName ?? attempt.userId} · {attempt.status}</span>
+        <Card as="section" padded={false} className="overflow-hidden" aria-label="Hàng đợi chấm bài">
+          <h2 className="px-5 pb-3 pt-4 text-[16px] font-semibold leading-6 text-slate-900">Hàng đợi</h2>
+          {examLoading ? <p className="px-5 pb-5 text-meta text-slate-500">Đang tải…</p> : queue.length === 0 ? <p className="px-5 pb-5 text-meta text-slate-500">Không có bài cần chấm.</p> : <ul className="border-t border-slate-100">
+            {queue.map(attempt => <li key={attempt.id} className="border-b border-slate-100 last:border-b-0"><button type="button" onClick={() => void openAttempt(attempt.id)} aria-current={selected?.id === attempt.id ? 'true' : undefined} className={`w-full px-5 py-3 text-left transition-colors duration-micro ${selected?.id === attempt.id ? 'bg-tint' : 'hover:bg-slate-50'}`}>
+              <span className="block text-ui font-semibold text-slate-900">{attempt.examTitle}</span><span className="text-caption text-slate-500">{attempt.learnerDisplayName ?? attempt.userId} · {attempt.status}</span>
             </button></li>)}
           </ul>}
-        </section>
-        <section className="rounded-2xl border bg-white p-5">
-          {!selected ? <p className="text-sm text-slate-500">Chọn bài làm để xem câu trả lời và chấm tự luận.</p> : <form onSubmit={submitGrades} className="space-y-5">
-            <div><h2 className="font-bold">{selected.examTitle}</h2><p className="text-xs text-slate-600">Học viên {selected.learnerDisplayName ?? selected.userId} · Trạng thái hiện tại: {selected.status}</p></div>
+        </Card>
+        <Card as="section">
+          {!selected ? <p className="text-meta text-slate-500">Chọn bài làm ở hàng đợi để xem câu trả lời và chấm câu tự luận.</p> : <form onSubmit={submitGrades} className="space-y-5">
+            <div><h2 className="text-h3-lg font-semibold text-slate-900">{selected.examTitle}</h2><p className="text-meta text-slate-600">Học viên {selected.learnerDisplayName ?? selected.userId} · Trạng thái hiện tại: {selected.status}</p></div>
             {(selected.questions ?? []).filter(q => q.type.toUpperCase() === 'ESSAY').map((question, index) => {
               const answer = selected.answers?.find(a => a.questionId === question.id);
-              return <fieldset key={question.id} className="space-y-2 rounded-xl border p-4">
-                <legend className="px-1 font-semibold">Câu {index + 1} · tối đa {question.points} điểm</legend>
-                <p>{question.questionText}</p><p className="whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm">{answer?.studentAnswer || 'Chưa có câu trả lời'}</p>
-                <label className="block text-sm">Điểm<input required type="number" min="0" max={question.points} step="any" value={scores[question.id] ?? ''} onChange={e => setScores(current => ({ ...current, [question.id]: e.target.value }))} className="mt-1 block w-full rounded-lg border p-2" /></label>
-                <label className="block text-sm">Phản hồi<textarea value={feedback[question.id] ?? ''} onChange={e => setFeedback(current => ({ ...current, [question.id]: e.target.value }))} className="mt-1 block w-full rounded-lg border p-2" rows={2} /></label>
+              return <fieldset key={question.id} className="space-y-3 rounded-2xl border border-slate-200 p-4">
+                <legend className="px-1 text-meta font-semibold text-slate-900">Câu {index + 1} · tối đa {question.points} điểm</legend>
+                <p className="text-ui text-slate-900">{question.questionText}</p><p className="whitespace-pre-wrap rounded-btn bg-slate-50 p-3 text-ui text-slate-900">{answer?.studentAnswer || 'Chưa có câu trả lời'}</p>
+                <label className="block text-caption font-semibold text-slate-600">Điểm<input required type="number" min="0" max={question.points} step="any" value={scores[question.id] ?? ''} onChange={e => setScores(current => ({ ...current, [question.id]: e.target.value }))} className={inputClass('mt-1 h-10 tabular')} /></label>
+                <label className="block text-caption font-semibold text-slate-600">Phản hồi<textarea value={feedback[question.id] ?? ''} onChange={e => setFeedback(current => ({ ...current, [question.id]: e.target.value }))} className={inputClass('mt-1 py-2.5')} rows={2} /></label>
               </fieldset>;
             })}
-            {(selected.questions ?? []).every(q => q.type.toUpperCase() !== 'ESSAY') && <p className="text-sm text-slate-600">Không có câu tự luận cần chấm thủ công.</p>}
+            {(selected.questions ?? []).every(q => q.type.toUpperCase() !== 'ESSAY') && <p className="text-meta text-slate-600">Không có câu tự luận cần chấm thủ công.</p>}
             {correctingPublished && (
-              <fieldset className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-4">
-                <legend className="px-1 font-semibold text-amber-800">Sửa điểm bài đã công bố</legend>
-                <label className="block text-sm">Lý do sửa điểm (bắt buộc)
-                  <textarea required maxLength={1000} value={regradeReason} onChange={e => setRegradeReason(e.target.value)} placeholder="VD: Học viên khiếu nại, chấm lại theo đáp án chi tiết" className="mt-1 block w-full rounded-lg border p-2" rows={2} />
+              <fieldset className="space-y-2 rounded-2xl border border-amber-200 bg-warn-soft p-4">
+                <legend className="px-1 text-meta font-semibold text-amber-800">Sửa điểm bài đã công bố</legend>
+                <label className="block text-caption font-semibold text-amber-900">Lý do sửa điểm (bắt buộc)
+                  <textarea required maxLength={1000} value={regradeReason} onChange={e => setRegradeReason(e.target.value)} placeholder="VD: Học viên khiếu nại, chấm lại theo đáp án chi tiết" className={inputClass('mt-1 py-2.5')} rows={2} />
                 </label>
               </fieldset>
             )}
-            <button disabled={saving} className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">{saving ? 'Đang lưu…' : correctingPublished ? 'Sửa điểm' : 'Lưu điểm'}</button>
-            {selected.status === 'GRADING' && <p role="status" className="text-sm text-amber-700">Đã lưu một phần; kết quả chưa được công bố vì còn câu hỏi chưa chấm.</p>}
-            {selected.status === 'PUBLISHED' && <p role="status" className="text-sm text-emerald-700">Đã công bố · Điểm: {selected.score ?? '—'}%</p>}
+            <Button type="submit" variant="primary" size="md" disabled={saving}>{saving ? 'Đang lưu…' : correctingPublished ? 'Sửa điểm' : 'Lưu điểm'}</Button>
+            {selected.status === 'GRADING' && <Notice tone="warn" role="status">Đã lưu một phần; kết quả chưa được công bố vì còn câu hỏi chưa chấm.</Notice>}
+            {selected.status === 'PUBLISHED' && <Notice tone="success" role="status">Đã công bố · Điểm: {selected.score ?? '—'}%</Notice>}
           </form>}
-        </section>
+        </Card>
       </div>
 
       {/* R13-07: "Kết quả đã công bố" — per exam the queue has surfaced, list PUBLISHED results
           with a "Sửa điểm" action that opens the same grading form above with a mandatory reason. */}
       {publishedExamIds.length > 0 && (
-        <section className="rounded-2xl border bg-white p-5 space-y-4">
-          <h2 className="text-lg font-bold">Kết quả đã công bố</h2>
-          {publishedError && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{publishedError}</div>}
-          {publishedExamIds.map(examId => {
-            const examTitle = queue.find(a => a.examId === examId)?.examTitle
-              ?? (selected?.examId === examId ? selected?.examTitle : undefined)
-              ?? examTitleById[examId]
-              ?? examId;
-            const rows = publishedByExam[examId];
-            return <div key={examId} className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-sm">{examTitle}</h3>
-                <button type="button" onClick={() => void loadPublishedForExam(examId)} disabled={publishedLoading[examId]} className="text-xs font-bold text-indigo-700 disabled:opacity-50">
-                  {publishedLoading[examId] ? 'Đang tải…' : rows ? 'Tải lại' : 'Xem kết quả đã công bố'}
-                </button>
-              </div>
-              {rows && (rows.length === 0 ? <p className="text-xs text-slate-600">Chưa có kết quả đã công bố.</p> : <ul className="space-y-1">
-                {rows.map(attempt => <li key={attempt.id} className="flex items-center justify-between rounded-lg bg-slate-50 p-2 text-xs">
-                  <span>{attempt.learnerDisplayName ?? attempt.userId} · Điểm: {attempt.score ?? '—'}%</span>
-                  <button type="button" onClick={() => void openAttempt(attempt.id)} className="font-bold text-indigo-700">Sửa điểm</button>
-                </li>)}
-              </ul>)}
-            </div>;
-          })}
-        </section>
+        <Card as="section" padded={false} aria-labelledby="published-title" className="overflow-hidden">
+          <div className="px-5 py-4 sm:px-6">
+            <h2 id="published-title" className="text-[16px] font-semibold leading-6 text-slate-900">Kết quả đã công bố</h2>
+            <p className="mt-0.5 text-meta text-slate-600">Sửa điểm một bài đã công bố cần ghi rõ lý do; học viên sẽ thấy điểm mới.</p>
+          </div>
+          {publishedError && <div className="px-5 pb-4 sm:px-6">{alertBox(publishedError)}</div>}
+          <div className="divide-y divide-slate-100 border-t border-slate-100">
+            {publishedExamIds.map(examId => {
+              const examTitle = queue.find(a => a.examId === examId)?.examTitle
+                ?? (selected?.examId === examId ? selected?.examTitle : undefined)
+                ?? examTitleById[examId]
+                ?? examId;
+              const rows = publishedByExam[examId];
+              return <div key={examId} className="space-y-2 px-5 py-3 sm:px-6">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-ui font-semibold text-slate-900">{examTitle}</h3>
+                  <button type="button" onClick={() => void loadPublishedForExam(examId)} disabled={publishedLoading[examId]} className={rowActionClass()}>
+                    {publishedLoading[examId] ? 'Đang tải…' : rows ? 'Tải lại' : 'Xem kết quả đã công bố'}
+                  </button>
+                </div>
+                {rows && (rows.length === 0 ? <p className="text-meta text-slate-500">Chưa có kết quả đã công bố.</p> : <ul className="divide-y divide-slate-100 rounded-btn border border-slate-200">
+                  {rows.map(attempt => <li key={attempt.id} className="flex items-center justify-between gap-3 px-3 py-2 text-meta">
+                    <span className="text-slate-900 tabular">{attempt.learnerDisplayName ?? attempt.userId} · Điểm: {attempt.score ?? '—'}%</span>
+                    <button type="button" onClick={() => void openAttempt(attempt.id)} className={rowActionClass()}>Sửa điểm</button>
+                  </li>)}
+                </ul>)}
+              </div>;
+            })}
+          </div>
+        </Card>
       )}
     </>}
 
-    {!canGradeExams && !canGradeAssignments && <p className="text-sm text-slate-500">Bạn không có quyền chấm bài trong lớp học này.</p>}
-  </div>;
+    {!canGradeExams && !canGradeAssignments && <Card><p className="text-ui text-slate-600">Bạn không có quyền chấm bài trong lớp học này. Hãy nhờ chủ lớp cấp quyền chấm bài thi hoặc bài tập.</p></Card>}
+  </StudioPage>;
 };

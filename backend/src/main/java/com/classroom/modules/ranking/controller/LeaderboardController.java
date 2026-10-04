@@ -33,6 +33,14 @@ public class LeaderboardController {
         return ResponseEntity.ok(ApiResponse.ok(leaderboard));
     }
 
+    /** Rank tiers of the class, ordered by minPoints ascending (members, owner, staff - same rule as GET /leaderboard). */
+    @GetMapping("/tiers")
+    public ResponseEntity<ApiResponse<List<com.classroom.modules.ranking.dto.RankTierDto>>> getTiers(
+            @PathVariable String classId,
+            @CurrentUser UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(leaderboardService.getTiers(classId, principal != null ? principal.getId() : null)));
+    }
+
     @PostMapping("/rebuild")
     public ResponseEntity<ApiResponse<Map<String, String>>> rebuildLeaderboard(
             @PathVariable String classId,

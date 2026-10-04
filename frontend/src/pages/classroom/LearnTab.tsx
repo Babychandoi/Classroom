@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext, Link, useNavigate } from 'react-router-dom';
-import { Classroom, Course } from '../../types';
+import { Classroom, Course, Lesson } from '../../types';
 import { api } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { LoadingSpinner, ErrorBanner, EmptyState, StatusBadge } from '../../components/UIStates';
-import { BookOpen, CheckCircle, Lock, PlayCircle, ChevronRight, ShoppingBag } from 'lucide-react';
+import { LoadingSpinner, ErrorBanner, EmptyState } from '../../components/UIStates';
+import { Avatar, Badge, CoverImage, FilterChip, ProgressBar, buttonClass } from '../../components/ui';
+import { ArrowRight, BookOpen, Check, ChevronDown, Lock, PlayCircle, ShoppingBag } from 'lucide-react';
 
 // R14-12: a paid entitlement that has not started yet (accessReason OWNED_UPCOMING) is shown as
 // "Bắt đầu từ dd/MM/yyyy" - the learner already owns it, so there is no purchase/renew call to action.
@@ -20,6 +21,29 @@ const ownedExpiryLabel = (course: Course) =>
     ? `Còn hạn đến ${formatViDate(course.expiresAt)}`
     : null;
 
+type AccessFilter = 'ALL' | 'FREE' | 'PAID';
+
+const isInProgress = (course: Course) =>
+  course.canLearn && course.completedLessons > 0 && course.completedLessons < course.totalLessons;
+
+/** Every lesson of a course in curriculum order. */
+const lessonsOf = (course: Course): Lesson[] => (course.sections ?? []).flatMap((section) => section.lessons ?? []);
+
+/** Where "Học tiếp" lands: the first lesson not completed yet, or the first lesson of a finished course. */
+const resumeLessonOf = (course: Course): Lesson | null => {
+  const lessons = lessonsOf(course);
+  return lessons.find((lesson) => !lesson.completed) ?? lessons[0] ?? null;
+};
+
+const ctaLabel = (course: Course) => (course.completedLessons > 0 ? 'Học tiếp' : 'Vào học');
+
+const AccessBadge: React.FC<{ course: Course; size?: 'md' | 'sm' }> = ({ course, size = 'sm' }) =>
+  course.accessMode === 'FREE' ? (
+    <Badge tone="free" size={size}>Miễn phí</Badge>
+  ) : (
+    <Badge tone="paid" size={size}>Trả phí</Badge>
+  );
+
 export const LearnTab: React.FC = () => {
   const { classroom } = useOutletContext<{ classroom: Classroom }>();
   const { user } = useAuth();
@@ -28,10 +52,34 @@ export const LearnTab: React.FC = () => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<AccessFilter>('ALL');
 
-  // Selected course details
+  // The featured (selected) course: its details carry the curriculum, the access state and the call to action.
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const featuredRef = useRef<HTMLElement | null>(null);
+
+  const lessonPath = (lessonId: string) => `/classes/${classroom.slug}/learn/lessons/${lessonId}`;
+
+  const loadCourseDetails = async (courseId: string): Promise<Course | null> => {
+    try {
+      setLoadingDetails(true);
+      const raw = await api.get<Course>(`/courses/${courseId}`);
+      // GET /courses/{id} carries the curriculum but leaves totalLessons/completedLessons at 0, so the counts
+      // shown in the featured card are taken from the lessons themselves.
+      const lessons = raw.sections ? lessonsOf(raw) : null;
+      const data = lessons
+        ? { ...raw, totalLessons: lessons.length, completedLessons: lessons.filter((l) => l.completed).length }
+        : raw;
+      setSelectedCourse(data);
+      return data;
+    } catch (err: any) {
+      alert(err.message || 'Không thể tải chi tiết khóa học');
+      return null;
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
 
   const fetchCourses = async () => {
     try {
@@ -40,7 +88,8 @@ export const LearnTab: React.FC = () => {
       const data = await api.get<Course[]>(`/classes/${classroom.id}/courses`);
       setCourses(data || []);
       if (data && data.length > 0 && !selectedCourse) {
-        loadCourseDetails(data[0].id);
+        // Featured = the course the learner is in the middle of, otherwise the first one.
+        loadCourseDetails((data.find(isInProgress) ?? data[0]).id);
       }
     } catch (err: any) {
       setError(err.message || 'Không thể tải danh sách khóa học');
@@ -49,237 +98,357 @@ export const LearnTab: React.FC = () => {
     }
   };
 
-  const loadCourseDetails = async (courseId: string) => {
-    try {
-      setLoadingDetails(true);
-      const data = await api.get<Course>(`/courses/${courseId}`);
-      setSelectedCourse(data);
-    } catch (err: any) {
-      alert(err.message || 'Không thể tải chi tiết khóa học');
-    } finally {
-      setLoadingDetails(false);
-    }
-  };
-
   useEffect(() => {
     fetchCourses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classroom.id, user]);
 
+  // Design: clicking a course goes straight into learning (no separate overview screen). A course the learner
+  // cannot open yet (or one without lessons) is shown in the featured card instead, with its access conditions.
+  const openCourse = async (course: Course) => {
+    const details = await loadCourseDetails(course.id);
+    if (!details) return;
+    const target = details.canLearn ? resumeLessonOf(details) : null;
+    if (target) {
+      navigate(lessonPath(target.id));
+      return;
+    }
+    featuredRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  };
+
+  const freeCount = courses.filter((c) => c.accessMode === 'FREE').length;
+  const paidCount = courses.length - freeCount;
+  const visibleCourses = useMemo(
+    () => courses.filter((c) => filter === 'ALL' || (filter === 'FREE' ? c.accessMode === 'FREE' : c.accessMode !== 'FREE')),
+    [courses, filter],
+  );
+
   return (
-    <div className="space-y-8">
-      {/* Course List Carousel / Grid */}
-      <div>
-        <div className="flex justify-between items-center mb-4">
-          <div>
-            <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Các khóa học trong lớp</h2>
-            <p className="text-xs text-slate-500">Chọn khóa học để xem lộ trình và các bài học</p>
-          </div>
-        </div>
+    <div className="space-y-8 sm:space-y-10">
+      {loading && <LoadingSpinner message="Đang tải danh mục khóa học..." />}
+      {error && <ErrorBanner message={error} onRetry={fetchCourses} />}
 
-        {loading && <LoadingSpinner message="Đang tải danh mục khóa học..." />}
-        {error && <ErrorBanner message={error} onRetry={fetchCourses} />}
+      {!loading && !error && courses.length === 0 && (
+        <EmptyState
+          title="Chưa có khóa học nào"
+          description="Người dẫn dắt đang chuẩn bị bài giảng. Trong lúc chờ, bạn có thể xem tab Thảo luận hoặc Tài liệu của lớp."
+          icon={<BookOpen className="h-6 w-6" strokeWidth={1.75} />}
+        />
+      )}
 
-        {!loading && !error && courses.length === 0 && (
-          <EmptyState
-            title="Chưa có khóa học nào"
-            description="Giáo viên đang chuẩn bị bài giảng, vui lòng quay lại sau!"
-          />
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {courses.map((course) => {
-            const isSelected = selectedCourse?.id === course.id;
-            return (
-              // R18-03: a real button (was a click-only div): reachable with Tab, activated with Enter/Space, with a
-              // visible focus ring. Its contents are phrasing elements only, as HTML requires inside a button.
-              <button
-                type="button"
-                key={course.id}
-                onClick={() => loadCourseDetails(course.id)}
-                aria-pressed={isSelected}
-                className={`w-full text-left cursor-pointer rounded-2xl border p-5 transition flex flex-col justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 ${
-                  isSelected
-                    ? 'bg-indigo-50/50 border-indigo-500 shadow-md ring-2 ring-indigo-500/20'
-                    : 'bg-white border-slate-200 hover:border-indigo-300 hover:shadow-sm'
-                }`}
-              >
-                <span className="block">
-                  <span className="flex items-center justify-between mb-3">
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                        course.accessMode === 'FREE'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {course.accessMode === 'FREE' ? 'Miễn phí' : 'Khóa PRO/Trả phí'}
-                    </span>
-
-                    {course.canLearn ? (
-                      <span className="flex items-center space-x-1 text-xs font-semibold text-emerald-700" title={ownedExpiryLabel(course) ?? undefined}>
-                        <CheckCircle className="w-3.5 h-3.5" />
-                        <span>Được phép học</span>
-                      </span>
-                    ) : (
-                      <span className="flex items-center space-x-1 text-xs font-semibold text-slate-500" title={course.accessReason === 'EXPIRED' && course.expiresAt ? `Sản phẩm hết hạn ngày ${new Date(course.expiresAt).toLocaleDateString('vi-VN')}` : course.accessReason === 'OWNED_UPCOMING' ? upcomingLabel(course) : undefined}>
-                        <Lock className="w-3.5 h-3.5" />
-                        <span>{course.accessReason === 'EXPIRED' ? 'Đã hết hạn' : course.accessReason === 'OWNED_UPCOMING' ? upcomingLabel(course) : 'Khóa bảo vệ'}</span>
-                      </span>
-                    )}
-                  </span>
-
-                  <span className="block text-base font-bold text-slate-900 line-clamp-1 mb-1">{course.title}</span>
-                  {ownedExpiryLabel(course) && (
-                    <span className="block text-[11px] font-semibold text-emerald-700 mb-1">{ownedExpiryLabel(course)}</span>
-                  )}
-                  <span className="block text-xs text-slate-600 line-clamp-2 mb-4">
-                    {course.description || 'Chưa có mô tả chi tiết cho khóa học.'}
-                  </span>
-                </span>
-
-                {/* Progress bar */}
-                <span className="block">
-                  <span className="flex justify-between items-center text-[11px] text-slate-600 font-semibold mb-1">
-                    <span>Tiến độ: {course.completedLessons}/{course.totalLessons} bài</span>
-                    <span>{Math.round(course.progressPercentage)}%</span>
-                  </span>
-                  <span className="block w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                    <span
-                      className="block h-full bg-indigo-600 rounded-full transition-all duration-500"
-                      style={{ width: `${course.progressPercentage}%` }}
-                    />
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Selected Course Curriculum / Sections & Lessons */}
       {selectedCourse && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-          <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-100 gap-4">
+        <section ref={featuredRef} aria-labelledby="featured-course-heading" className="scroll-mt-32">
+          <h2 id="featured-course-heading" className="mb-3.5 text-h2-sm font-semibold text-slate-900">
+            {isInProgress(selectedCourse) ? 'Học tiếp' : 'Khóa học nổi bật'}
+          </h2>
+          <FeaturedCourse
+            course={selectedCourse}
+            classroom={classroom}
+            loadingDetails={loadingDetails}
+            lessonPath={lessonPath}
+            onStart={(lessonId) => navigate(lessonPath(lessonId))}
+          />
+        </section>
+      )}
+
+      {courses.length > 0 && (
+        <section aria-labelledby="all-courses-heading">
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <div className="flex items-center space-x-2 mb-1">
-                <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">
-                  Chương trình chi tiết
-                </span>
-                {selectedCourse.accessMode === 'PURCHASE_REQUIRED' && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
-                    Yêu cầu mua
-                  </span>
-                )}
-              </div>
-              <h2 className="text-2xl font-black text-slate-900">{selectedCourse.title}</h2>
-              <p className="text-sm text-slate-500 mt-1 max-w-2xl">{selectedCourse.description}</p>
+              <h2 id="all-courses-heading" className="text-h2-sm font-semibold text-slate-900 sm:text-h2">Tất cả khóa học</h2>
+              <p className="mt-1 text-ui text-slate-600 sm:text-body-sm">
+                <span className="tabular">{courses.length}</span> khóa trong lớp học
+              </p>
             </div>
-
-            {/* R19-12: an existing buyer sees when their access ends - also after the product was taken off sale. */}
-            {ownedExpiryLabel(selectedCourse) && (
-              <div className="flex-shrink-0 text-right space-y-1.5">
-                <p className="text-xs font-semibold text-emerald-700">
-                  {ownedExpiryLabel(selectedCourse)}
-                </p>
-                {isNotForSale(selectedCourse) && (
-                  <p className="text-[11px] text-slate-500">Khóa học đã ngừng bán nên không thể gia hạn thêm.</p>
-                )}
-              </div>
-            )}
-
-            {!selectedCourse.canLearn && (
-              <div className="flex-shrink-0 text-right space-y-1.5">
-                {/* R13-09: distinct copy for an expired buyer vs. someone who never purchased at all. */}
-                {selectedCourse.accessReason === 'EXPIRED' && selectedCourse.expiresAt && (
-                  <p className="text-xs font-semibold text-rose-600">
-                    Sản phẩm hết hạn ngày {new Date(selectedCourse.expiresAt).toLocaleDateString('vi-VN')}
-                  </p>
-                )}
-                {selectedCourse.accessReason === 'OWNED_UPCOMING' ? (
-                  <p className="text-xs font-semibold text-indigo-600">
-                    Bạn đã mua khóa học này. {upcomingLabel(selectedCourse)}.
-                  </p>
-                ) : isNotForSale(selectedCourse) ? (
-                  // R19-12: the product was archived / is not published - the store no longer lists it, so a link there
-                  // (or a renewal call to action) would lead nowhere.
-                  <p className="text-xs font-semibold text-slate-500">Khóa học hiện không mở bán</p>
-                ) : (
-                  <Link
-                    to={`/classes/${classroom.slug}/store`}
-                    className="inline-flex items-center space-x-2 px-5 py-2.5 bg-amber-700 hover:bg-amber-800 text-white font-bold text-sm rounded-xl shadow-md transition"
-                  >
-                    <ShoppingBag className="w-4 h-4" />
-                    <span>{selectedCourse.accessReason === 'EXPIRED' ? 'Gia hạn tại Cửa hàng' : 'Mua khóa học tại Cửa hàng'}</span>
-                  </Link>
-                )}
-              </div>
-            )}
+            <div role="group" aria-label="Lọc khóa học theo quyền truy cập" className="-mx-4 flex gap-2 overflow-x-auto px-4 scrollbar-none sm:mx-0 sm:px-0">
+              <FilterChip selected={filter === 'ALL'} onClick={() => setFilter('ALL')}>
+                Tất cả · <span className="tabular">{courses.length}</span>
+              </FilterChip>
+              <FilterChip selected={filter === 'FREE'} onClick={() => setFilter('FREE')}>
+                Miễn phí · <span className="tabular">{freeCount}</span>
+              </FilterChip>
+              <FilterChip selected={filter === 'PAID'} onClick={() => setFilter('PAID')}>
+                Trả phí · <span className="tabular">{paidCount}</span>
+              </FilterChip>
+            </div>
           </div>
 
-          {loadingDetails && <LoadingSpinner message="Đang tải giáo trình..." />}
-
-          {!loadingDetails && selectedCourse.sections && selectedCourse.sections.length === 0 && (
-            <div className="text-center py-8 text-sm text-slate-500">Khóa học chưa có bài học nào.</div>
-          )}
-
-          {!loadingDetails && selectedCourse.sections && (
-            <div className="mt-6 space-y-6">
-              {selectedCourse.sections.map((section, idx) => (
-                <div key={section.id} className="border border-slate-100 rounded-xl overflow-hidden">
-                  <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                    <span className="text-sm font-bold text-slate-800">
-                      {section.title}
-                    </span>
-                    <span className="text-xs text-slate-500 font-medium">
-                      {section.lessons.length} bài học
-                    </span>
-                  </div>
-
-                  <div className="divide-y divide-slate-100">
-                    {section.lessons.map((lesson) => (
-                      <div
-                        key={lesson.id}
-                        className="px-4 py-3 flex items-center justify-between hover:bg-slate-50/80 transition"
-                      >
-                        <div className="flex items-center space-x-3">
-                          {lesson.completed ? (
-                            <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                          ) : (
-                            <PlayCircle className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                          )}
-                          <div>
-                            <span className="text-sm font-semibold text-slate-800 block">
-                              {lesson.title}
-                            </span>
-                            <span className="text-[11px] text-slate-500">
-                              {lesson.type} • {lesson.durationMinutes > 0 ? `${lesson.durationMinutes} phút` : 'Tài liệu'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {selectedCourse.canLearn ? (
-                          <Link
-                            to={`/classes/${classroom.slug}/learn/lessons/${lesson.id}`}
-                            className="inline-flex items-center space-x-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg transition"
-                          >
-                            <span>Vào học</span>
-                            <ChevronRight className="w-3.5 h-3.5" />
-                          </Link>
-                        ) : (
-                          <span className="text-xs text-slate-500 flex items-center space-x-1">
-                            <Lock className="w-3.5 h-3.5" />
-                            <span>Khóa</span>
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
+          {visibleCourses.length === 0 ? (
+            <p className="rounded-card border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-ui text-slate-600">
+              Không có khóa học nào trong nhóm này. Chọn “Tất cả” để xem mọi khóa của lớp.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
+              {visibleCourses.map((course) => (
+                <CourseCard
+                  key={course.id}
+                  course={course}
+                  selected={selectedCourse?.id === course.id}
+                  onOpen={() => openCourse(course)}
+                />
               ))}
             </div>
           )}
-        </div>
+        </section>
       )}
     </div>
   );
 };
+
+// ---------------------------------------------------------------------------------------------------------------
+
+const CourseCard: React.FC<{ course: Course; selected: boolean; onOpen: () => void }> = ({ course, selected, onOpen }) => {
+  const expiry = ownedExpiryLabel(course);
+  const lockedTitle =
+    course.accessReason === 'EXPIRED' && course.expiresAt
+      ? `Sản phẩm hết hạn ngày ${formatViDate(course.expiresAt)}`
+      : course.accessReason === 'OWNED_UPCOMING'
+        ? upcomingLabel(course)
+        : undefined;
+  return (
+    // R18-03: a real button (was a click-only div): reachable with Tab, activated with Enter/Space, with a
+    // visible focus ring. Its contents are phrasing elements only, as HTML requires inside a button.
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-pressed={selected}
+      className={`card-hover flex w-full flex-col overflow-hidden rounded-2xl border bg-white text-left shadow-hairline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:rounded-card ${
+        selected ? 'border-blue-200 ring-1 ring-blue-200' : 'border-slate-200'
+      }`}
+    >
+      <span className="block aspect-video w-full flex-shrink-0 bg-slate-100">
+        <CoverImage
+          src={course.coverImageUrl}
+          seed={course.id}
+          icon={<BookOpen className="h-8 w-8 sm:h-10 sm:w-10" strokeWidth={1.4} />}
+        />
+      </span>
+      <span className="flex flex-1 flex-col px-3.5 pb-3.5 pt-3 sm:px-[18px] sm:pb-[18px] sm:pt-4">
+        <span className="flex flex-wrap items-center gap-2">
+          <AccessBadge course={course} />
+          <span className="text-meta text-slate-500 tabular">{course.totalLessons} bài</span>
+          {selected && <span className="sr-only">(đang chọn)</span>}
+        </span>
+        <span className="mt-2.5 block truncate text-body-sm font-semibold text-slate-900 sm:text-h3">{course.title}</span>
+        <span className="mt-1 line-clamp-2 text-meta text-slate-600 sm:text-ui">
+          {course.description || 'Chưa có mô tả chi tiết cho khóa học.'}
+        </span>
+        {expiry && <span className="mt-1.5 block text-caption font-semibold text-green-800">{expiry}</span>}
+
+        <span className="mt-auto block pt-3.5">
+          {course.canLearn ? (
+            <span className="flex items-center gap-2.5">
+              <span className="min-w-0 flex-1">
+                <ProgressBar
+                  value={course.completedLessons}
+                  max={Math.max(course.totalLessons, 1)}
+                  label={`Tiến độ ${course.title}`}
+                />
+              </span>
+              <span className="flex-shrink-0 text-caption font-medium text-slate-600 tabular">
+                {course.completedLessons}/{course.totalLessons}
+              </span>
+              <span className="inline-flex flex-shrink-0 items-center gap-1 text-meta font-semibold text-blue-600">
+                {ctaLabel(course)}
+                <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+              </span>
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-meta font-medium text-slate-600" title={lockedTitle}>
+              <Lock className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" strokeWidth={2} aria-hidden="true" />
+              <span>
+                {course.accessReason === 'EXPIRED' ? 'Đã hết hạn' : course.accessReason === 'OWNED_UPCOMING' ? upcomingLabel(course) : 'Khóa bảo vệ'}
+              </span>
+            </span>
+          )}
+        </span>
+      </span>
+    </button>
+  );
+};
+
+// ---------------------------------------------------------------------------------------------------------------
+
+const FeaturedCourse: React.FC<{
+  course: Course;
+  classroom: Classroom;
+  loadingDetails: boolean;
+  lessonPath: (lessonId: string) => string;
+  onStart: (lessonId: string) => void;
+}> = ({ course, classroom, loadingDetails, lessonPath, onStart }) => {
+  const resume = course.canLearn ? resumeLessonOf(course) : null;
+  const sections = course.sections ?? [];
+  const lessonCount = lessonsOf(course).length;
+  const expiry = ownedExpiryLabel(course);
+
+  return (
+    <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-hairline sm:rounded-card">
+      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,400px)_minmax(0,1fr)] lg:grid-cols-[440px_minmax(0,1fr)]">
+        <div className="aspect-video bg-slate-100 md:aspect-auto md:min-h-[240px]">
+          <CoverImage src={course.coverImageUrl} seed={course.id} icon={<BookOpen className="h-10 w-10" strokeWidth={1.4} />} />
+        </div>
+
+        <div className="flex min-w-0 flex-col px-4 py-4 sm:px-7 sm:py-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <AccessBadge course={course} />
+            {course.accessMode === 'PURCHASE_REQUIRED' && !course.canLearn && <Badge tone="neutral" size="sm">Yêu cầu mua</Badge>}
+            <span className="text-meta text-slate-500 tabular">{course.totalLessons} bài</span>
+          </div>
+          <h3 className="mt-3 text-h3 font-semibold text-slate-900 sm:text-[22px] sm:leading-[30px] sm:tracking-[-0.3px]">{course.title}</h3>
+          <p className="mt-1.5 text-meta text-slate-600 sm:text-ui sm:leading-[22px]">
+            {course.description || 'Chưa có mô tả chi tiết cho khóa học.'}
+          </p>
+          {classroom.ownerName && (
+            <div className="mt-3 flex items-center gap-2">
+              <Avatar name={classroom.ownerName} src={classroom.ownerAvatarUrl} size={22} />
+              <span className="text-meta text-slate-600">
+                <strong className="font-semibold text-slate-900">{classroom.ownerName}</strong> · Người dẫn dắt
+              </span>
+            </div>
+          )}
+
+          <div className="mt-auto pt-4">
+            {course.canLearn ? (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                <div className="flex flex-1 items-center gap-2.5">
+                  <div className="min-w-0 flex-1">
+                    <ProgressBar value={course.completedLessons} max={Math.max(course.totalLessons, 1)} label="Tiến độ khóa học" />
+                  </div>
+                  <span className="flex-shrink-0 text-caption font-medium text-slate-600 tabular">
+                    {course.completedLessons}/{course.totalLessons}
+                  </span>
+                </div>
+                {resume ? (
+                  <button type="button" onClick={() => onStart(resume.id)} className={buttonClass('primary', 'md', 'w-full sm:w-auto')}>
+                    {ctaLabel(course)}
+                    <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+                  </button>
+                ) : (
+                  !loadingDetails && <span className="text-meta text-slate-500">Khóa học chưa có bài học nào.</span>
+                )}
+              </div>
+            ) : (
+              <AccessGate course={course} classroom={classroom} />
+            )}
+
+            {/* R19-12: an existing buyer sees when their access ends - also after the product was taken off sale. */}
+            {expiry && (
+              <div className="mt-3 space-y-0.5">
+                <p className="text-caption font-semibold text-green-800">{expiry}</p>
+                {isNotForSale(course) && (
+                  <p className="text-caption text-slate-500">Khóa học đã ngừng bán nên không thể gia hạn thêm.</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {loadingDetails && (
+        <div className="border-t border-slate-100">
+          <LoadingSpinner message="Đang tải giáo trình..." />
+        </div>
+      )}
+
+      {!loadingDetails && course.sections && (
+        <details className="group border-t border-slate-100" open={!course.canLearn || undefined}>
+          <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-ui font-semibold text-slate-900 hover:bg-slate-50 sm:px-7 [&::-webkit-details-marker]:hidden">
+            <span>
+              Chương trình học
+              <span className="ml-2 font-normal text-slate-500 tabular">
+                {sections.length} chương · {lessonCount} bài
+              </span>
+            </span>
+            <ChevronDown className="h-4 w-4 text-slate-400 transition-transform duration-state group-open:rotate-180" strokeWidth={1.75} aria-hidden="true" />
+          </summary>
+          {sections.length === 0 ? (
+            <p className="px-4 pb-5 text-ui text-slate-500 sm:px-7">Khóa học chưa có bài học nào.</p>
+          ) : (
+            <div className="pb-3">
+              {sections.map((section) => {
+                const done = section.lessons.filter((l) => l.completed).length;
+                return (
+                  <div key={section.id} className="border-t border-slate-100 first:border-t-0">
+                    <div className="flex items-baseline justify-between gap-3 px-4 pb-1.5 pt-3.5 sm:px-7">
+                      <p className="text-meta font-semibold text-slate-900">{section.title}</p>
+                      <p className="flex-shrink-0 text-caption text-slate-500 tabular">
+                        {course.canLearn ? `${done}/${section.lessons.length} hoàn thành` : `${section.lessons.length} bài học`}
+                      </p>
+                    </div>
+                    <ul>
+                      {section.lessons.map((lesson) => {
+                        const meta = lesson.durationMinutes > 0 ? `${lesson.durationMinutes} phút` : null;
+                        const row = (
+                          <>
+                            {lesson.completed ? (
+                              <span className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-green-100" aria-label="Đã hoàn thành">
+                                <Check className="h-2.5 w-2.5 text-green-600" strokeWidth={3} />
+                              </span>
+                            ) : course.canLearn ? (
+                              <PlayCircle className="h-[18px] w-[18px] text-slate-400" strokeWidth={1.75} aria-hidden="true" />
+                            ) : (
+                              <span className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-slate-100" aria-label="Đang khóa">
+                                <Lock className="h-2.5 w-2.5 text-slate-400" strokeWidth={2.4} />
+                              </span>
+                            )}
+                            <span className={`min-w-0 truncate text-meta font-medium ${course.canLearn ? 'text-slate-900' : 'text-slate-500'}`}>
+                              {lesson.title}
+                            </span>
+                            {meta && <span className="flex-shrink-0 text-caption text-slate-500 tabular">{meta}</span>}
+                          </>
+                        );
+                        return (
+                          <li key={lesson.id}>
+                            {course.canLearn ? (
+                              <Link
+                                to={lessonPath(lesson.id)}
+                                className="grid min-h-[40px] grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-2.5 px-4 py-1.5 transition-colors duration-micro hover:bg-slate-50 sm:px-7"
+                              >
+                                {row}
+                              </Link>
+                            ) : (
+                              <div className="grid min-h-[40px] grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-2.5 px-4 py-1.5 sm:px-7">{row}</div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </details>
+      )}
+    </article>
+  );
+};
+
+/** Why a course cannot be opened yet, and the one next step that exists for it (store / wait / nothing). */
+const AccessGate: React.FC<{ course: Course; classroom: Classroom }> = ({ course, classroom }) => (
+  <div className="space-y-2 rounded-2xl bg-slate-50 px-4 py-3.5">
+    {/* R13-09: distinct copy for an expired buyer vs. someone who never purchased at all. */}
+    {course.accessReason === 'EXPIRED' && course.expiresAt && (
+      <p className="text-meta font-semibold text-red-600">Sản phẩm hết hạn ngày {formatViDate(course.expiresAt)}</p>
+    )}
+    {course.accessReason === 'OWNED_UPCOMING' ? (
+      <p className="text-meta font-semibold text-slate-900">Bạn đã mua khóa học này. {upcomingLabel(course)}.</p>
+    ) : isNotForSale(course) ? (
+      // R19-12: the product was archived / is not published - the store no longer lists it, so a link there
+      // (or a renewal call to action) would lead nowhere.
+      <p className="text-meta font-semibold text-slate-600">Khóa học hiện không mở bán</p>
+    ) : (
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-meta text-slate-600">
+          {course.accessReason === 'EXPIRED'
+            ? 'Gia hạn để học tiếp — tiến độ của bạn được giữ nguyên.'
+            : 'Khóa học này cần mua để mở toàn bộ bài học.'}
+        </p>
+        <Link to={`/classes/${classroom.slug}/store`} className={buttonClass('primary', 'md', 'flex-shrink-0')}>
+          <ShoppingBag className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+          <span>{course.accessReason === 'EXPIRED' ? 'Gia hạn tại Cửa hàng' : 'Mua khóa học tại Cửa hàng'}</span>
+        </Link>
+      </div>
+    )}
+  </div>
+);

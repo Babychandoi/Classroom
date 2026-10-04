@@ -1,12 +1,12 @@
 'use strict';
 // Đếm request + lỗi console của trang sau khi tải, để phát hiện vòng lặp fetch/polling, lỗi CSP và host ngoài.
 //   node netwatch.js [owner|student] [/đường-dẫn ...]
-// Mặc định (owner): bảng xếp hạng lớp, tab Cửa hàng của lớp, Cửa hàng trong Studio.
+// Mặc định (owner): bảng xếp hạng lớp, tab Shop của lớp, Shop & đơn hàng trong Studio.
 // Mỗi đường dẫn PASS khi:
 //   - không có vi phạm CSP / lỗi console (trừ nhiễu đã biết - xem unexpectedEvents trong lib.js);
 //   - không request nào lặp > 3 lần trong cửa sổ theo dõi; POST /auth/refresh, GET /me và
 //     GET /payments/sandbox-status tối đa 1 lần (R17-01, R17-06);
-//   - trang không gọi host ngoài (font/CDN) và font Plus Jakarta Sans tự host đã được nạp và đang áp dụng (R17-04).
+//   - trang không gọi host ngoài (font/CDN) và font Inter tự host đã được nạp và đang áp dụng (R17-04).
 const path = require('path');
 const { BASE, SHOTS_ROOT, log, newRunId, launchBrowser, newCtx, createRunner, login, loadState, unexpectedEvents } = require('./lib');
 
@@ -73,8 +73,8 @@ const { step, events, summarize, instrument } = createRunner(path.join(SHOTS_ROO
         const loaded = Array.from(document.fonts).filter((f) => f.status === 'loaded').map((f) => f.family.replace(/"/g, ''));
         return { loaded, body: getComputedStyle(document.body).fontFamily };
       });
-      if (!font.loaded.includes('Plus Jakarta Sans Variable')) problems.push(`font tự host chưa được nạp (loaded=${font.loaded.join(',') || 'none'})`);
-      if (!font.body.includes('Plus Jakarta Sans Variable')) problems.push(`body không dùng font tự host: ${font.body.slice(0, 80)}`);
+      if (!font.loaded.includes('Inter Variable')) problems.push(`font tự host chưa được nạp (loaded=${font.loaded.join(',') || 'none'})`);
+      if (!font.body.includes('Inter Variable')) problems.push(`body không dùng font tự host: ${font.body.slice(0, 80)}`);
 
       if (problems.length) throw new Error(problems.join(' || '));
       return `${requests.length} requests; font=${font.loaded.join(',')}`;

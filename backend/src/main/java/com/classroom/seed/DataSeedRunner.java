@@ -57,6 +57,9 @@ public class DataSeedRunner implements CommandLineRunner {
     /** DEMO ONLY. Fixed so the README and the e2e suite can use it; 29 URL-safe characters, accepted by the same validation as a real code. */
     public static final String DEMO_PRIVATE_INVITE_CODE = "demo-invite-lop-rieng-tu-2026";
     public static final String DEMO_PAID_CLASS_SLUG = "lop-tra-phi";
+    // D-28: the one demo class that approves every join request (a FREE PUBLIC class with one pending request from student.pro).
+    public static final String DEMO_APPROVAL_CLASS_SLUG = "lop-duyet-thanh-vien";
+    public static final String DEMO_APPROVAL_CLASS_TITLE = "Lớp Duyệt Thành Viên";
     public static final String DEMO_PAID_CLASS_TITLE = "Lớp Trả Phí";
     public static final BigDecimal DEMO_PAID_PRICE = new BigDecimal("199000");
     public static final int DEMO_PAID_DURATION_DAYS = 30;
@@ -86,6 +89,9 @@ public class DataSeedRunner implements CommandLineRunner {
     private final PostRepository postRepository;
     private final CommentRepository commentRepository;
     private final ClassInviteRepository inviteRepository;
+    /** D-27: blog and event demo content (a separate component so the constructor above - used as is by tests - stays unchanged). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private DemoBlogEventSeeder blogEventSeeder;
 
     public DataSeedRunner(UserRepository userRepository,
                           PasswordEncoder passwordEncoder,
@@ -162,6 +168,8 @@ public class DataSeedRunner implements CommandLineRunner {
             c.setStatus("ACTIVE");
             return classroomRepository.save(c);
         });
+
+        ensureCategory(classroom, "Ôn thi");
 
         // 3. Class Memberships
         ensureMember(classroom.getId(), owner.getId(), "OWNER");
@@ -367,6 +375,13 @@ public class DataSeedRunner implements CommandLineRunner {
 
         // 13. D-19: a PRIVATE free class (join by the fixed demo invite code) and a PUBLIC paid class (199.000 VND / 30 days).
         seedPrivateAndPaidClasses(owner);
+        seedApprovalClass(owner, proStudent);
+
+        // 14. D-27: blog posts and events for the math class and the paid class.
+        if (blogEventSeeder != null) {
+            blogEventSeeder.seed(classroom, classroomRepository.findBySlug(DEMO_PAID_CLASS_SLUG).orElse(null),
+                    owner, staff, List.of(freeStudent, proStudent));
+        }
 
         log.info("Idempotent development seed completed successfully.");
     }
@@ -387,6 +402,7 @@ public class DataSeedRunner implements CommandLineRunner {
             c.setAccessType(Classroom.ACCESS_FREE);
             return classroomRepository.save(c);
         });
+        ensureCategory(privateClass, "Phát triển bản thân");
         ensureMember(privateClass.getId(), owner.getId(), "OWNER");
         ensureAbout(privateClass, "## Lớp riêng tư\n\nBạn đang xem lớp học chỉ dành cho người có mã mời.");
         String demoHash = InviteCodes.hash(DEMO_PRIVATE_INVITE_CODE);
@@ -406,6 +422,7 @@ public class DataSeedRunner implements CommandLineRunner {
             c.setAccessType(Classroom.ACCESS_FREE);
             return classroomRepository.save(c);
         });
+        ensureCategory(paidClass, "Ôn thi");
         ensureMember(paidClass.getId(), owner.getId(), "OWNER");
         ensureAbout(paidClass, "## Lớp trả phí\n\nMua quyền truy cập 30 ngày để học toàn bộ nội dung lớp.");
         if (paidClass.getAccessProductId() == null) {
@@ -418,6 +435,37 @@ public class DataSeedRunner implements CommandLineRunner {
             paidClass.setAccessProductId(access.getId());
             paidClass.setAccessType(Classroom.ACCESS_PAID);
             classroomRepository.save(paidClass);
+        }
+    }
+
+    /** D-28: a FREE PUBLIC class with requireApproval and one PENDING request (student.pro), so the Studio queue has data. Idempotent. */
+    private void seedApprovalClass(User owner, User requester) {
+        Classroom c = classroomRepository.findBySlug(DEMO_APPROVAL_CLASS_SLUG).orElseGet(() -> {
+            Classroom created = new Classroom();
+            created.setOwnerId(owner.getId());
+            created.setSlug(DEMO_APPROVAL_CLASS_SLUG);
+            created.setTitle(DEMO_APPROVAL_CLASS_TITLE);
+            created.setDescription("Lớp học miễn phí, công khai; chủ lớp duyệt từng người trước khi vào.");
+            created.setStatus("ACTIVE");
+            created.setVisibility(Classroom.VISIBILITY_PUBLIC);
+            created.setAccessType(Classroom.ACCESS_FREE);
+            created.setCategory("Phát triển bản thân");
+            created.setRequireApproval(true);
+            return classroomRepository.save(created);
+        });
+        ensureMember(c.getId(), owner.getId(), "OWNER");
+        ensureAbout(c, "## Lớp duyệt thành viên\n\nGửi yêu cầu tham gia, chủ lớp sẽ duyệt trong thời gian sớm nhất.");
+        if (!memberRepository.existsByClassIdAndUserId(c.getId(), requester.getId())) {
+            ClassMember pending = new ClassMember(c.getId(), requester.getId(), "STUDENT");
+            pending.setState("PENDING");
+            memberRepository.save(pending);
+        }
+    }
+
+    private void ensureCategory(Classroom classroom, String category) {
+        if (classroom.getCategory() == null) {
+            classroom.setCategory(category);
+            classroomRepository.save(classroom);
         }
     }
 

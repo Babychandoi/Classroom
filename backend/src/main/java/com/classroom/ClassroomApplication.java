@@ -19,7 +19,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.classroom.modules.segment.repository",
         "com.classroom.modules.commerce.repository",
         "com.classroom.modules.outbox.repository",
-        "com.classroom.modules.audit.repository"
+        "com.classroom.modules.audit.repository",
+        "com.classroom.modules.blog.repository",
+        "com.classroom.modules.event.repository"
 })
 public class ClassroomApplication {
 

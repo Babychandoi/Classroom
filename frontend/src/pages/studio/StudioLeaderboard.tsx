@@ -3,6 +3,8 @@ import { useOutletContext } from 'react-router-dom';
 import { Classroom, Exam } from '../../types';
 import { api } from '../../api/client';
 import { LoadingSpinner, ErrorBanner } from '../../components/UIStates';
+import { Button, Card, buttonClass, inputClass } from '../../components/ui';
+import { CardHeader, Notice, PageHeader, StudioPage, iconActionClass } from './studioUi';
 import { Trophy, Plus, X, RefreshCw } from 'lucide-react';
 
 interface TierDraft {
@@ -160,183 +162,169 @@ export const StudioLeaderboard: React.FC = () => {
   if (loading) return <LoadingSpinner message="Đang tải cấu hình xếp hạng..." />;
   if (error) {
     return (
-      <div className="max-w-3xl mx-auto py-12">
+      <StudioPage width="narrow" className="py-12">
         <ErrorBanner message={error} onRetry={fetchData} />
-      </div>
+      </StudioPage>
     );
   }
 
-  return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Cấu hình Bảng Xếp Hạng</h1>
-          <p className="text-xs text-slate-600">
-            Định nghĩa các bậc thành tích và quy tắc thưởng điểm theo kết quả từng kỳ thi
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={handleRebuild}
-          disabled={rebuilding}
-          className="inline-flex items-center space-x-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${rebuilding ? 'animate-spin' : ''}`} />
-          <span>{rebuilding ? 'Đang tái tạo...' : 'Tái tạo bảng xếp hạng'}</span>
-        </button>
-      </div>
+  const fieldLabel = 'block text-caption font-semibold text-slate-600';
 
-      {saveMessage && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-800">
-          {saveMessage}
-        </div>
-      )}
+  return (
+    <StudioPage width="narrow">
+      <PageHeader
+        title="Bảng xếp hạng"
+        description="Đặt các bậc thành tích và quy tắc thưởng điểm theo kết quả từng kỳ thi."
+        action={
+          <Button variant="secondary" size="md" onClick={handleRebuild} disabled={rebuilding}>
+            <RefreshCw className={`h-4 w-4 ${rebuilding ? 'animate-spin' : ''}`} strokeWidth={1.75} aria-hidden="true" />
+            <span>{rebuilding ? 'Đang tái tạo...' : 'Tái tạo bảng xếp hạng'}</span>
+          </Button>
+        }
+      />
+
+      {saveMessage && <Notice tone="success" role="status">{saveMessage}</Notice>}
       {saveError && (
-        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-800">
+        <div role="alert" className="rounded-btn border border-red-200 bg-red-50 px-3.5 py-3 text-meta font-medium text-red-700">
           {saveError}
         </div>
       )}
 
-      <form onSubmit={handleSave} className="space-y-6">
-        <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center space-x-2">
-              <Trophy className="w-4 h-4 text-amber-500" />
-              <span>Bậc thành tích</span>
-            </h2>
+      <form onSubmit={handleSave} className="space-y-5">
+        <Card as="section" aria-labelledby="tiers-title" className="space-y-4">
+          <CardHeader
+            id="tiers-title"
+            icon={<Trophy className="h-[18px] w-[18px] text-amber-500" strokeWidth={1.75} aria-hidden="true" />}
+            title="Bậc thành tích"
+            description="Học viên lên bậc khi điểm tích lũy đạt ngưỡng tối thiểu."
+          />
+
+          {tiers.length === 0 && <p className="text-meta text-slate-500">Chưa có bậc nào. Cần ít nhất một bậc để lưu cấu hình.</p>}
+
+          <div className="space-y-3">
+            {tiers.map((tier, index) => (
+              <div key={index} className="grid grid-cols-[minmax(0,1fr)_112px_auto] items-end gap-2 sm:grid-cols-[minmax(0,1fr)_120px_minmax(0,1fr)_auto]">
+                <label className={fieldLabel}><span className={index > 0 ? 'sm:sr-only' : undefined}>Tên bậc</span>
+                  <input
+                    aria-label={`Tên bậc ${index + 1}`}
+                    required
+                    value={tier.tierName}
+                    onChange={(e) => updateTier(index, { tierName: e.target.value })}
+                    className={inputClass('mt-1 h-10')}
+                  />
+                </label>
+                <label className={fieldLabel}><span className={index > 0 ? 'sm:sr-only' : undefined}>Điểm tối thiểu</span>
+                  <input
+                    aria-label={`Điểm tối thiểu bậc ${index + 1}`}
+                    type="number"
+                    min={0}
+                    required
+                    value={tier.minPoints}
+                    onChange={(e) => updateTier(index, { minPoints: parseInt(e.target.value) || 0 })}
+                    className={inputClass('mt-1 h-10 tabular')}
+                  />
+                </label>
+                <label className={`${fieldLabel} col-span-2 row-start-2 sm:col-span-1 sm:row-start-auto`}><span className={index > 0 ? 'sm:sr-only' : undefined}>Mô tả (tùy chọn)</span>
+                  <input
+                    aria-label={`Mô tả bậc ${index + 1}`}
+                    value={tier.description}
+                    onChange={(e) => updateTier(index, { description: e.target.value })}
+                    className={inputClass('mt-1 h-10')}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => removeTier(index)}
+                  aria-label={`Xóa bậc ${index + 1}`}
+                  className={`${iconActionClass('danger')} h-10 w-10 border border-slate-200`}
+                >
+                  <X className="h-4 w-4" strokeWidth={1.75} />
+                </button>
+              </div>
+            ))}
           </div>
 
-          {tiers.map((tier, index) => (
-            <div key={index} className="grid grid-cols-[1fr_120px_1fr_auto] gap-2 items-end">
-              <label className="text-xs font-semibold text-slate-700">Tên bậc
-                <input
-                  aria-label={`Tên bậc ${index + 1}`}
-                  required
-                  value={tier.tierName}
-                  onChange={(e) => updateTier(index, { tierName: e.target.value })}
-                  className="mt-1 block w-full rounded-lg border p-2 text-xs"
-                />
-              </label>
-              <label className="text-xs font-semibold text-slate-700">Điểm tối thiểu
-                <input
-                  aria-label={`Điểm tối thiểu bậc ${index + 1}`}
-                  type="number"
-                  min={0}
-                  required
-                  value={tier.minPoints}
-                  onChange={(e) => updateTier(index, { minPoints: parseInt(e.target.value) || 0 })}
-                  className="mt-1 block w-full rounded-lg border p-2 text-xs"
-                />
-              </label>
-              <label className="text-xs font-semibold text-slate-700">Mô tả (tùy chọn)
-                <input
-                  aria-label={`Mô tả bậc ${index + 1}`}
-                  value={tier.description}
-                  onChange={(e) => updateTier(index, { description: e.target.value })}
-                  className="mt-1 block w-full rounded-lg border p-2 text-xs"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={() => removeTier(index)}
-                aria-label={`Xóa bậc ${index + 1}`}
-                className="p-2 rounded-lg border border-slate-300 text-slate-500 hover:text-rose-600 hover:border-rose-300"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-
-          <button
-            type="button"
-            onClick={addTier}
-            className="inline-flex items-center space-x-1 text-xs font-bold text-indigo-600 hover:text-indigo-800"
-          >
-            <Plus className="w-3.5 h-3.5" />
+          <button type="button" onClick={addTier} className={buttonClass('tertiary', 'sm')}>
+            <Plus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
             <span>Thêm bậc thành tích</span>
           </button>
-        </section>
+        </Card>
 
-        <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-3">
-          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-            Quy tắc thưởng điểm theo kỳ thi
-          </h2>
+        <Card as="section" aria-labelledby="rewards-title" className="space-y-4">
+          <CardHeader
+            id="rewards-title"
+            title="Quy tắc thưởng điểm theo kỳ thi"
+            description="Học viên đạt từ điểm thi tối thiểu trở lên được cộng điểm thưởng vào bảng xếp hạng."
+          />
 
           {exams.length === 0 && (
-            <p className="text-xs text-slate-600">Lớp học chưa có kỳ thi nào để cấu hình thưởng điểm.</p>
+            <p className="text-meta text-slate-600">Lớp học chưa có kỳ thi nào để cấu hình thưởng điểm.</p>
           )}
 
-          {rewards.map((reward, index) => (
-            <div key={index} className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2 items-end">
-              <label className="text-xs font-semibold text-slate-700">Kỳ thi
-                <select
-                  aria-label={`Kỳ thi quy tắc ${index + 1}`}
-                  required
-                  value={reward.examId}
-                  onChange={(e) => updateReward(index, { examId: e.target.value })}
-                  className="mt-1 block w-full rounded-lg border p-2 text-xs"
+          <div className="space-y-3">
+            {rewards.map((reward, index) => (
+              <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+                <label className={`${fieldLabel} col-span-3 sm:col-span-1`}><span className={index > 0 ? 'sm:sr-only' : undefined}>Kỳ thi</span>
+                  <select
+                    aria-label={`Kỳ thi quy tắc ${index + 1}`}
+                    required
+                    value={reward.examId}
+                    onChange={(e) => updateReward(index, { examId: e.target.value })}
+                    className={inputClass('mt-1 h-10 pr-8')}
+                  >
+                    <option value="">Chọn kỳ thi</option>
+                    {exams.map((exam) => (
+                      <option key={exam.id} value={exam.id}>{exam.title}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className={fieldLabel}><span className={index > 0 ? 'sm:sr-only' : undefined}>Điểm thi tối thiểu (%)</span>
+                  <input
+                    aria-label={`Điểm thi tối thiểu quy tắc ${index + 1}`}
+                    type="number"
+                    min={0}
+                    max={100}
+                    required
+                    value={reward.minExamScore}
+                    onChange={(e) => updateReward(index, { minExamScore: parseFloat(e.target.value) || 0 })}
+                    className={inputClass('mt-1 h-10 tabular')}
+                  />
+                </label>
+                <label className={fieldLabel}><span className={index > 0 ? 'sm:sr-only' : undefined}>Điểm thưởng</span>
+                  <input
+                    aria-label={`Điểm thưởng quy tắc ${index + 1}`}
+                    type="number"
+                    min={0}
+                    required
+                    value={reward.rewardPoints}
+                    onChange={(e) => updateReward(index, { rewardPoints: parseInt(e.target.value) || 0 })}
+                    className={inputClass('mt-1 h-10 tabular')}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => removeReward(index)}
+                  aria-label={`Xóa quy tắc ${index + 1}`}
+                  className={`${iconActionClass('danger')} h-10 w-10 border border-slate-200`}
                 >
-                  <option value="">Chọn kỳ thi</option>
-                  {exams.map((exam) => (
-                    <option key={exam.id} value={exam.id}>{exam.title}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs font-semibold text-slate-700">Điểm thi tối thiểu (%)
-                <input
-                  aria-label={`Điểm thi tối thiểu quy tắc ${index + 1}`}
-                  type="number"
-                  min={0}
-                  max={100}
-                  required
-                  value={reward.minExamScore}
-                  onChange={(e) => updateReward(index, { minExamScore: parseFloat(e.target.value) || 0 })}
-                  className="mt-1 block w-full rounded-lg border p-2 text-xs"
-                />
-              </label>
-              <label className="text-xs font-semibold text-slate-700">Điểm thưởng
-                <input
-                  aria-label={`Điểm thưởng quy tắc ${index + 1}`}
-                  type="number"
-                  min={0}
-                  required
-                  value={reward.rewardPoints}
-                  onChange={(e) => updateReward(index, { rewardPoints: parseInt(e.target.value) || 0 })}
-                  className="mt-1 block w-full rounded-lg border p-2 text-xs"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={() => removeReward(index)}
-                aria-label={`Xóa quy tắc ${index + 1}`}
-                className="p-2 rounded-lg border border-slate-300 text-slate-500 hover:text-rose-600 hover:border-rose-300"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
+                  <X className="h-4 w-4" strokeWidth={1.75} />
+                </button>
+              </div>
+            ))}
+          </div>
 
-          <button
-            type="button"
-            onClick={addReward}
-            disabled={exams.length === 0}
-            className="inline-flex items-center space-x-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
-          >
-            <Plus className="w-3.5 h-3.5" />
+          <button type="button" onClick={addReward} disabled={exams.length === 0} className={buttonClass('tertiary', 'sm')}>
+            <Plus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
             <span>Thêm quy tắc thưởng điểm</span>
           </button>
-        </section>
+        </Card>
 
         <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition disabled:opacity-50"
-          >
+          <Button type="submit" variant="primary" size="md" disabled={saving}>
             {saving ? 'Đang lưu...' : 'Lưu cấu hình'}
-          </button>
+          </Button>
         </div>
       </form>
-    </div>
+    </StudioPage>
   );
 };

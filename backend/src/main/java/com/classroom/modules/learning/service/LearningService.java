@@ -580,7 +580,7 @@ public class LearningService {
                 ? String.join("; ", people)
                 : String.join("; ", people.subList(0, 3)) + " và " + (people.size() - 3) + " trợ giảng khác";
         return "Không thể xóa khóa học vì đang có quyền trợ giảng gắn riêng với khóa này: " + named
-                + ". Hãy vào Nhân sự & Phân quyền, gỡ các quyền theo khóa đó rồi xóa lại, hoặc lưu trữ khóa học thay vì xóa.";
+                + ". Hãy vào Studio > Trợ giảng, gỡ các quyền theo khóa đó rồi xóa lại, hoặc lưu trữ khóa học thay vì xóa.";
     }
 
     @Transactional

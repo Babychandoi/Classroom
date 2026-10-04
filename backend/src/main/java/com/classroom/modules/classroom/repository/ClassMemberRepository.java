@@ -77,6 +77,10 @@ public interface ClassMemberRepository extends JpaRepository<ClassMember, String
         return countActiveByClassIdsAt(classIds, Instant.now());
     }
 
+    /** D-28: rows in exactly {@code state} per class for a page of classes (pendingRequestCount); each row is {@code [classId, count]}. */
+    @Query("SELECT m.classId, COUNT(m) FROM ClassMember m WHERE m.classId IN :classIds AND m.state = :state GROUP BY m.classId")
+    List<Object[]> countRawByClassIdsAndState(@Param("classIds") Collection<String> classIds, @Param("state") String state);
+
     @Query("SELECT m.userId FROM ClassMember m WHERE m.classId = :classId AND " + ACTIVE_AT)
     List<String> findActiveUserIdsByClassIdAt(@Param("classId") String classId, @Param("now") Instant now);
 

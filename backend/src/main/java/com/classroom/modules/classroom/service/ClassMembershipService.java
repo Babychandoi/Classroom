@@ -31,6 +31,9 @@ import java.util.Optional;
  *   REMOVED  --join FREE class / invite / purchase settles---------------------&gt; ACTIVE
  *   BLOCKED  --Studio unblock----------------------------------------------------&gt; ACTIVE (EXPIRED when its paid access already lapsed)
  *   BLOCKED  --join / invite / purchase------------------------------------------&gt; refused (403)
+ *   (none) | REMOVED | EXPIRED --join by id, PUBLIC FREE class with requireApproval--&gt; PENDING (D-28; not a member)
+ *   PENDING  --Studio approve / invite / purchase settles-------------------------&gt; ACTIVE
+ *   PENDING  --Studio reject / the person withdraws-------------------------------&gt; (row deleted: may ask again)
  * </pre>
  *
  * <p>Every method here expects to run inside the caller's transaction and locks the member row FOR UPDATE first, so a settle, an invite
@@ -38,6 +41,9 @@ import java.util.Optional;
  */
 @Service
 public class ClassMembershipService {
+
+    /** D-28: a join request waiting for a Studio decision. */
+    public static final String STATE_PENDING = "PENDING";
 
     public static final String BLOCKED_MESSAGE = "Tài khoản thành viên này đã bị vô hiệu hóa trong lớp học";
 
@@ -64,7 +70,50 @@ public class ClassMembershipService {
     public static boolean isBlockedState(String state) {
         if (state == null) return true;
         String s = state.trim().toUpperCase(java.util.Locale.ROOT);
-        return !s.equals("ACTIVE") && !s.equals("EXPIRED") && !s.equals("REMOVED");
+        return !s.equals("ACTIVE") && !s.equals("EXPIRED") && !s.equals("REMOVED") && !s.equals(STATE_PENDING);
+    }
+
+    public static boolean isPendingState(String state) {
+        return state != null && STATE_PENDING.equalsIgnoreCase(state.trim());
+    }
+
+    /**
+     * D-28: a join by id of a PUBLIC FREE class with requireApproval. Creates a PENDING row, or turns a REMOVED / EXPIRED / lapsed row into
+     * one (the request time is kept in {@code joined_at}); idempotent while pending; a current member is left alone; BLOCKED -&gt; 403.
+     * A PENDING row is not a membership: no outbox event until it is approved.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public ClassMember requestToJoin(Classroom classroom, String userId) {
+        Instant now = Instant.now();
+        Optional<ClassMember> existing = memberRepository.findByClassIdAndUserIdForUpdate(classroom.getId(), userId);
+        if (existing.isEmpty()) {
+            ClassMember member = new ClassMember(classroom.getId(), userId, "STUDENT");
+            member.setState(STATE_PENDING);
+            return memberRepository.save(member);
+        }
+        ClassMember member = existing.get();
+        if (member.isActiveAt(now) || isPendingState(member.getState())) {
+            return member;
+        }
+        if (isBlockedState(member.getState())) {
+            throw new AppException(ErrorCode.FORBIDDEN, BLOCKED_MESSAGE);
+        }
+        member.setState(STATE_PENDING);
+        member.setRole("STUDENT");
+        member.setAccessExpiresAt(null);
+        member.setJoinedAt(now);
+        return memberRepository.save(member);
+    }
+
+    /** D-28: deletes the caller's PENDING row; true when there was one. Any other state is left alone (idempotent). */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean withdrawRequest(String classId, String userId) {
+        Optional<ClassMember> existing = memberRepository.findByClassIdAndUserIdForUpdate(classId, userId);
+        if (existing.isPresent() && isPendingState(existing.get().getState())) {
+            memberRepository.delete(existing.get());
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -97,7 +146,9 @@ public class ClassMembershipService {
             // Fail closed: joining for free is only for FREE classes; callers send a PAID class's non-members to checkout first.
             throw new AppException(ErrorCode.PAYMENT_REQUIRED);
         }
-        // REMOVED, EXPIRED, or ACTIVE-but-lapsed in a FREE class: nothing to pay, so the person is simply active again with no expiry.
+        // REMOVED, EXPIRED, PENDING (D-28: an invite bypasses approval) or ACTIVE-but-lapsed in a FREE class: nothing to pay, so the person
+        // is simply active again with no expiry.
+        if (isPendingState(member.getState())) member.setJoinedAt(now);
         member.setState("ACTIVE");
         member.setAccessExpiresAt(null);
         memberRepository.save(member);
@@ -134,6 +185,7 @@ public class ClassMembershipService {
                 member.setAccessExpiresAt(accessExpiresAt);
             }
         }
+        if (isPendingState(member.getState())) member.setJoinedAt(now); // D-28: a purchase bypasses approval
         member.setState("ACTIVE");
         memberRepository.save(member);
         if (!wasActive) {

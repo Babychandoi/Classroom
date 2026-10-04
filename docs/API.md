@@ -40,9 +40,11 @@
 
 ## 2. Lớp học & Thành viên (Classroom & Members)
 
-- `GET /api/v1/classes?page=0&size=50`: Danh sách lớp học người gọi được phép thấy, mới nhất trước. **Lớp `PRIVATE` không bao giờ có mặt** với khách/người ngoài (D-19, mục 2.1). **Luôn phân trang (R16-08):** mặc định `size=50`, tối đa 100; trang ngắn hơn `size` là trang cuối. Mỗi lớp kèm `isMember`, `userRole` và `memberState`.
-- `POST /api/v1/classes`: Tạo lớp học mới (Body: `title`, `slug`, `description`, `visibility?`)
-- `PUT /api/v1/classes/{id}`: Cập nhật cài đặt lớp (`CLASS:EDIT`; Body: `title`, `description`, `coverImageUrl`, `visibility?`)
+- `GET /api/v1/classes?page=0&size=50`: Danh sách lớp học người gọi được phép thấy, mới nhất trước. **Lớp `PRIVATE` không bao giờ có mặt** với khách/người ngoài (D-19, mục 2.1). **Luôn phân trang (R16-08):** mặc định `size=50`, tối đa 100; trang ngắn hơn `size` là trang cuối. Mỗi lớp kèm `isMember`, `userRole` và `memberState`. **D-27:** tham số tùy chọn `q` (tìm không phân biệt hoa thường trong tên/mô tả, cắt khoảng trắng, tối đa 100 ký tự; `%`/`_` gõ vào là chữ thường, không phải ký tự đại diện) và `sort=newest|popular` (mặc định `newest` như cũ; `popular` = số thành viên ACTIVE hiện tại giảm dần). `page`/`size` giữ nguyên. Sai định dạng → 400. Tìm kiếm không bao giờ làm lộ lớp người gọi không được thấy. **D-28:** thêm `category=<một giá trị trong danh sách>` (khớp chính xác, sai → 400), kết hợp được với `q`/`sort`.
+- `GET /api/v1/classes/categories` (công khai, D-28): `string[]` danh mục cố định theo thứ tự hiển thị.
+- `POST /api/v1/classes`: Tạo lớp học mới (Body: `title`, `slug?`, `description`, `visibility?`, `category?`, `requireApproval?`, `coverPosition?`, `avatarPosition?`) — mục 2.2 (D-28)
+- `PUT /api/v1/classes/{id}`: Cập nhật cài đặt lớp (`CLASS:EDIT`; Body: `title`, `description`, `coverImageUrl`, `visibility?`, `coverMediaId?`). **D-27 `coverMediaId`:** vắng/`null` = giữ nguyên, chuỗi rỗng = bỏ ảnh bìa, còn lại phải là ảnh `UPLOADED` của chính lớp với purpose `CLASS_COVER` (sai → 400).
+- **`ClassroomDto` (D-27) có thêm:** `coverUrl` (URL ký sẵn ngắn hạn của ảnh bìa đã tải, hoặc `null`; chỉ sinh cho người đã qua kiểm tra quyền thấy lớp), `coverMediaId`, `ownerAvatarUrl`, `upcomingEventCount` (số sự kiện `SCHEDULED` chưa kết thúc). Vẫn giữ `coverImageUrl`; giao diện hiển thị `coverUrl ?? coverImageUrl ?? ô màu`.
 - `PUT /api/v1/classes/{id}/access`: Đổi hình thức thu phí `FREE`/`PAID` và giá (chủ lớp, hoặc `STORE:EDIT` + `CLASS:EDIT`) — mục 2.1
 - `POST|GET /api/v1/classes/{id}/invites`, `DELETE /api/v1/classes/{id}/invites/{inviteId}`, `GET /api/v1/classes/invites/{code}` (công khai), `POST /api/v1/classes/invites/{code}/join`: mã mời — mục 2.1
 - `GET /api/v1/classes/{id}`: Chi tiết lớp học theo ID
@@ -51,6 +53,34 @@
 - `GET /api/v1/classes/{id}/members`: Danh sách thành viên lớp học
 - `GET /api/v1/classes/{id}/about`: Lấy nội dung giới thiệu & nội quy
 - `PUT /api/v1/classes/{id}/about`: Cập nhật trang giới thiệu (OWNER/STAFF)
+
+### 2.2 Trang "Tạo lớp học": danh mục, ảnh đại diện, vị trí ảnh, duyệt thành viên (D-28)
+
+**Trường mới của lớp** (cột trong `classrooms`, V46):
+
+| Trường DTO | Quy tắc |
+|---|---|
+| `category` | Một trong danh sách cố định (khớp chính xác, sai → 400): `Nấu ăn`, `Ăn chay`, `Sức khoẻ`, `Chạy bộ`, `Thể hình`, `YouTube`, `Kinh doanh`, `Tiếng Anh`, `Ôn thi`, `AI`, `Âm nhạc`, `Phát triển bản thân`. `null` với lớp cũ. |
+| `avatarMediaId` / `avatarUrl` | Ảnh đại diện vuông. Purpose media `CLASS_AVATAR` (chỉ ảnh, ≤ 5 MB, cần `CLASS:EDIT` — như `CLASS_COVER`). `avatarUrl` là URL ký sẵn ngắn hạn, chỉ sinh sau khi qua kiểm tra quyền thấy lớp, lấy theo lô trong danh sách (như `coverUrl`). |
+| `coverPosition`, `avatarPosition` | CSS `object-position` dạng `"X% Y%"`, X/Y từ 0 đến 100 (ví dụ `"50% 30%"`); sai → 400; `null` = giữa. |
+| `requireApproval` | Duyệt từng người trước khi vào (mặc định `false`). |
+| `pendingRequestCount` | Số yêu cầu `PENDING`; chỉ điền cho người có `MEMBER:VIEW` (chủ lớp, nhân sự được cấp), người khác luôn `0`. |
+
+**Tạo / sửa.**
+- `POST /classes`: `slug` **tùy chọn**. Vắng hoặc toàn khoảng trắng → máy chủ sinh từ tên lớp: bỏ dấu tiếng Việt (đ→d), chữ thường, ký tự ngoài `[a-z0-9]` thành `-`, gộp/cắt `-` hai đầu, tối đa 60 ký tự, tối thiểu 3 (thêm tiền tố `lop-`; tên rỗng → `lop`); trùng thì thêm `-2` … `-6`, sau đó hậu tố ngẫu nhiên 6 ký tự. Slug gửi lên vẫn theo quy tắc cũ (chữ thường/số/`-`, 3..100 ký tự → 400; trùng → 409). Thêm `category?`, `requireApproval?`, `coverPosition?`, `avatarPosition?`. Ảnh bìa/ảnh đại diện không gửi được khi tạo (luồng media cần id lớp): client tạo lớp, tải ảnh, rồi gọi `PUT`.
+- `PUT /classes/{id}` (`CLASS:EDIT`) nhận thêm `category`, `requireApproval`, `coverPosition`, `avatarPosition`, `avatarMediaId`. Trường vắng/`null` = giữ nguyên; `""` = xóa (`category`, vị trí ảnh, `avatarMediaId`). Đổi `requireApproval` được ghi audit `CLASS_APPROVAL_SETTING`. Tắt duyệt KHÔNG tự duyệt các yêu cầu đang chờ (vẫn `PENDING` tới khi Studio xử lý; người đó gọi lại `join` thì vào ngay).
+- Lớp trả phí vẫn dùng `PUT /classes/{id}/access` (`{accessType:"PAID", price, currency:"VND", durationDays:30}` cho "Phí mỗi tháng").
+
+**Duyệt thành viên (`requireApproval`).**
+- Trạng thái thành viên mới `PENDING`: **không** phải thành viên (`isMember=false`, `userRole=GUEST`); lớp hiện ra đúng như với người ngoài. Lớp `PRIVATE` vẫn 404 với người có hàng `PENDING` — duyệt không bao giờ làm lộ lớp riêng tư (lớp riêng tư vẫn vào bằng mã mời). `ClassroomDto.memberState` có thể là `PENDING`.
+- `POST /classes/{id}/join` trên lớp `PUBLIC` + `FREE` có `requireApproval=true`: tạo (hoặc chuyển hàng `REMOVED`/`EXPIRED` thành) `PENDING`, trả lớp với `memberState:"PENDING"` (200). Gọi lại khi đang chờ: idempotent. `BLOCKED` vẫn 403. Lớp `PAID` vẫn 402, lớp `PRIVATE` vẫn 404/`INVITE_REQUIRED` như cũ.
+- Bỏ qua bước duyệt: tham gia bằng mã mời hợp lệ, và mua quyền truy cập (thanh toán xong → `ACTIVE`). Hàng `PENDING` khi đó thành `ACTIVE`.
+- `DELETE /classes/{id}/join-request` (đã đăng nhập): rút yêu cầu `PENDING` của chính mình (xóa hàng → `memberState:"NONE"`, gửi lại được). Idempotent. Trả `ClassroomDto`; nếu người gọi có yêu cầu nhưng nay không còn thấy lớp thì vẫn rút được và `data` vắng mặt (không trả dữ liệu lớp). Không có yêu cầu và không thấy lớp → 404 (lớp riêng tư) / 403 như `GET`.
+- Studio:
+  - `GET /classes/{classId}/studio/members?state=PENDING` (`MEMBER:VIEW`): danh sách yêu cầu; mỗi dòng có `requestedAt` (chỉ dòng `PENDING` có giá trị). Bộ lọc `ALL` cũng gồm dòng `PENDING`.
+  - `POST /classes/{classId}/studio/members/{userId}/approve` (`MEMBER:EDIT`) → `ACTIVE` (không hạn), phát sự kiện outbox `MEMBER_JOINED` như tham gia thường, audit `MEMBER_APPROVE`; trả `ClassMemberDto`. Không có yêu cầu → 404; hàng không ở `PENDING` → 400; lớp không còn `ACTIVE` hoặc đã chuyển `PAID` → 409.
+  - `POST /classes/{classId}/studio/members/{userId}/reject` (`MEMBER:EDIT`) → xóa hàng, audit `MEMBER_REJECT`; người đó gửi lại được sau. Trả `ClassMemberDto` của yêu cầu vừa từ chối (state `PENDING`).
+  - `unblock` một hàng `PENDING` → 400 (dùng approve/reject); `remove`/`block` vẫn chỉ cho hàng `ACTIVE`/`EXPIRED`.
 
 ### 2.1 Lớp riêng tư, lớp trả phí và mã mời (D-19)
 
@@ -149,7 +179,7 @@ Thành viên `EXPIRED` **đọc được**: thẻ lớp (`GET /classes/{id}`, `/
 ## 3. Nhân sự & Phân quyền Studio (Staff & Permissions)
 
 - `GET /api/v1/classes/{classId}/staff`: Danh sách trợ giảng và phân quyền
-- `PUT /api/v1/classes/{classId}/staff/{userId}/permissions`: Cấp quyền chi tiết (Chỉ OWNER)
+- `PUT /api/v1/classes/{classId}/staff/{userId}/permissions`: Cấp quyền chi tiết (Chỉ OWNER). **D-27:** thêm module `BLOG` (`VIEW`, `CREATE`, `EDIT`, `PUBLISH`, `DELETE`) và `EVENT` (`VIEW`, `CREATE`, `EDIT`, `DELETE`); wildcard `*` vẫn áp dụng như các module khác. Hai module này chỉ cấp theo phạm vi toàn lớp (không theo khóa học).
 - `DELETE /api/v1/classes/{classId}/staff/{userId}`: Thu hồi quyền trợ giảng (Chỉ OWNER)
 - `GET /api/v1/studio/classes/{classId}/outbox/status`: **(R20-04)** Số sự kiện chiếu sang MongoDB/Neo4j đang chờ của lớp (`pending`, `processing`, `failed`, `deadLetter`, `truncated`) và tình trạng hai kho (`sinks.mongo`/`sinks.neo4j` = `UP`/`DOWN`/`DISABLED`). Cần quyền `OUTBOX:REPLAY` (OWNER hoặc nhân sự được cấp). Số liệu toàn hệ thống nằm ở `GET /actuator/health` (thành phần `outbox`, chi tiết cho vai trò OPS).
 - `POST /api/v1/studio/classes/{classId}/outbox/replay`: Đưa tối đa 50 sự kiện `DEAD_LETTER`/`FAILED` của lớp về hàng đợi (đặt lại số lần thử và số lượt tự replay). Sự kiện `DEAD_LETTER` còn được tự replay có giới hạn - xem `docs/RUNBOOK.md` mục 4.9.
@@ -195,6 +225,7 @@ Thành viên `EXPIRED` **đọc được**: thẻ lớp (`GET /classes/{id}`, `/
 ## 7. Bảng Xếp Hạng & Điểm Thưởng (Leaderboard & Ranking)
 
 - `GET /api/v1/classes/{classId}/leaderboard`: Lấy bảng xếp hạng điểm tích lũy và danh hiệu
+- `GET /api/v1/classes/{classId}/leaderboard/tiers`: Các bậc xếp hạng của lớp, `minPoints` tăng dần. Cùng quyền với `GET .../leaderboard`: thành viên ACTIVE, chủ lớp, nhân sự; khách 401, người ngoài / thành viên `REMOVED` của lớp công khai 403, lớp `PRIVATE` không quan hệ 404 (như id không tồn tại); thành viên hết hạn 403 `MEMBERSHIP_EXPIRED`. Phản hồi `[{ name, tierName, minPoints, badgeUrl, description }]`: `name` là trường chính, `tierName` = `name` (cùng tên trường với `tiers` của `GET .../leaderboard/configuration`), `badgeUrl`/`description` có thể `null`. Lớp chưa cấu hình bậc → `[]`.
 - `POST /api/v1/classes/{classId}/leaderboard/rebuild`: Tái tạo lại toàn bộ bảng xếp hạng
 
 ---
@@ -216,8 +247,94 @@ Thành viên `EXPIRED` **đọc được**: thẻ lớp (`GET /classes/{id}`, `/
 - `POST /api/v1/media/{id}/complete`: Xác nhận tải lên (kiểm tra kích thước/kiểu/magic bytes rồi chuyển sang `UPLOADED`); gọi lại an toàn (idempotent)
 - `GET /api/v1/media/{id}/download-url`: URL tải ký sẵn, sống ngắn
 - `GET /api/v1/media/{id}/download`: Tải qua proxy backend (hỗ trợ `Range`)
+- **Purpose ảnh (D-22, D-27, D-28):** `ABOUT` (`ABOUT:EDIT`), `CLASS_COVER` và `CLASS_AVATAR` (`CLASS:EDIT`), `BLOG` (`BLOG:CREATE` hoặc `BLOG:EDIT` hoặc `MEDIA:CREATE`), `EVENT` (`EVENT:CREATE` hoặc `EVENT:EDIT` hoặc `MEDIA:CREATE`) — chỉ JPG/PNG/WebP/GIF, tối đa 5 MB (sai → 400). Quyền được kiểm tra lại khi `complete`.
 
 **Kho tệp không với tới được (R20-12).** Khi MinIO ngừng hoạt động / quá thời gian / trả 5xx, `complete`, `download-url` và `download` trả **503 `SERVICE_UNAVAILABLE`** (khung lỗi chuẩn, thông báo tiếng Việt) kèm `Retry-After: 5` — thao tác *có thể thử lại* (yêu cầu `complete` thất bại được hoàn về `PENDING`). Đối tượng thật sự không tồn tại vẫn là 400 ("tệp chưa được tải lên") / 404. `PUT` tới URL ký sẵn đi thẳng tới MinIO nên lỗi kết nối xuất hiện ở trình duyệt (`fetch` bị từ chối), không qua khung lỗi của API; giao diện Studio hiển thị thông báo thử lại tương ứng.
+
+---
+
+## 10. Blog (D-27)
+
+Mọi endpoint dưới `/api/v1`, khung phản hồi chuẩn. Thời gian là ISO-8601 UTC. "Người xem lớp" = người `AccessPolicy` cho phép thấy lớp (kể cả khách với lớp `PUBLIC` + `ACTIVE`). Lớp `PRIVATE` mà người gọi không có quan hệ → **404** ở mọi endpoint, giống hệt một id không tồn tại. Lớp không thấy được nhưng không riêng tư (nháp/lưu trữ) → 401 cho khách, 403 cho người đã đăng nhập. Lớp `ARCHIVED` chỉ đọc: không tạo bài mới, không xuất bản (409 `CONFLICT`).
+
+```ts
+interface PersonSummary { id: string; fullName: string; avatarUrl?: string | null }
+type BlogAudience = 'PUBLIC' | 'MEMBERS';   // PUBLIC: mọi người xem lớp; MEMBERS: thành viên ACTIVE (+ chủ lớp / nhân sự có quyền BLOG)
+type BlogStatus = 'DRAFT' | 'PUBLISHED';
+interface BlogPost {
+  id: string; classId: string;
+  title: string;                   // 1..200
+  excerpt?: string | null;         // <= 300
+  category?: string | null;        // <= 60 ("Chuyên mục")
+  contentMarkdown?: string | null; // <= 100000; null trong danh sách VÀ khi locked
+  coverMediaId?: string | null;
+  coverUrl?: string | null;        // URL ký sẵn ngắn hạn (sinh theo từng phản hồi) hoặc null
+  audience: BlogAudience; status: BlogStatus;
+  locked: boolean;                 // thấy thẻ nhưng không thấy nội dung (bài MEMBERS, người không phải thành viên)
+  readingMinutes: number;          // ceil(số từ / 200), tối thiểu 1, máy chủ tính từ contentMarkdown
+  author: PersonSummary;
+  publishedAt?: string | null; createdAt: string; updatedAt: string;
+}
+interface BlogPostPage { items: BlogPost[]; nextCursor?: string | null }
+```
+
+| Phương thức + đường dẫn | Ai | Ghi chú |
+|---|---|---|
+| `GET /classes/{classId}/blog-posts?category&cursor&size&status` | người xem lớp (khách được với lớp công khai) | Chỉ `PUBLISHED`, `publishedAt` mới nhất trước, phân trang keyset (`cursor` mờ), `size` mặc định 12, tối đa 50. Người có `BLOG:VIEW/CREATE/EDIT/PUBLISH` (hoặc `DELETE`) truyền `status=DRAFT` hoặc `status=ALL` để xem cả nháp (người khác → 403 `STAFF_PERMISSION_DENIED`). Bài `MEMBERS` vẫn trả về cho người ngoài với `locked=true`. Cursor sai → 400. |
+| `GET /classes/{classId}/blog-categories` | người xem lớp | `string[]` các chuyên mục khác nhau của bài đã xuất bản |
+| `GET /blog-posts/{id}` | người xem lớp | `DRAFT` → 404 trừ khi người gọi có một quyền `BLOG`. `MEMBERS` + không phải thành viên → 200, `locked=true`, `contentMarkdown=null`. |
+| `POST /classes/{classId}/blog-posts` | `BLOG:CREATE` | Body `{title, excerpt?, category?, contentMarkdown?, coverMediaId?, audience}`; luôn tạo `DRAFT`; tác giả = người gọi |
+| `PUT /blog-posts/{id}` | `BLOG:EDIT` | Cùng body, mọi trường tùy chọn. Trường **vắng** = giữ nguyên; `excerpt`/`category`/`coverMediaId` gửi `null` hoặc `""` = xóa. Bài đã xuất bản không được làm rỗng nội dung (400). |
+| `POST /blog-posts/{id}/publish` | `BLOG:PUBLISH` | `PUBLISHED`; `publishedAt` = lúc xuất bản **lần đầu** (giữ nguyên khi gỡ rồi xuất bản lại); nội dung rỗng → 400 |
+| `POST /blog-posts/{id}/unpublish` | `BLOG:PUBLISH` | về `DRAFT` |
+| `DELETE /blog-posts/{id}` | `BLOG:DELETE` | xóa hẳn |
+
+Ảnh bìa: tải qua luồng media với `purpose: "BLOG"`; `coverMediaId` phải là ảnh `UPLOADED` của cùng lớp, purpose `BLOG` (sai → 400). Ghi nhật ký audit `BLOG_POST_CREATE/UPDATE/PUBLISH/UNPUBLISH/DELETE` (đối tượng `BLOG_POST`).
+
+---
+
+## 11. Sự kiện (D-27)
+
+Cùng quy tắc nhìn lớp như mục 10.
+
+```ts
+type EventFormat = 'ONLINE' | 'OFFLINE';
+type EventStatus = 'SCHEDULED' | 'CANCELLED';
+interface ClassEvent {
+  id: string; classId: string;
+  classTitle?: string; classSlug?: string; // chỉ có ở GET /events/upcoming
+  title: string;                 // 1..200
+  description?: string | null;   // <= 20000
+  forWhom?: string | null;       // "Dành cho ai" <= 500
+  takeaways: string[];           // "Mang về gì", <= 8 ý, mỗi ý <= 200
+  format: EventFormat;
+  location?: string | null;      // địa chỉ (OFFLINE) / tên nền tảng (ONLINE) <= 300
+  meetingUrl?: string | null;    // CHỈ trả cho người quản lý (EVENT:VIEW/EDIT, chủ lớp) và người đã đăng ký mà HIỆN VẪN đủ điều kiện tham gia (thành viên ACTIVE với sự kiện MEMBERS / lớp PAID / PRIVATE; chưa bị BLOCKED với sự kiện mở); còn lại null
+  startsAt: string; endsAt: string; // endsAt > startsAt, kéo dài <= 7 ngày
+  capacity?: number | null;      // null = không giới hạn; 1..100000
+  registeredCount: number; isRegistered: boolean; isFull: boolean;
+  host: PersonSummary;           // mặc định người tạo; có thể là chủ lớp hoặc nhân sự ACTIVE (hostUserId)
+  coverMediaId?: string | null; coverUrl?: string | null; // ảnh purpose "EVENT"
+  audience: 'PUBLIC' | 'MEMBERS'; // MEMBERS: chỉ thành viên đăng ký được (người khác vẫn thấy thẻ)
+  status: EventStatus; createdAt: string;
+}
+interface EventRegistrant { user: PersonSummary; registeredAt: string }
+```
+
+| Phương thức + đường dẫn | Ai | Ghi chú |
+|---|---|---|
+| `GET /classes/{classId}/events?scope=upcoming\|past\|all` | người xem lớp (khách được với lớp công khai) | `upcoming` (mặc định) = `endsAt >= now`, `startsAt` tăng dần; `past` = `endsAt < now`, giảm dần; `all` giảm dần. Gồm cả `CANCELLED` (giao diện hiện nhãn). Tối đa 100 dòng. |
+| `GET /events/{id}` | người xem lớp | |
+| `GET /events/upcoming?size` | công khai | Sự kiện `SCHEDULED` sắp tới của lớp `PUBLIC` + `ACTIVE`, `startsAt` tăng dần, `size` mặc định 6, tối đa 20, có `classTitle`/`classSlug`; `meetingUrl` luôn `null` |
+| `POST /classes/{classId}/events` | `EVENT:CREATE` | Body `{title, description?, forWhom?, takeaways?, format, location?, meetingUrl?, startsAt, endsAt, capacity?, hostUserId?, coverMediaId?, audience}`; `meetingUrl` phải là http(s) |
+| `PUT /events/{id}` | `EVENT:EDIT` | Cùng body, mọi trường tùy chọn. Trường vắng = giữ nguyên; với `description/forWhom/takeaways/location/meetingUrl/capacity/coverMediaId`, `null` (hoặc `""`) = xóa — `capacity: null` = không giới hạn. Giảm `capacity` dưới `registeredCount` → 409. |
+| `POST /events/{id}/cancel` | `EVENT:EDIT` | `CANCELLED`; giữ các lượt đăng ký |
+| `DELETE /events/{id}` | `EVENT:DELETE` | xóa sự kiện và các lượt đăng ký |
+| `POST /events/{id}/registrations` | đã đăng nhập; thành viên ACTIVE với sự kiện `MEMBERS` và với mọi sự kiện của lớp `PAID`/`PRIVATE`; sự kiện `PUBLIC` của lớp `PUBLIC` miễn phí: bất kỳ ai đăng nhập và thấy được lớp (trừ người bị `BLOCKED`) | Idempotent (đã đăng ký → 200 cùng payload) — nhưng điều kiện tham gia được kiểm tra TRƯỚC: người đã đăng ký nay mất điều kiện (hết hạn, bị gỡ, bị chặn) nhận 403, không nhận lại `meetingUrl`. Hết chỗ → 409 `CONFLICT` "Sự kiện đã đủ chỗ" (kiểm tra dưới khóa dòng sự kiện); đã hủy, đã kết thúc hoặc lớp lưu trữ → 409. Trả về `ClassEvent` mới. Thành viên hết hạn → 403 `MEMBERSHIP_EXPIRED`. |
+| `DELETE /events/{id}/registrations/me` | đã đăng nhập | Idempotent. **Có lượt đăng ký:** luôn hủy (kể cả khi lớp nay đã ẩn với người gọi) rồi trả `ClassEvent` mới nếu người gọi còn thấy lớp, ngược lại chỉ trả `{ id, isRegistered: false }`. **Không có lượt đăng ký:** áp quy tắc nhìn lớp như `GET /events/{id}` (404 lớp riêng tư ẩn / id lạ, 401/403 lớp nháp/lưu trữ) rồi trả `ClassEvent`. |
+| `GET /events/{id}/registrations` | `EVENT:VIEW` hoặc `EVENT:EDIT` | `EventRegistrant[]` theo `registeredAt` |
+
+Lớp `ARCHIVED`: không tạo sự kiện, không đăng ký (409). Audit `EVENT_CREATE/UPDATE/CANCEL/DELETE` (đối tượng `CLASS_EVENT`); đăng ký/hủy đăng ký là thao tác của chính thành viên nên không ghi audit (giống tham gia lớp).
 
 ## Round 23: About, phụ đề và quyền dữ liệu
 

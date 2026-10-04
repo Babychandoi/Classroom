@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { hasAnyStudioPermission } from '../../api/permissions';
 import { LoadingSpinner, ErrorBanner } from '../../components/UIStates';
 import { ClassBadges } from '../../components/ClassBadges';
+import { ClassAvatar, buttonClass } from '../../components/ui';
 import {
   LayoutDashboard,
   BookOpen,
@@ -15,7 +16,6 @@ import {
   Layers,
   ShoppingBag,
   ShieldAlert,
-  ArrowLeft,
   MessageSquare,
   FileText,
   Info,
@@ -24,7 +24,15 @@ import {
   Settings,
   Menu,
   X,
+  Eye,
+  PenSquare,
+  CalendarDays,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+
+type NavItem = { label: string; icon: LucideIcon; path: string; grants: string[]; badge?: number };
+/** Create-class contract fields read here (typed locally until the shared Classroom type has them). */
+type ClassroomExtras = { avatarUrl?: string | null; avatarPosition?: string | null; pendingRequestCount?: number };
 
 export const StudioLayout: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -35,7 +43,7 @@ export const StudioLayout: React.FC = () => {
   // hook-order invariant and desyncs state on the very next render that takes the other branch).
   const location = useLocation();
 
-  const [classroom, setClassroom] = useState<Classroom | null>(null);
+  const [classroom, setClassroom] = useState<(Classroom & ClassroomExtras) | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // R17-05: below md the 14-item sidebar used to stack above the page and push the actual content to
@@ -94,30 +102,62 @@ export const StudioLayout: React.FC = () => {
     setMenuOpen(false);
   }, [location.pathname]);
 
-  const navItems = [
-    { label: 'Tổng quan', icon: LayoutDashboard, path: `/studio/classes/${id}/overview`, grants: ['STUDIO:VIEW'] },
-    { label: 'Khóa học & Bài giảng', icon: BookOpen, path: `/studio/classes/${id}/courses`, grants: ['COURSE:VIEW', 'COURSE:CREATE', 'COURSE:EDIT'] },
-    { label: 'Kỳ thi & Đề thi', icon: Award, path: `/studio/classes/${id}/exams`, grants: ['EXAM:VIEW', 'EXAM:CREATE', 'EXAM:EDIT', 'EXAM:PUBLISH'] },
-    // R11-02: this nav entry covers both exam grading (EXAM:GRADE) and assignment grading
-    // (COURSE:GRADE, course-scopable) - either grant alone must make it reachable, matching what
-    // StudioGrading itself gates each of its two sections on.
-    { label: 'Chấm bài', icon: CheckSquare, path: `/studio/classes/${id}/grading`, grants: ['EXAM:GRADE', 'COURSE:GRADE'] },
-    { label: 'Cấu hình xếp hạng', icon: Trophy, path: `/studio/classes/${id}/leaderboard`, grants: ['LEADERBOARD:EDIT'] },
-    { label: 'Nhân sự & Phân quyền', icon: Users, path: `/studio/classes/${id}/staff`, grants: ['STAFF:VIEW'] },
-    { label: 'Thành viên', icon: UserCog, path: `/studio/classes/${id}/members`, grants: ['MEMBER:VIEW', 'MEMBER:EDIT'] },
-    { label: 'Phân khúc học viên', icon: Layers, path: `/studio/classes/${id}/segments`, grants: ['SEGMENT:VIEW', 'SEGMENT:CREATE', 'SEGMENT:EDIT'] },
-    { label: 'Sản phẩm & Đơn hàng', icon: ShoppingBag, path: `/studio/classes/${id}/store`, grants: ['STORE:VIEW', 'STORE:CREATE', 'STORE:EDIT', 'STORE:PUBLISH'] },
-    { label: 'Bảng tin', icon: MessageSquare, path: `/studio/classes/${id}/feed`, grants: ['FEED:VIEW', 'FEED:CREATE', 'FEED:EDIT'] },
-    { label: 'Tài liệu', icon: FileText, path: `/studio/classes/${id}/documents`, grants: ['DOCUMENT:VIEW', 'DOCUMENT:CREATE', 'DOCUMENT:EDIT'] },
-    { label: 'Giới thiệu & nội quy', icon: Info, path: `/studio/classes/${id}/about`, grants: ['CLASS:VIEW', 'ABOUT:EDIT'] },
-    { label: 'Nhật ký kiểm toán', icon: ShieldAlert, path: `/studio/classes/${id}/audit`, grants: ['AUDIT:VIEW'] },
-    { label: 'Cài đặt lớp', icon: Settings, path: `/studio/classes/${id}/settings`, grants: ['CLASS:VIEW', 'CLASS:EDIT'] },
-  ];
+  // The desktop nav scrolls on its own inside the sticky sidebar; keep the current page's entry in view
+  // (e.g. "Cài đặt" at the bottom of a short window).
+  const navScrollRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const active = navScrollRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    active?.scrollIntoView?.({ block: 'nearest' });
+  }, [location.pathname, classroom]);
 
-  if (loading) return <LoadingSpinner message="Đang kết nối Studio..." />;
+  // Grouped like the "Xưởng" sidebar of Dashboard.dc.html. `grants` gating is unchanged: an item is shown (and its
+  // route reachable) when the viewer holds ANY of its grants (see isItemAuthorized below).
+  const navGroups: { label: string | null; items: NavItem[] }[] = [
+    {
+      label: null,
+      items: [{ label: 'Tổng quan', icon: LayoutDashboard, path: `/studio/classes/${id}/overview`, grants: ['STUDIO:VIEW'] }],
+    },
+    {
+      label: 'Nội dung',
+      items: [
+        { label: 'Khóa học', icon: BookOpen, path: `/studio/classes/${id}/courses`, grants: ['COURSE:VIEW', 'COURSE:CREATE', 'COURSE:EDIT'] },
+        { label: 'Thi', icon: Award, path: `/studio/classes/${id}/exams`, grants: ['EXAM:VIEW', 'EXAM:CREATE', 'EXAM:EDIT', 'EXAM:PUBLISH'] },
+        // R11-02: this nav entry covers both exam grading (EXAM:GRADE) and assignment grading
+        // (COURSE:GRADE, course-scopable) - either grant alone must make it reachable, matching what
+        // StudioGrading itself gates each of its two sections on.
+        { label: 'Chấm bài', icon: CheckSquare, path: `/studio/classes/${id}/grading`, grants: ['EXAM:GRADE', 'COURSE:GRADE'] },
+        { label: 'Blog', icon: PenSquare, path: `/studio/classes/${id}/blog`, grants: ['BLOG:VIEW', 'BLOG:CREATE', 'BLOG:EDIT', 'BLOG:PUBLISH', 'BLOG:DELETE'] },
+        { label: 'Sự kiện', icon: CalendarDays, path: `/studio/classes/${id}/events`, grants: ['EVENT:VIEW', 'EVENT:CREATE', 'EVENT:EDIT', 'EVENT:DELETE'] },
+        { label: 'Tài liệu', icon: FileText, path: `/studio/classes/${id}/documents`, grants: ['DOCUMENT:VIEW', 'DOCUMENT:CREATE', 'DOCUMENT:EDIT'] },
+        { label: 'Bảng tin', icon: MessageSquare, path: `/studio/classes/${id}/feed`, grants: ['FEED:VIEW', 'FEED:CREATE', 'FEED:EDIT'] },
+        { label: 'Giới thiệu', icon: Info, path: `/studio/classes/${id}/about`, grants: ['CLASS:VIEW', 'ABOUT:EDIT'] },
+      ],
+    },
+    {
+      label: 'Thành viên & bán hàng',
+      items: [
+        // pendingRequestCount is only filled for MEMBER:VIEW holders (0 otherwise), so the badge never leaks the count.
+        { label: 'Thành viên', icon: UserCog, path: `/studio/classes/${id}/members`, grants: ['MEMBER:VIEW', 'MEMBER:EDIT'], badge: classroom?.pendingRequestCount ?? 0 },
+        { label: 'Trợ giảng', icon: Users, path: `/studio/classes/${id}/staff`, grants: ['STAFF:VIEW'] },
+        { label: 'Nhóm học viên', icon: Layers, path: `/studio/classes/${id}/segments`, grants: ['SEGMENT:VIEW', 'SEGMENT:CREATE', 'SEGMENT:EDIT'] },
+        { label: 'Shop & đơn hàng', icon: ShoppingBag, path: `/studio/classes/${id}/store`, grants: ['STORE:VIEW', 'STORE:CREATE', 'STORE:EDIT', 'STORE:PUBLISH'] },
+        { label: 'Bảng xếp hạng', icon: Trophy, path: `/studio/classes/${id}/leaderboard`, grants: ['LEADERBOARD:EDIT'] },
+      ],
+    },
+    {
+      label: 'Hệ thống',
+      items: [
+        { label: 'Cài đặt', icon: Settings, path: `/studio/classes/${id}/settings`, grants: ['CLASS:VIEW', 'CLASS:EDIT'] },
+        { label: 'Nhật ký', icon: ShieldAlert, path: `/studio/classes/${id}/audit`, grants: ['AUDIT:VIEW'] },
+      ],
+    },
+  ];
+  const navItems = navGroups.flatMap((group) => group.items);
+
+  if (loading) return <LoadingSpinner message="Đang mở Xưởng..." />;
   if (error || !classroom) {
     return (
-      <div className="max-w-2xl mx-auto py-12 px-4">
+      <div className="mx-auto max-w-2xl px-4 py-12">
         <ErrorBanner message={error || 'Không tìm thấy lớp học'} onRetry={() => navigate('/classes')} />
       </div>
     );
@@ -155,82 +195,126 @@ export const StudioLayout: React.FC = () => {
     return <Navigate to={firstAuthorizedPath} replace />;
   }
 
-  return (
-    <div className="min-h-screen bg-slate-100 flex flex-col md:flex-row">
-      {/* Studio Sidebar */}
-      <aside className="w-full md:w-64 bg-slate-900 text-white flex-shrink-0 flex flex-col justify-between">
-        <div>
-          {/* Header */}
-          <div className="p-4 md:p-5 border-b border-slate-800">
-            <div className="flex items-center justify-between gap-3 mb-2 md:mb-3">
-              <Link
-                to={`/classes/${classroom.slug}/feed`}
-                className="inline-flex items-center space-x-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-bold transition flex-shrink-0"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Trở về lớp học</span>
-              </Link>
-              <button
-                type="button"
-                onClick={() => setMenuOpen((open) => !open)}
-                aria-expanded={menuOpen}
-                aria-controls={navId}
-                className="md:hidden inline-flex min-w-0 items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-100 transition"
-              >
-                {menuOpen ? <X className="w-4 h-4 flex-shrink-0" /> : <Menu className="w-4 h-4 flex-shrink-0" />}
-                <span className="truncate">{`Menu Studio${activeNavItem && isAuthorized ? ` · ${activeNavItem.label}` : ''}`}</span>
-              </button>
-            </div>
-            <h2 className="text-base font-extrabold tracking-tight truncate">{classroom.title}</h2>
-            <div className="flex items-center space-x-2 mt-1">
-              <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-indigo-500/20 text-indigo-300 font-bold">
-                STUDIO • {classroom.userRole}
-              </span>
-            </div>
-            {/* D-19: visibility + fee of the class at a glance, on every Studio page */}
-            <ClassBadges classroom={classroom} showPublic className="mt-2" />
-          </div>
+  const roleLabel = classroom.userRole === 'OWNER' ? 'Chủ lớp' : 'Trợ giảng';
+  const visibleGroups = navGroups
+    .map((group) => ({ ...group, items: group.items.filter(isItemAuthorized) }))
+    .filter((group) => group.items.length > 0);
 
-          {/* Navigation Links */}
-          <nav id={navId} aria-label="Điều hướng Studio" className={`${menuOpen ? 'block' : 'hidden'} md:block p-3 space-y-1`}>
-            {navItems.filter(isItemAuthorized).map((item) => {
-              const Icon = item.icon;
-              return (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  className={({ isActive }) =>
-                    `flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
-                      isActive
-                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/50'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                    }`
-                  }
-                >
-                  <Icon className="w-4 h-4" />
-                  <span>{item.label}</span>
-                </NavLink>
-              );
-            })}
-          </nav>
+  return (
+    <div className="min-h-[calc(100vh-4rem)] bg-slate-50 md:grid md:grid-cols-[248px_minmax(0,1fr)]">
+      {/* Studio ("Xưởng") sidebar - white, hairline right border (Dashboard.dc.html) */}
+      <aside className="flex flex-col border-b border-slate-200 bg-white md:sticky md:top-16 md:h-[calc(100vh-4rem)] md:border-b-0 md:border-r">
+        <div className="px-4 pb-3 pt-4">
+          <div className="flex items-center justify-between gap-3 px-1 md:mb-2">
+            <span className="inline-flex h-5 items-center rounded-full bg-slate-100 px-2 text-micro font-bold tracking-[0.4px] text-slate-600">
+              XƯỞNG
+            </span>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((open) => !open)}
+              aria-expanded={menuOpen}
+              aria-controls={navId}
+              className="inline-flex h-10 min-w-0 items-center gap-2 rounded-btn border border-slate-200 bg-white px-3 text-meta font-semibold text-slate-900 transition-colors duration-micro hover:bg-slate-100 md:hidden"
+            >
+              {menuOpen ? <X className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} /> : <Menu className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />}
+              <span className="truncate">{`Menu Studio${activeNavItem && isAuthorized ? ` · ${activeNavItem.label}` : ''}`}</span>
+              {(classroom.pendingRequestCount ?? 0) > 0 && navItems.some((item) => item.badge && isItemAuthorized(item)) && (
+                <span className="inline-flex h-5 min-w-[20px] flex-shrink-0 items-center justify-center rounded-full bg-amber-100 px-1.5 text-micro font-bold text-amber-800 tabular" aria-label={`${classroom.pendingRequestCount} yêu cầu chờ duyệt`}>
+                  {classroom.pendingRequestCount}
+                </span>
+              )}
+            </button>
+          </div>
+          {/* Class card: class avatar (rounded square - never round) + title + the viewer's role */}
+          <div className="mt-3 flex items-center gap-2.5 rounded-community border border-slate-200 bg-slate-50 px-3 py-2 md:mt-0">
+            {/* The class's own square avatar when it has one (never a crop of the 16:9 cover), else the letter tile. */}
+            {classroom.avatarUrl ? (
+              <img
+                src={classroom.avatarUrl as string}
+                alt=""
+                data-testid="studio-class-avatar"
+                className="h-8 w-8 flex-shrink-0 rounded-[10px] object-cover"
+                style={{ objectPosition: classroom.avatarPosition || '50% 50%' }}
+              />
+            ) : (
+              <ClassAvatar title={classroom.title} seed={classroom.id} size={32} />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-meta font-semibold text-slate-900">{classroom.title}</p>
+              <p className="text-micro leading-[15px] text-slate-500">{roleLabel}</p>
+            </div>
+          </div>
+          {/* D-19: visibility + fee of the class at a glance, on every Studio page */}
+          <ClassBadges classroom={classroom} showPublic className="mt-2 px-1" />
         </div>
 
-        <div className="hidden md:block p-4 border-t border-slate-800 text-[11px] text-slate-400">
-          Hệ Thống Lớp Học v0.1 • Studio
+        <div id={navId} className={`${menuOpen ? 'block' : 'hidden'} md:block md:min-h-0 md:flex-1`}>
+          <div className="md:flex md:h-full md:flex-col">
+          <nav ref={navScrollRef} aria-label="Điều hướng Studio" className="px-3 pb-3 md:flex-1 md:overflow-y-auto">
+            {visibleGroups.map((group, groupIndex) => (
+              <div key={group.label ?? 'root'} className={groupIndex > 0 ? 'mt-2.5' : ''}>
+                {group.label && (
+                  <p className="mb-0.5 px-3 text-micro font-semibold uppercase tracking-[0.6px] text-slate-500">{group.label}</p>
+                )}
+                <ul>
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <li key={item.path}>
+                        <NavLink
+                          to={item.path}
+                          className={({ isActive }) =>
+                            `flex h-10 items-center gap-[11px] md:h-9 rounded-btn px-3 text-ui transition-colors duration-micro ${
+                              isActive
+                                ? 'bg-tint font-semibold text-blue-600'
+                                : 'font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                            }`
+                          }
+                        >
+                          <Icon className="h-[18px] w-[18px] flex-shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                          <span className="truncate">{item.label}</span>
+                          {!!item.badge && item.badge > 0 && (
+                            <span
+                              className="ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-amber-100 px-1.5 text-micro font-bold text-amber-800 tabular"
+                              aria-label={`${item.badge} yêu cầu chờ duyệt`}
+                              title={`${item.badge} yêu cầu chờ duyệt`}
+                            >
+                              {item.badge > 99 ? '99+' : item.badge}
+                            </span>
+                          )}
+                        </NavLink>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </nav>
+
+          <div className="border-t border-slate-100 px-4 py-3">
+            <Link
+              to={`/classes/${classroom.slug}`}
+              className="inline-flex items-center gap-2 text-meta font-medium text-slate-600 transition-colors duration-micro hover:text-slate-900"
+            >
+              <Eye className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+              <span>Xem như học viên</span>
+            </Link>
+          </div>
+          </div>
         </div>
       </aside>
 
-      {/* Main Studio Work Area */}
-      <main className="flex-1 p-6 md:p-10 overflow-y-auto">
+      {/* Main Studio work area */}
+      <main className="min-w-0 px-4 pb-24 pt-6 sm:px-8 sm:pt-8">
         {!isAuthorized ? (
-          <div className="max-w-xl mx-auto py-12">
-            <div className="bg-white rounded-2xl border border-rose-200 p-8 shadow-sm text-center">
-              <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 mx-auto flex items-center justify-center mb-3">
-                <ShieldAlert className="w-6 h-6" />
+          <div className="mx-auto max-w-[560px] py-12">
+            <div className="rounded-card border border-slate-200 bg-white p-8 text-center shadow-hairline">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-community bg-red-50 text-red-700">
+                <ShieldAlert className="h-6 w-6" strokeWidth={1.75} aria-hidden="true" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900 mb-1">Không đủ quyền truy cập</h3>
-              <p className="text-xs text-slate-500 mb-4">
-                Tài khoản nhân sự của bạn không được cấp quyền truy cập khu vực này trong Studio.
+              <h3 className="mb-1 text-h3-lg font-semibold text-slate-900">Không đủ quyền truy cập</h3>
+              <p className="mb-6 text-ui text-slate-600">
+                Tài khoản trợ giảng của bạn chưa được cấp quyền vào khu vực này của Xưởng. Hãy nhờ chủ lớp cấp thêm quyền nếu bạn cần.
               </p>
               {/* R8-10: when literally nothing in Studio is authorized for this staff member,
                   firstAuthorizedPath falls back to /overview — which they also cannot reach, making
@@ -238,7 +322,7 @@ export const StudioLayout: React.FC = () => {
                   can always reach. */}
               <Link
                 to={firstAuthorizedItem ? firstAuthorizedPath : `/classes/${classroom.slug}/feed`}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition"
+                className={buttonClass('secondary', 'md')}
               >
                 <span>{firstAuthorizedItem ? `Về ${firstAuthorizedItem.label}` : 'Về trang lớp học'}</span>
               </Link>

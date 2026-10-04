@@ -15,6 +15,7 @@ let mockState: unknown = null;
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
   useLocation: () => ({ pathname: '/login', search: '', hash: '', state: mockState, key: 'k' }),
+  Link: ({ children, to }: { children?: React.ReactNode; to: string }) => <a href={to}>{children}</a>,
   Navigate: ({ to, replace }: { to: string; replace?: boolean }) => (
     <div data-testid="redirect" data-to={to} data-replace={String(!!replace)} />
   ),
@@ -73,7 +74,7 @@ describe('LoginPage return-to handling (R17-01)', () => {
     mockState = { from: { pathname: '/classes/demo-class/store' } };
     render(<LoginPage />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Chưa có tài khoản? Đăng ký mới' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Đăng ký miễn phí' }));
     fireEvent.change(screen.getByLabelText('Họ và tên'), { target: { value: 'New Person' } });
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'new@test.local' } });
     fireEvent.change(screen.getByLabelText('Mật khẩu'), { target: { value: 'secret-pass' } });
@@ -81,6 +82,31 @@ describe('LoginPage return-to handling (R17-01)', () => {
 
     await waitFor(() => expect(mockRegister).toHaveBeenCalledWith('new@test.local', 'secret-pass', 'New Person'));
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/classes/demo-class/store', { replace: true }));
+  });
+
+  it('opens in register mode when the top bar sends state.mode=register', () => {
+    mockState = { mode: 'register' };
+    render(<LoginPage />);
+    expect(screen.getByLabelText('Họ và tên')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tạo tài khoản' })).toBeInTheDocument();
+  });
+
+  it('shows a login failure inline and keeps the form', async () => {
+    mockLogin.mockRejectedValue(new Error('Email hoặc mật khẩu không đúng'));
+    render(<LoginPage />);
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'a@test.local' } });
+    fireEvent.change(screen.getByLabelText('Mật khẩu'), { target: { value: 'wrong-pass' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Đăng nhập' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Email hoặc mật khẩu không đúng');
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('toggles password visibility', () => {
+    render(<LoginPage />);
+    const input = screen.getByLabelText('Mật khẩu');
+    expect(input).toHaveAttribute('type', 'password');
+    fireEvent.click(screen.getByRole('button', { name: 'Hiện mật khẩu' }));
+    expect(input).toHaveAttribute('type', 'text');
   });
 
   it.each([

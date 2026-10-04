@@ -65,8 +65,8 @@ async function scan(page, label) {
   await step('A1', 'axe: class feed (guest)', anon, async () => { await anon.goto(`${BASE}/classes/${S.classSlug}/feed`); await settle(anon, 600); return scan(anon, 'guest-feed'); });
   await step('A1', 'axe: sign-in prompt on a member-only tab (guest)', anon, async () => { await anon.goto(`${BASE}/classes/${S.classSlug}/learn`); await anon.getByRole('heading', { name: 'Đăng nhập để xem nội dung này' }).waitFor(); return scan(anon, 'guest-learn-prompt'); });
   await step('A2', 'axe: class feed (member)', stu, async () => { await stu.goto(`${BASE}/classes/${S.classSlug}/feed`); await settle(stu, 600); return scan(stu, 'member-feed'); });
-  await step('A2', 'axe: Góc học tập (member)', stu, async () => { await stu.goto(`${BASE}/classes/${S.classSlug}/learn`); await stu.locator('button[aria-pressed]').first().waitFor({ timeout: 10000 }); await settle(stu, 400); return scan(stu, 'member-learn'); });
-  await step('A2', 'axe: Luyện thi (member)', stu, async () => { await stu.goto(`${BASE}/classes/${S.classSlug}/exams`); await settle(stu, 800); return scan(stu, 'member-exams'); });
+  await step('A2', 'axe: Khóa học (member)', stu, async () => { await stu.goto(`${BASE}/classes/${S.classSlug}/learn`); await stu.locator('button[aria-pressed]').first().waitFor({ timeout: 10000 }); await settle(stu, 400); return scan(stu, 'member-learn'); });
+  await step('A2', 'axe: Thi (member)', stu, async () => { await stu.goto(`${BASE}/classes/${S.classSlug}/exams`); await settle(stu, 800); return scan(stu, 'member-exams'); });
   await step('A2', 'axe: hồ sơ của tôi', stu, async () => { await stu.goto(`${BASE}/me/profile`); await settle(stu, 400); return scan(stu, 'my-profile'); });
   await step('A3', 'axe: Studio khóa học (owner)', own, async () => { await own.goto(`${BASE}/studio/classes/${S.classId}/courses`); await settle(own, 800); return scan(own, 'studio-courses'); });
   await step('A3', 'axe: Studio cài đặt lớp (owner)', own, async () => { await own.goto(`${BASE}/studio/classes/${S.classId}/settings`); await settle(own, 600); return scan(own, 'studio-settings'); });
@@ -78,12 +78,23 @@ async function scan(page, label) {
     return scan(own, 'studio-staff-dialog');
   });
 
+  await step('A3', 'axe: tạo lớp học /classes/new (owner, cả bản xem trước điện thoại)', own, async () => {
+    await own.goto(`${BASE}/classes/new`);
+    await own.getByRole('heading', { name: 'Tạo lớp học', level: 1 }).waitFor({ timeout: 10000 });
+    await settle(own, 400);
+    const desktop = await scan(own, 'create-class');
+    await own.getByRole('button', { name: 'Xem trên điện thoại' }).click();
+    await own.getByTestId('preview-mobile').waitFor();
+    const phone = await scan(own, 'create-class-phone-preview');
+    return `${desktop}; xem trước điện thoại: ${phone}`;
+  });
+
   // A11Y_ALL=1: every remaining Studio page and class tab (slower; used to sweep the whole app).
   if (process.env.A11Y_ALL === '1') {
-    for (const p of ['overview', 'exams', 'grading', 'leaderboard', 'members', 'segments', 'store', 'audit', 'feed', 'documents', 'about']) {
+    for (const p of ['overview', 'exams', 'grading', 'leaderboard', 'members', 'segments', 'store', 'audit', 'feed', 'blog', 'events', 'documents', 'about']) {
       await step('A4', `axe: Studio ${p}`, own, async () => { await own.goto(`${BASE}/studio/classes/${S.classId}/${p}`); await settle(own, 800); return scan(own, `studio-${p}`); });
     }
-    for (const t of ['leaderboard', 'documents', 'members', 'about', 'store']) {
+    for (const t of ['blog', 'events', 'leaderboard', 'documents', 'members', 'about', 'store']) {
       await step('A5', `axe: class tab ${t} (member)`, stu, async () => { await stu.goto(`${BASE}/classes/${S.classSlug}/${t}`); await settle(stu, 800); return scan(stu, `member-${t}`); });
     }
   }

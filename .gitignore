@@ -49,3 +49,8 @@ docker-data/
 # Backups made by infra/scripts/backup.* (full database dumps + object copies: contain personal data)
 infra/backups/
 pgdata/
+
+# Connecty design handoff bundle (reference only - contains personal photos and business documents)
+connecty-ui-ux-design-system/
+Connecty UIUX Design System-handoff*.zip
+Thiết kế form ngắn/

@@ -1,7 +1,7 @@
 'use strict';
 // R17-05: điều hướng ở màn hình điện thoại (390x844), kèm ảnh chụp để xem bằng mắt:
 //   - thanh Navbar: tên thương hiệu 1 dòng, không tràn khỏi thanh cao 64px, không có link "Khám phá lớp học" trùng lặp;
-//   - thanh tab của lớp: cuộn ngang được, có vùng mờ ở mép còn tab bị ẩn, tab đang mở được cuộn vào tầm nhìn;
+//   - thanh tab của lớp: cuộn ngang được, có vùng mờ ở mép còn tab bị ẩn, tab đang mở (giữa dải / tab cuối) được cuộn vào tầm nhìn;
 //   - Studio: menu điều hướng thu gọn (nút "Menu Studio"), nội dung bắt đầu gần đầu trang chứ không bị đẩy xuống ~800px.
 const path = require('path');
 const { BASE, SHOTS_ROOT, log, newRunId, launchBrowser, newCtx, createRunner, login, settle, overflowCheck, loadState } = require('./lib');
@@ -23,7 +23,7 @@ const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch:
     await anon.goto(`${BASE}/classes`);
     await settle(anon, 500);
     const m = await anon.evaluate(() => {
-      const nav = document.querySelector('nav');
+      const nav = document.querySelector('header');
       // số dòng chữ = chiều cao nội dung (trừ padding) / line-height
       const textLines = (el) => {
         const cs = getComputedStyle(el);
@@ -64,17 +64,18 @@ const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch:
     await page.goto(`${BASE}/classes`);
     await settle(page, 500);
     const m = await page.evaluate(() => {
-      const nav = document.querySelector('nav');
+      const nav = document.querySelector('header');
       const brand = Array.from(nav.querySelectorAll('span')).find((s) => s.textContent.includes('Lớp Học Trực Tuyến'));
-      const out = nav.querySelector('button[title="Đăng xuất"]');
+      // Đăng xuất nằm trong menu tài khoản; nút mở menu (ảnh đại diện) là phần tử ngoài cùng bên phải khi đã đăng nhập.
+      const out = nav.querySelector('button[aria-label="Mở menu tài khoản"]');
       return {
         navHeight: Math.round(nav.getBoundingClientRect().height),
         brandLines: Math.round(brand.getBoundingClientRect().height / parseFloat(getComputedStyle(brand).lineHeight)),
-        logoutRight: Math.round(out.getBoundingClientRect().right),
+        accountRight: Math.round(out.getBoundingClientRect().right),
       };
     });
     await page.screenshot({ path: path.join(SHOTS, 'M1-navbar-signed-in.png') });
-    if (m.navHeight > 65 || m.brandLines !== 1 || m.logoutRight > 390) throw new Error(JSON.stringify(m));
+    if (m.navHeight > 65 || m.brandLines !== 1 || m.accountRight > 390) throw new Error(JSON.stringify(m));
     return JSON.stringify(m);
   });
 
@@ -99,7 +100,35 @@ const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch:
     const problems = [];
     if (!info.scrollable) problems.push('thanh tab không cuộn ngang được ở 390px (kiểm tra lại số tab)');
     if (!info.activeInView) problems.push(`tab đang mở "${info.activeLabel}" nằm ngoài tầm nhìn`);
-    if (!info.fadeLeft) problems.push('không có vùng mờ bên trái dù tab đã được cuộn sang (đang ở tab cuối)');
+    if (info.activeLabel !== 'Shop') problems.push(`tab đang mở là "${info.activeLabel}" (mong đợi Shop)`);
+    // Shop giờ nằm giữa dải 10 tab (sau nó còn Bảng xếp hạng, Giới thiệu): đã cuộn sang nên có mờ trái,
+    // và vẫn còn tab ẩn bên phải nên có mờ phải. Trường hợp "tab cuối" được kiểm ở bước kế tiếp (Giới thiệu).
+    if (!info.fadeLeft) problems.push('không có vùng mờ bên trái dù tab đã được cuộn sang');
+    if (!info.fadeRight) problems.push('không có vùng mờ bên phải dù còn tab ẩn sau Shop');
+    if (problems.length) throw new Error(`${problems.join('; ')} ${JSON.stringify(info)}`);
+    return JSON.stringify(info);
+  });
+  await step('M2', 'class tab strip at the last tab: left-edge fade only, last tab in view', page, async () => {
+    await page.goto(`${BASE}/classes/${S.classSlug}/about`);
+    await settle(page, 600);
+    const info = await page.evaluate(() => {
+      const active = document.querySelector('[aria-current="page"]');
+      const strip = active.parentElement;
+      const a = active.getBoundingClientRect();
+      const s = strip.getBoundingClientRect();
+      return {
+        isLast: strip.lastElementChild === active,
+        activeInView: a.left >= s.left - 1 && a.right <= s.right + 1,
+        activeLabel: active.textContent.trim(),
+        fadeLeft: !!document.querySelector('[data-testid="tabs-fade-left"]'),
+        fadeRight: !!document.querySelector('[data-testid="tabs-fade-right"]'),
+      };
+    });
+    await page.screenshot({ path: path.join(SHOTS, 'M2-class-tabs-about-active.png'), clip: { x: 0, y: 0, width: 390, height: 460 } });
+    const problems = [];
+    if (!info.isLast) problems.push(`"${info.activeLabel}" không phải tab cuối`);
+    if (!info.activeInView) problems.push(`tab cuối "${info.activeLabel}" nằm ngoài tầm nhìn`);
+    if (!info.fadeLeft) problems.push('không có vùng mờ bên trái dù đang ở tab cuối');
     if (info.fadeRight) problems.push('vẫn còn vùng mờ bên phải dù đã ở tab cuối');
     if (problems.length) throw new Error(`${problems.join('; ')} ${JSON.stringify(info)}`);
     return JSON.stringify(info);
@@ -139,11 +168,11 @@ const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch:
     await nav.waitFor({ state: 'visible' });
     if ((await toggle.getAttribute('aria-expanded')) !== 'true') throw new Error('aria-expanded is not true');
     await page.screenshot({ path: path.join(SHOTS, 'M3-studio-menu-open.png') });
-    await nav.getByRole('link', { name: 'Kỳ thi & Đề thi' }).click();
+    await nav.getByRole('link', { name: 'Thi', exact: true }).click();
     await page.waitForURL(/\/studio\/classes\/[^/]+\/exams$/, { timeout: 8000 });
     await nav.waitFor({ state: 'hidden', timeout: 3000 });
     const label = await page.getByRole('button', { name: /Menu Studio/ }).innerText();
-    if (!label.includes('Kỳ thi & Đề thi')) throw new Error(`menu button does not name the current page: ${label}`);
+    if (!label.trim().endsWith('· Thi')) throw new Error(`menu button does not name the current page: ${label}`);
     return label;
   });
 

@@ -4,7 +4,9 @@ import { api } from '../../api/client';
 import { formatDate } from '../../api/format';
 import { ErrorBanner, LoadingSpinner } from '../../components/UIStates';
 import { Modal } from '../../components/Modal';
-import { Check, Copy, Link2, Plus, TriangleAlert } from 'lucide-react';
+import { Badge, BadgeTone, Button, Card, Field, Input, Select, inputClass } from '../../components/ui';
+import { CardHeader, ModalActions, Notice, rowActionClass, thClass } from './studioUi';
+import { Check, Copy, Link2, Plus } from 'lucide-react';
 
 const EXPIRY_OPTIONS = [
   { value: '', label: 'Không hết hạn' },
@@ -15,11 +17,11 @@ const EXPIRY_OPTIONS = [
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_USES_LIMIT = 100000;
 
-const STATUS_VIEW: Record<InviteStatus, { label: string; className: string }> = {
-  ACTIVE: { label: 'Đang hiệu lực', className: 'bg-emerald-100 text-emerald-800' },
-  REVOKED: { label: 'Đã thu hồi', className: 'bg-rose-100 text-rose-800' },
-  EXPIRED: { label: 'Hết hạn', className: 'bg-slate-200 text-slate-800' },
-  EXHAUSTED: { label: 'Hết lượt', className: 'bg-amber-100 text-amber-900' },
+const STATUS_VIEW: Record<InviteStatus, { label: string; tone: BadgeTone }> = {
+  ACTIVE: { label: 'Đang hiệu lực', tone: 'success' },
+  REVOKED: { label: 'Đã thu hồi', tone: 'danger' },
+  EXPIRED: { label: 'Hết hạn', tone: 'neutral' },
+  EXHAUSTED: { label: 'Hết lượt', tone: 'warn' },
 };
 
 /** The link a person opens to join: `${origin}/join/${code}` (the page itself - pages/JoinByInvitePage.tsx - is what uses the code). */
@@ -166,34 +168,25 @@ export const InviteManager: React.FC<{ classroom: Classroom }> = ({ classroom })
   };
 
   return (
-    <section aria-labelledby="invite-section-title" className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
-      <div>
-        <h2 id="invite-section-title" className="text-sm font-bold text-slate-900 flex items-center gap-2">
-          <Link2 className="w-4 h-4 text-indigo-600" aria-hidden="true" />
-          Mời thành viên
-        </h2>
-        <p className="text-xs text-slate-600 mt-0.5">
-          {isPublic
-            ? 'Lớp đang công khai nên liên kết mời chỉ là tùy chọn (ai cũng có thể vào lớp từ danh sách khám phá). Liên kết vẫn hữu ích để gửi trực tiếp cho một nhóm người.'
-            : 'Lớp đang riêng tư: liên kết mời là cách duy nhất để người mới vào lớp. Mỗi liên kết có thể đặt hạn dùng và số lượt dùng tối đa.'}
-        </p>
-      </div>
+    <>
+    <Card as="section" aria-labelledby="invite-section-title" className="space-y-5">
+      <CardHeader
+        id="invite-section-title"
+        icon={<Link2 className="h-[18px] w-[18px] text-slate-500" strokeWidth={1.75} aria-hidden="true" />}
+        title="Mời thành viên"
+        description={isPublic
+          ? 'Lớp đang công khai nên liên kết mời chỉ là tùy chọn (ai cũng có thể vào lớp từ danh sách khám phá). Liên kết vẫn hữu ích để gửi trực tiếp cho một nhóm người.'
+          : 'Lớp đang riêng tư: liên kết mời là cách duy nhất để người mới vào lớp. Mỗi liên kết có thể đặt hạn dùng và số lượt dùng tối đa.'}
+      />
 
       <form onSubmit={handleCreate} noValidate className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-        <div>
-          <label htmlFor={expiryId} className="block text-xs font-semibold text-slate-700 uppercase">Hạn dùng</label>
-          <select
-            id={expiryId}
-            value={expiryDays}
-            onChange={(e) => setExpiryDays(e.target.value)}
-            className="mt-1 block w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm"
-          >
+        <Field label="Hạn dùng" htmlFor={expiryId}>
+          <Select id={expiryId} value={expiryDays} onChange={(e) => setExpiryDays(e.target.value)}>
             {EXPIRY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </div>
-        <div>
-          <label htmlFor={maxUsesId} className="block text-xs font-semibold text-slate-700 uppercase">Số lượt dùng tối đa</label>
-          <input
+          </Select>
+        </Field>
+        <Field label="Số lượt dùng tối đa" htmlFor={maxUsesId}>
+          <Input
             id={maxUsesId}
             type="number"
             inputMode="numeric"
@@ -202,18 +195,13 @@ export const InviteManager: React.FC<{ classroom: Classroom }> = ({ classroom })
             value={maxUses}
             onChange={(e) => setMaxUses(e.target.value)}
             placeholder="Không giới hạn"
-            className="mt-1 block w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm"
+            className="tabular"
           />
-        </div>
-        <button
-          ref={createButtonRef}
-          type="submit"
-          disabled={creating}
-          className="inline-flex items-center justify-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition disabled:opacity-50"
-        >
-          <Plus className="w-4 h-4" aria-hidden="true" />
+        </Field>
+        <Button ref={createButtonRef} type="submit" variant="secondary" size="lg" disabled={creating} className="!text-ui">
+          <Plus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
           <span>{creating ? 'Đang tạo...' : 'Tạo liên kết mời'}</span>
-        </button>
+        </Button>
       </form>
       {createError && <ErrorBanner message={createError} />}
 
@@ -221,41 +209,41 @@ export const InviteManager: React.FC<{ classroom: Classroom }> = ({ classroom })
       {error && <ErrorBanner message={error} onRetry={load} />}
 
       {!loading && !error && invites.length === 0 && (
-        <p className="text-xs text-slate-500 text-center py-3">Chưa có liên kết mời nào.</p>
+        <p className="py-3 text-center text-meta text-slate-500">Chưa có liên kết mời nào.</p>
       )}
 
       {!loading && !error && invites.length > 0 && (
-        <div className="relative overflow-x-auto rounded-xl border border-slate-200">
-          <table className="w-full text-left text-xs">
+        <div className="relative overflow-x-auto rounded-2xl border border-slate-200">
+          <table className="w-full text-left">
             <caption className="sr-only">Danh sách liên kết mời của lớp</caption>
-            <thead className="bg-slate-50 text-slate-600">
+            <thead className="border-b border-slate-200 bg-slate-50">
               <tr>
-                <th scope="col" className="px-3 py-2 font-semibold">Liên kết</th>
-                <th scope="col" className="px-3 py-2 font-semibold">Đã dùng · Hạn dùng</th>
-                <th scope="col" className="px-3 py-2 font-semibold"><span className="sr-only">Thao tác</span></th>
+                <th scope="col" className={thClass}>Liên kết</th>
+                <th scope="col" className={thClass}>Đã dùng · Hạn dùng</th>
+                <th scope="col" className={thClass}><span className="sr-only">Thao tác</span></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {invites.map((invite) => {
-                const view = STATUS_VIEW[invite.status] ?? { label: invite.status, className: 'bg-slate-100 text-slate-700' };
+                const view = STATUS_VIEW[invite.status] ?? { label: invite.status, tone: 'neutral' as BadgeTone };
                 return (
                   <tr key={invite.id}>
                     {/* three columns (not five) so the list and its "Thu hồi" button fit a 390px phone without sideways scrolling */}
-                    <td className="px-3 py-2.5 align-top">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${view.className}`}>{view.label}</span>
-                      <div className="mt-1 font-mono text-slate-800">…{invite.codeHint}</div>
+                    <td className="px-4 py-3 align-top">
+                      <Badge tone={view.tone} size="sm">{view.label}</Badge>
+                      <div className="mt-1 font-mono text-meta text-slate-900">…{invite.codeHint}</div>
                     </td>
-                    <td className="px-3 py-2.5 align-top text-slate-700">
-                      <div>{invite.usedCount} / {invite.maxUses != null ? invite.maxUses : 'không giới hạn'}</div>
-                      <div className="mt-1 text-slate-600">{invite.expiresAt ? `Hạn ${formatDate(invite.expiresAt)}` : 'Không hết hạn'}</div>
+                    <td className="px-4 py-3 align-top text-meta text-slate-600 tabular">
+                      <div className="text-slate-900">{invite.usedCount} / {invite.maxUses != null ? invite.maxUses : 'không giới hạn'}</div>
+                      <div className="mt-1">{invite.expiresAt ? `Hạn ${formatDate(invite.expiresAt)}` : 'Không hết hạn'}</div>
                     </td>
-                    <td className="px-2 py-2.5 align-top text-right whitespace-nowrap">
+                    <td className="whitespace-nowrap px-2 py-3 text-right align-top">
                       {invite.status !== 'REVOKED' && (
                         <button
                           type="button"
                           onClick={() => { setRevokeError(null); setRevokeTarget(invite); }}
                           aria-label={`Thu hồi liên kết mời …${invite.codeHint}`}
-                          className="px-2.5 py-1.5 text-rose-700 hover:bg-rose-50 rounded-lg font-bold"
+                          className={rowActionClass('danger')}
                         >
                           Thu hồi
                         </button>
@@ -269,18 +257,17 @@ export const InviteManager: React.FC<{ classroom: Classroom }> = ({ classroom })
         </div>
       )}
 
+    </Card>
+
+      {/* outside the Card: its space-y margin would otherwise land on the fixed overlay */}
       {created?.code && (
         <Modal size="md" title="Liên kết mời đã được tạo" onClose={closeCreated}>
           <div className="space-y-4">
-            <div role="note" className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
-              <TriangleAlert className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
-              <span>
-                <strong>Chỉ hiển thị một lần.</strong> Hãy sao chép và lưu liên kết ngay bây giờ: sau khi đóng cửa sổ này hệ thống không thể hiện lại mã
-                (chỉ thu hồi và tạo liên kết mới). Ai có liên kết đều vào được lớp, hãy chỉ gửi cho người bạn muốn mời.
-              </span>
-            </div>
-            <div>
-              <label htmlFor={linkId} className="block text-xs font-semibold text-slate-700 uppercase">Liên kết mời</label>
+            <Notice tone="warn" role="note">
+              <strong className="font-semibold">Chỉ hiển thị một lần.</strong> Hãy sao chép và lưu liên kết ngay bây giờ: sau khi đóng cửa sổ này hệ thống không thể hiện lại mã
+              (chỉ thu hồi và tạo liên kết mới). Ai có liên kết đều vào được lớp, hãy chỉ gửi cho người bạn muốn mời.
+            </Notice>
+            <Field label="Liên kết mời" htmlFor={linkId}>
               {/* a textarea, not an input: the link is ~60 characters and must be readable in full, wrapped, before it is copied */}
               <textarea
                 id={linkId}
@@ -289,59 +276,38 @@ export const InviteManager: React.FC<{ classroom: Classroom }> = ({ classroom })
                 rows={3}
                 value={inviteLink(created.code)}
                 onFocus={(e) => e.currentTarget.select()}
-                className="mt-1 block w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono break-all resize-none"
+                className={inputClass('resize-none break-all bg-slate-50 py-2.5 font-mono text-meta')}
               />
-            </div>
-            <p role="status" aria-live="polite" className={`text-xs font-semibold min-h-[1rem] ${copied === 'failed' ? 'text-rose-700' : 'text-emerald-700'}`}>
+            </Field>
+            <p role="status" aria-live="polite" className={`min-h-[18px] text-meta font-medium ${copied === 'failed' ? 'text-red-600' : 'text-green-800'}`}>
               {copied === 'done' && 'Đã sao chép liên kết vào bộ nhớ tạm.'}
               {copied === 'failed' && 'Không thể tự sao chép. Liên kết đã được chọn sẵn, hãy nhấn Ctrl+C.'}
             </p>
-            <div className="flex justify-end space-x-2">
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold"
-              >
-                {copied === 'done' ? <Check className="w-4 h-4" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
+            <ModalActions>
+              <Button variant="secondary" onClick={closeCreated}>Đã lưu, đóng</Button>
+              <Button variant="primary" onClick={handleCopy}>
+                {copied === 'done' ? <Check className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" /> : <Copy className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />}
                 <span>Sao chép liên kết</span>
-              </button>
-              <button
-                type="button"
-                onClick={closeCreated}
-                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold"
-              >
-                Đã lưu, đóng
-              </button>
-            </div>
+              </Button>
+            </ModalActions>
           </div>
         </Modal>
       )}
 
       {revokeTarget && (
         <Modal size="sm" title="Thu hồi liên kết mời?" role="alertdialog" onClose={() => setRevokeTarget(null)}>
-          <p className="text-sm text-slate-600">
+          <p className="text-ui text-slate-600">
             Liên kết mời …{revokeTarget.codeHint} sẽ ngừng dùng được ngay. Những người đã vào lớp bằng liên kết này không bị ảnh hưởng.
           </p>
-          {revokeError && <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">{revokeError}</p>}
-          <div className="flex justify-end space-x-2 mt-4">
-            <button
-              type="button"
-              onClick={() => setRevokeTarget(null)}
-              className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold"
-            >
-              Hủy
-            </button>
-            <button
-              type="button"
-              disabled={revoking}
-              onClick={handleRevoke}
-              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold disabled:opacity-50"
-            >
+          {revokeError && <p role="alert" className="mt-2 text-meta font-medium text-red-600">{revokeError}</p>}
+          <ModalActions className="mt-5">
+            <Button variant="secondary" onClick={() => setRevokeTarget(null)}>Hủy</Button>
+            <Button variant="danger" disabled={revoking} onClick={handleRevoke}>
               {revoking ? 'Đang thu hồi...' : 'Thu hồi liên kết'}
-            </button>
-          </div>
+            </Button>
+          </ModalActions>
         </Modal>
       )}
-    </section>
+    </>
   );
 };

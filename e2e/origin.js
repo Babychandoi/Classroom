@@ -48,21 +48,23 @@ function postLogin(origin, extraHeaders = {}) {
   await step('O1', `register from ${ORIGIN} (same-origin POST carries Origin)`, page, async () => { await register(page, USER); });
 
   await step('O1', 'log out, then log in again from this origin', page, async () => {
-    await page.getByTitle('Đăng xuất').click();
-    await page.getByTitle('Đăng xuất').waitFor({ state: 'hidden', timeout: 10000 });
+    await page.getByRole('button', { name: 'Mở menu tài khoản' }).click();
+    await page.getByRole('menuitem', { name: 'Đăng xuất' }).click();
+    await page.getByRole('button', { name: 'Mở menu tài khoản' }).waitFor({ state: 'hidden', timeout: 10000 });
     await login(page, USER);
   });
 
   if (process.env.E2E_DEMO_LOGIN === '1') {
     await step('O1', 'demo account (owner@classroom.local) logs in from this origin', page, async () => {
-      await page.getByTitle('Đăng xuất').click();
-      await page.getByTitle('Đăng xuất').waitFor({ state: 'hidden', timeout: 10000 });
+      await page.getByRole('button', { name: 'Mở menu tài khoản' }).click();
+      await page.getByRole('menuitem', { name: 'Đăng xuất' }).click();
+      await page.getByRole('button', { name: 'Mở menu tài khoản' }).waitFor({ state: 'hidden', timeout: 10000 });
       await page.goto(`${BASE}/login`);
       await page.getByLabel('Email').fill('owner@classroom.local');
-      await page.getByLabel('Mật khẩu').fill('Password123!');
+      await page.getByLabel('Mật khẩu', { exact: true }).fill('Password123!');
       await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
       await page.waitForURL(/\/classes$/, { timeout: 15000 });
-      await page.getByTitle('Đăng xuất').waitFor({ timeout: 10000 });
+      await page.getByRole('button', { name: 'Mở menu tài khoản' }).waitFor({ timeout: 10000 });
     });
   }
 

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
+import { Badge, buttonClass, inputClass } from './ui';
 
 interface PrivacyRequest { user_id: string; id: string; status: string; reason: string; resolution: string }
 interface ExportPage { hasMore: boolean; nextOffset: number | null; [key: string]: unknown }
@@ -45,14 +46,18 @@ export const DataRightsPanel: React.FC = () => {
     catch (e) { setMessage(e instanceof Error ? e.message : 'Không thể xử lý yêu cầu.'); }
     finally { setBusy(false); }
   };
-  return <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-6">
-    <h2 className="text-xl font-bold">Dữ liệu cá nhân của bạn</h2>
-    <p className="text-sm leading-6 text-slate-600">Tải thông tin tài khoản, thành viên, kết quả thi và đơn hàng, hoặc gửi yêu cầu xóa thông tin tài khoản. Chứng từ và hồ sơ có căn cứ lưu trữ sẽ được quản trị viên giải thích trong kết quả xử lý. <Link to="/privacy" className="font-semibold text-indigo-700 underline">Chính sách dữ liệu</Link></p>
-    <label className="block font-semibold">Mật khẩu hiện tại<input autoComplete="current-password" type="password" maxLength={200} value={password} onChange={e => setPassword(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-300 p-3 text-base" /></label>
-    <label className="block font-semibold">Ghi chú cho yêu cầu xóa<textarea rows={3} maxLength={2000} value={reason} onChange={e => setReason(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-300 p-3 text-base" /></label>
-    <div className="flex flex-wrap gap-3"><button type="button" disabled={busy} onClick={() => void act(false)} className="rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white disabled:opacity-50">{busy ? 'Đang xử lý...' : 'Tải dữ liệu của tôi'}</button><button type="button" disabled={busy || requests.some(r => ['PENDING', 'ON_HOLD'].includes(r.status))} onClick={() => void act(true)} className="rounded-xl border border-red-300 px-4 py-3 font-semibold text-red-700 disabled:opacity-50">Gửi yêu cầu xóa tài khoản</button></div>
-    {message && <p role="status" className="text-sm text-slate-800">{message}</p>}
-    {requests.map(r => <p key={r.id} className="text-sm">Yêu cầu {r.id}: {r.status}{r.resolution && ` — ${r.resolution}`}</p>)}
-    {user?.role === 'PLATFORM_ADMIN' && <div className="space-y-4 border-t border-slate-200 pt-5"><h3 className="font-bold">Xử lý yêu cầu dữ liệu</h3><label className="block">Kết quả và căn cứ lưu trữ<textarea maxLength={2000} value={resolution} onChange={e => setResolution(e.target.value)} className="mt-2 w-full rounded border p-3" /></label>{adminRequests.filter(r => r.status !== 'COMPLETED').map(r => <div key={r.id} className="space-y-3"><p className="break-words text-sm">{r.user_id} · {r.status} · {r.reason}</p><div className="flex flex-wrap gap-2">{[['ON_HOLD', 'Tạm giữ có căn cứ'], ['REJECTED', 'Từ chối có lý do'], ['COMPLETED', 'Ẩn danh hóa và đóng tài khoản']].map(([status, label]) => <button key={status} type="button" disabled={busy || !resolution.trim()} onClick={() => void resolve(r, status)} className="rounded border border-slate-300 px-3 py-2 disabled:opacity-50">{label}</button>)}</div></div>)}</div>}
+  const pending = requests.some(r => ['PENDING', 'ON_HOLD'].includes(r.status));
+  return <section aria-labelledby="data-rights-title" className="space-y-5 rounded-card border border-slate-200 bg-white p-5 shadow-hairline sm:p-7">
+    <div>
+      <h2 id="data-rights-title" className="text-h3-lg font-semibold text-slate-900">Dữ liệu cá nhân của bạn</h2>
+      <p className="mt-1.5 text-ui leading-[22px] text-slate-600">Tải thông tin tài khoản, thành viên, kết quả thi và đơn hàng, hoặc gửi yêu cầu xóa thông tin tài khoản. Chứng từ và hồ sơ có căn cứ lưu trữ sẽ được quản trị viên giải thích trong kết quả xử lý. <Link to="/privacy" className="font-medium text-blue-600 hover:text-blue-700">Chính sách dữ liệu</Link></p>
+    </div>
+    <label className="block text-meta font-semibold text-slate-900">Mật khẩu hiện tại<input autoComplete="current-password" type="password" maxLength={200} value={password} onChange={e => setPassword(e.target.value)} className={inputClass('mt-1.5 h-11 font-normal')} /></label>
+    <label className="block text-meta font-semibold text-slate-900">Ghi chú cho yêu cầu xóa<textarea rows={3} maxLength={2000} value={reason} onChange={e => setReason(e.target.value)} className={inputClass('mt-1.5 resize-none py-2.5 font-normal leading-[22px]')} /></label>
+    <div className="flex flex-wrap gap-3"><button type="button" disabled={busy} onClick={() => void act(false)} className={buttonClass('secondary', 'md')}>{busy ? 'Đang xử lý...' : 'Tải dữ liệu của tôi'}</button><button type="button" disabled={busy || pending} onClick={() => void act(true)} className={buttonClass('danger', 'md')}>Gửi yêu cầu xóa tài khoản</button></div>
+    <p className="text-caption text-slate-500">Cả hai thao tác đều cần mật khẩu hiện tại để xác nhận đúng là bạn.</p>
+    {message && <p role="status" className="rounded-btn bg-slate-100 px-3.5 py-2.5 text-meta text-slate-900">{message}</p>}
+    {requests.length > 0 && <ul className="divide-y divide-slate-100 rounded-btn border border-slate-200">{requests.map(r => <li key={r.id} className="flex flex-wrap items-center gap-2 px-3.5 py-2.5 text-meta text-slate-600"><span className="min-w-0 break-all">Yêu cầu {r.id}:</span><Badge tone={r.status === 'COMPLETED' ? 'success' : r.status === 'REJECTED' ? 'danger' : 'warn'} size="sm">{r.status}</Badge>{r.resolution && <span className="w-full text-slate-600">— {r.resolution}</span>}</li>)}</ul>}
+    {user?.role === 'PLATFORM_ADMIN' && <div className="space-y-4 border-t border-slate-100 pt-5"><h3 className="text-h3 font-semibold text-slate-900">Xử lý yêu cầu dữ liệu</h3><label className="block text-meta font-semibold text-slate-900">Kết quả và căn cứ lưu trữ<textarea maxLength={2000} value={resolution} onChange={e => setResolution(e.target.value)} className={inputClass('mt-1.5 resize-none py-2.5 font-normal leading-[22px]')} /></label>{adminRequests.filter(r => r.status !== 'COMPLETED').map(r => <div key={r.id} className="space-y-3 rounded-btn border border-slate-200 p-3.5"><p className="break-words text-meta text-slate-600">{r.user_id} · {r.status} · {r.reason}</p><div className="flex flex-wrap gap-2">{[['ON_HOLD', 'Tạm giữ có căn cứ'], ['REJECTED', 'Từ chối có lý do'], ['COMPLETED', 'Ẩn danh hóa và đóng tài khoản']].map(([status, label]) => <button key={status} type="button" disabled={busy || !resolution.trim()} onClick={() => void resolve(r, status)} className={buttonClass('secondary', 'sm')}>{label}</button>)}</div></div>)}</div>}
   </section>;
 };

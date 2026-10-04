@@ -304,7 +304,7 @@ describe('StudioMembers - EXPIRED members', () => {
   it('badges the row and shows "Hết hạn dd/MM/yyyy"', async () => {
     render(<StudioMembers />);
     const row = (await screen.findByText('Học viên Hết Hạn')).closest('div.p-5') as HTMLElement;
-    expect(within(row).getByText('EXPIRED')).toBeInTheDocument();
+    expect(within(row).getByText('Đã hết hạn')).toBeInTheDocument();
     expect(within(row).getByTestId('member-expiry')).toHaveTextContent(`Hết hạn ${formatDate(expiredAt)}`);
     // an ACTIVE member with no expiry shows no expiry line
     const active = screen.getByText('Học viên Một').closest('div.p-5') as HTMLElement;

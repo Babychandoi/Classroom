@@ -35,13 +35,17 @@ public class ClassroomController {
     public ResponseEntity<ApiResponse<List<ClassroomDto>>> getAllClasses(
             @CurrentUser UserPrincipal principal,
             @RequestParam(required = false) Integer page,
-            @RequestParam(required = false) Integer size) {
+            @RequestParam(required = false) Integer size,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String category) {
         String currentUserId = (principal != null) ? principal.getId() : null;
+        // D-27: optional q (title / description search, <= 100 chars) and sort=newest|popular (default newest, as before).
         // R16-08: the listing is always paged. Without page/size the first ClassroomService.DEFAULT_PAGE_SIZE
         // (50) classes are returned; size is clamped to ClassroomService.MAX_PAGE_SIZE (100); a client
         // fetches further pages with page=1,2,... (a page shorter than the requested size is the last).
         List<ClassroomDto> classes = classroomService.getAllClassrooms(currentUserId,
-                page != null ? page : 0, size != null ? size : ClassroomService.DEFAULT_PAGE_SIZE);
+                page != null ? page : 0, size != null ? size : ClassroomService.DEFAULT_PAGE_SIZE, q, sort, category);
         return ResponseEntity.ok(ApiResponse.ok(classes));
     }
 
@@ -51,6 +55,12 @@ public class ClassroomController {
             @Valid @RequestBody CreateClassroomRequest request) {
         ClassroomDto created = classroomService.createClassroom(principal.getId(), request);
         return ResponseEntity.ok(ApiResponse.ok(created));
+    }
+
+    /** D-28: the fixed category list, in display order (public). */
+    @GetMapping("/categories")
+    public ResponseEntity<ApiResponse<List<String>>> categories() {
+        return ResponseEntity.ok(ApiResponse.ok(com.classroom.modules.classroom.service.ClassCategories.ALL));
     }
 
     @GetMapping("/{id}")
@@ -110,6 +120,17 @@ public class ClassroomController {
             @CurrentUser UserPrincipal principal) {
         ClassroomDto dto = classroomService.joinClassroom(id, principal.getId());
         return ResponseEntity.ok(ApiResponse.ok(dto));
+    }
+
+    /**
+     * D-28: withdraw the caller's PENDING join request (idempotent). Answers the class, or {@code data: null} when the caller held a
+     * request but can no longer see the class.
+     */
+    @DeleteMapping("/{id}/join-request")
+    public ResponseEntity<ApiResponse<ClassroomDto>> withdrawJoinRequest(
+            @PathVariable String id,
+            @CurrentUser UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(classroomService.withdrawJoinRequest(id, principal.getId())));
     }
 
     @GetMapping("/{id}/members")

@@ -152,7 +152,11 @@ const loginApi = async (user) => (await api('POST', '/auth/login', { body: { ema
 
   // ---------------- K4: nộp bài ----------------
   await step('K4', 'submit: result page, the attempt is counted once and the latest answer (A) was graded', stu, async () => {
-    await stu.getByRole('button', { name: 'Hoàn tất & Nộp bài thi' }).click();
+    await stu.getByRole('button', { name: 'Hoàn tất & nộp bài' }).click();
+    // Nộp bài qua hộp thoại xác nhận (cả hai câu đã trả lời).
+    const confirm = stu.getByRole('alertdialog', { name: 'Nộp bài và kết thúc lượt làm?' });
+    await confirm.getByText('2/2').waitFor({ timeout: 5000 });
+    await confirm.getByRole('button', { name: 'Xác nhận nộp bài' }).click();
     await stu.waitForURL(/\/result\?attemptId=/, { timeout: 15000 });
     await settle(stu);
     await shot(stu, 'K4-result');

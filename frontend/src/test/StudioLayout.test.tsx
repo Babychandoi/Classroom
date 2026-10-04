@@ -62,9 +62,9 @@ describe('StudioLayout — course-scoped-only staff (R6-01)', () => {
 
     render(<StudioLayout />);
 
-    await waitFor(() => expect(screen.getByText('Khóa học & Bài giảng')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Khóa học')).toBeInTheDocument());
     // Nav item present means hasAnyStudioPermission granted it via the scoped grant.
-    expect(screen.getByText('Khóa học & Bài giảng')).toBeInTheDocument();
+    expect(screen.getByText('Khóa học')).toBeInTheDocument();
     // The route itself must render its Outlet, not the "insufficient permission" banner.
     await waitFor(() => expect(screen.getByTestId('studio-outlet')).toBeInTheDocument());
     expect(screen.queryByText('Không đủ quyền truy cập')).not.toBeInTheDocument();
@@ -83,11 +83,11 @@ describe('StudioLayout — course-scoped-only staff (R6-01)', () => {
     render(<StudioLayout />);
 
     await waitFor(() => expect(screen.getByText('Không đủ quyền truy cập')).toBeInTheDocument());
-    expect(screen.queryByText('Sản phẩm & Đơn hàng')).not.toBeInTheDocument();
+    expect(screen.queryByText('Shop & đơn hàng')).not.toBeInTheDocument();
     // R7-01: the fallback button must send this staff member somewhere they can actually reach
     // (their scoped COURSE:EDIT grant authorizes /courses), not back to /overview which requires
     // class-wide STUDIO:VIEW they don't have.
-    expect(screen.getByText(/Về Khóa học & Bài giảng/).closest('a')).toHaveAttribute('href', '/studio/classes/class-1/courses');
+    expect(screen.getByText('Về Khóa học').closest('a')).toHaveAttribute('href', '/studio/classes/class-1/courses');
   });
 
   // R7-01: a staff member with only a scoped grant (no class-wide STUDIO:VIEW) must not be routed
@@ -178,7 +178,7 @@ describe('StudioLayout — collapsible navigation on phones (R17-05)', () => {
     render(<StudioLayout />);
 
     const toggle = await screen.findByRole('button', { name: /Menu Studio/ });
-    expect(toggle).toHaveTextContent('Menu Studio · Khóa học & Bài giảng');
+    expect(toggle).toHaveTextContent('Menu Studio · Khóa học');
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     const nav = document.getElementById(toggle.getAttribute('aria-controls')!)!;
     expect(nav).toHaveClass('hidden');
@@ -192,5 +192,91 @@ describe('StudioLayout — collapsible navigation on phones (R17-05)', () => {
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(nav).toHaveClass('hidden');
+  });
+});
+
+// Blog and events are Studio pages of their own; their nav entries follow the same grants gating as every other item.
+describe('StudioLayout — Blog and Sự kiện nav items', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    currentPath = '/studio/classes/class-1/blog';
+  });
+
+  const renderWith = async (classroom: Classroom) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input.toString();
+      if (url.includes('/classes/class-1')) {
+        return new Response(JSON.stringify({ success: true, data: classroom }), { status: 200 });
+      }
+      return new Response('{}', { status: 404 });
+    });
+    render(<StudioLayout />);
+    await screen.findByRole('navigation', { name: 'Điều hướng Studio' });
+  };
+
+  it('hides Blog and Sự kiện from staff without any BLOG/EVENT grant and blocks the routes', async () => {
+    await renderWith({ ...courseScopedOnlyClassroom, studioPermissions: ['COURSE:VIEW'] });
+    expect(screen.queryByRole('link', { name: 'Blog' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Sự kiện' })).not.toBeInTheDocument();
+    expect(screen.getByText('Không đủ quyền truy cập')).toBeInTheDocument();
+  });
+
+  it('shows Blog for any single BLOG grant and Sự kiện for any single EVENT grant', async () => {
+    await renderWith({ ...courseScopedOnlyClassroom, studioPermissions: ['BLOG:PUBLISH', 'EVENT:DELETE'] });
+    expect(screen.getByRole('link', { name: 'Blog' })).toHaveAttribute('href', '/studio/classes/class-1/blog');
+    expect(screen.getByRole('link', { name: 'Sự kiện' })).toHaveAttribute('href', '/studio/classes/class-1/events');
+    expect(screen.getByTestId('studio-outlet')).toBeInTheDocument();
+  });
+
+  it('honours wildcard grants (BLOG:* / *:VIEW)', async () => {
+    await renderWith({ ...courseScopedOnlyClassroom, studioPermissions: ['BLOG:*'] });
+    expect(screen.getByRole('link', { name: 'Blog' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Sự kiện' })).not.toBeInTheDocument();
+  });
+
+  it('shows both to the owner, plus the "Xem như học viên" link to the class', async () => {
+    await renderWith({ ...courseScopedOnlyClassroom, userRole: 'OWNER', studioScopedPermissions: [] });
+    expect(screen.getByRole('link', { name: 'Blog' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Sự kiện' })).toBeInTheDocument();
+    expect(screen.getByText('Chủ lớp')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Xem như học viên' })).toHaveAttribute('href', '/classes/demo-class');
+  });
+});
+
+// API-CREATE-CLASS: pending join requests on the "Thành viên" item, and the class's own square avatar in the sidebar.
+describe('StudioLayout — request badge and class avatar', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    currentPath = '/studio/classes/class-1/members';
+  });
+
+  const renderWith = async (classroom: Record<string, unknown>) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input.toString();
+      if (url.includes('/classes/class-1')) return new Response(JSON.stringify({ success: true, data: classroom }), { status: 200 });
+      return new Response('{}', { status: 404 });
+    });
+    render(<StudioLayout />);
+    await screen.findByRole('navigation', { name: 'Điều hướng Studio' });
+  };
+
+  it('shows the pendingRequestCount on "Thành viên"', async () => {
+    await renderWith({ ...courseScopedOnlyClassroom, userRole: 'OWNER', studioScopedPermissions: [], pendingRequestCount: 4 });
+    const link = screen.getByRole('link', { name: /Thành viên/ });
+    expect(link).toHaveTextContent('4');
+    // on the nav item, and on the collapsed phone menu button so it is not hidden until the menu opens
+    expect(screen.getAllByLabelText('4 yêu cầu chờ duyệt')).toHaveLength(2);
+  });
+
+  it('no badge when nothing is pending', async () => {
+    await renderWith({ ...courseScopedOnlyClassroom, userRole: 'OWNER', studioScopedPermissions: [], pendingRequestCount: 0 });
+    expect(screen.queryByLabelText(/yêu cầu chờ duyệt/)).not.toBeInTheDocument();
+  });
+
+  it('uses avatarUrl (at avatarPosition) for the sidebar class avatar, else the letter tile', async () => {
+    await renderWith({ ...courseScopedOnlyClassroom, userRole: 'OWNER', studioScopedPermissions: [], avatarUrl: 'http://store.local/av', avatarPosition: '10% 90%' });
+    const img = screen.getByTestId('studio-class-avatar');
+    expect(img).toHaveAttribute('src', 'http://store.local/av');
+    expect((img as HTMLImageElement).style.objectPosition).toBe('10% 90%');
   });
 });

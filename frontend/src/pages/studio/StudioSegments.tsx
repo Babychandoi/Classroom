@@ -4,6 +4,9 @@ import { Classroom } from '../../types';
 import { api } from '../../api/client';
 import { LoadingSpinner, ErrorBanner } from '../../components/UIStates';
 import { Modal } from '../../components/Modal';
+import { hasStudioPermission } from '../../api/permissions';
+import { Badge, Button, Card, Field, Input, Textarea, buttonClass, inputClass } from '../../components/ui';
+import { ModalActions, PageHeader, StudioPage, iconActionClass, rowActionClass } from './studioUi';
 import { Layers, Plus, Users, Eye, X } from 'lucide-react';
 
 interface RuleDraft {
@@ -25,7 +28,8 @@ interface SegmentItem {
 
 export const StudioSegments: React.FC = () => {
   const { classroom } = useOutletContext<{ classroom: Classroom }>();
-  const canCreateSegment = classroom.userRole === 'OWNER' || classroom.studioPermissions?.includes('SEGMENT:CREATE');
+  // Wildcard-aware ("SEGMENT:*", "*:CREATE"), like the server's AccessPolicy.canManage.
+  const canCreateSegment = hasStudioPermission(classroom, 'SEGMENT', 'CREATE');
 
   const [segments, setSegments] = useState<SegmentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +44,8 @@ export const StudioSegments: React.FC = () => {
   // always send exactly one rule, making the combinator selector meaningless.
   const [rules, setRules] = useState<RuleDraft[]>([emptyRule()]);
   const [saving, setSaving] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const nameId = useId();
   const descId = useId();
 
@@ -71,17 +77,19 @@ export const StudioSegments: React.FC = () => {
   }, [classroom.id]);
 
   const handlePreview = async (segId: string) => {
+    setPreviewError(null);
     try {
       const data = await api.post(`/segments/${segId}/preview?classId=${classroom.id}`);
       setPreviewData((prev) => ({ ...prev, [segId]: data }));
     } catch (err: any) {
-      alert(err.message || 'Xem trước thất bại');
+      setPreviewError(err.message || 'Xem trước thất bại');
     }
   };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setCreateError(null);
     try {
       await api.post(`/classes/${classroom.id}/segments`, {
         name,
@@ -98,190 +106,173 @@ export const StudioSegments: React.FC = () => {
       setRules([emptyRule()]);
       await fetchSegments();
     } catch (err: any) {
-      alert(err.message || 'Tạo phân khúc thất bại');
+      setCreateError(err.message || 'Tạo phân khúc thất bại');
     } finally {
       setSaving(false);
     }
   };
 
-  return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Phân khúc học viên (Segment Engine)</h1>
-          <p className="text-xs text-slate-600">
-            Tạo nhóm học viên theo tiêu chí an toàn (Whitelist AST) để mở bài thi hoặc bài đăng riêng
-          </p>
-        </div>
+  const openCreate = () => {
+    setCreateError(null);
+    setShowModal(true);
+  };
 
-        {canCreateSegment && (
-          <button
-            onClick={() => setShowModal(true)}
-            className="inline-flex items-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition"
-          >
-            <Plus className="w-4 h-4" />
+  return (
+    <StudioPage>
+      <PageHeader
+        title="Nhóm học viên"
+        description="Gom học viên theo tiêu chí (PRO, khóa đã mua, số bài hoàn thành, điểm thi, ngày tham gia) để mở bài thi hoặc bài đăng riêng cho từng nhóm."
+        action={canCreateSegment && (
+          <Button variant="primary" size="md" onClick={openCreate}>
+            <Plus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
             <span>Tạo nhóm phân khúc</span>
-          </button>
+          </Button>
         )}
-      </div>
+      />
 
       {loading && <LoadingSpinner message="Đang tải danh sách phân khúc..." />}
       {error && <ErrorBanner message={error} onRetry={fetchSegments} />}
+      {previewError && <ErrorBanner message={previewError} />}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {!loading && !error && segments.length === 0 && (
+        <Card className="text-center">
+          <p className="text-ui text-slate-600">Chưa có nhóm học viên nào. Ví dụ dễ bắt đầu: nhóm “Học viên PRO” để mở một bài thi riêng.</p>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {segments.map((seg) => (
-          <div key={seg.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 uppercase">
-                Toán tử logic: {seg.logicOperator}
-              </span>
-              <button
-                onClick={() => handlePreview(seg.id)}
-                className="inline-flex items-center space-x-1 text-xs font-bold text-indigo-600 hover:text-indigo-800"
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>Kiểm tra số lượng</span>
-              </button>
+          <Card key={seg.id} as="article" className="flex flex-col">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[12px] bg-slate-100 text-slate-600" aria-hidden="true">
+                  <Layers className="h-5 w-5" strokeWidth={1.75} />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-h3 font-semibold text-slate-900">{seg.name}</h3>
+                  <p className="mt-0.5 text-meta text-slate-600">{seg.description || 'Chưa có mô tả'}</p>
+                </div>
+              </div>
+              <Badge tone="neutral" size="sm" title="Cách kết hợp các điều kiện">
+                {seg.logicOperator === 'OR' ? 'Một trong các điều kiện' : 'Tất cả điều kiện'}
+              </Badge>
             </div>
 
-            <h3 className="text-base font-bold text-slate-900 mb-1">{seg.name}</h3>
-            <p className="text-xs text-slate-500 mb-4">{seg.description || 'Chưa có mô tả'}</p>
-
-            {previewData[seg.id] && (
-              <div className="p-3 bg-slate-50 rounded-xl text-xs text-slate-700 flex justify-between items-center border border-slate-100">
-                <span>Số học viên khớp điều kiện:</span>
-                <span className="font-bold text-indigo-600">
-                  {previewData[seg.id].matchingMembers} / {previewData[seg.id].totalMembers} học viên
-                </span>
-              </div>
-            )}
-          </div>
+            <div className="mt-auto pt-4">
+              {previewData[seg.id] ? (
+                <div className="flex items-center justify-between gap-3 rounded-btn border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-meta text-slate-600">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Users className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                    Số học viên khớp điều kiện:
+                  </span>
+                  <span className="font-semibold text-slate-900 tabular">
+                    {previewData[seg.id].matchingMembers} / {previewData[seg.id].totalMembers} học viên
+                  </span>
+                </div>
+              ) : (
+                <button type="button" onClick={() => handlePreview(seg.id)} className={rowActionClass()}>
+                  <Eye className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                  <span>Kiểm tra số lượng</span>
+                </button>
+              )}
+            </div>
+          </Card>
         ))}
       </div>
 
       {/* Modal Create Segment */}
       {showModal && (
         <Modal size="lg" title="Tạo nhóm phân khúc học viên" onClose={() => setShowModal(false)}>
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div>
-                <label htmlFor={nameId} className="block text-xs font-semibold text-slate-700 uppercase">Tên phân khúc</label>
-                <input
-                  id={nameId}
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="VD: Học viên hoàn thành trên 5 bài học"
-                  className="mt-1 block w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500"
-                />
+          <form onSubmit={handleCreate} className="space-y-5">
+            {createError && <ErrorBanner message={createError} />}
+            <Field label="Tên phân khúc" htmlFor={nameId}>
+              <Input id={nameId} type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="VD: Học viên hoàn thành trên 5 bài học" />
+            </Field>
+
+            <Field label="Mô tả" htmlFor={descId}>
+              <Textarea id={descId} rows={2} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Nhóm này gồm những ai, dùng để làm gì..." />
+            </Field>
+
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-meta font-semibold text-slate-900">Điều kiện</p>
+                {/* R8-11: the combinator only matters — and is only shown — once there is more
+                    than one rule to combine. */}
+                {rules.length > 1 && (
+                  <label className="inline-flex items-center gap-2 text-meta text-slate-600">
+                    Kết hợp bằng
+                    <select
+                      aria-label="Toán tử kết hợp điều kiện"
+                      value={operator}
+                      onChange={(e) => setOperator(e.target.value)}
+                      className={inputClass('h-9 w-auto pr-8 text-meta')}
+                    >
+                      <option value="AND">AND (thỏa tất cả)</option>
+                      <option value="OR">OR (thỏa một trong số)</option>
+                    </select>
+                  </label>
+                )}
               </div>
 
-              <div>
-                <label htmlFor={descId} className="block text-xs font-semibold text-slate-700 uppercase">Mô tả</label>
-                <textarea
-                  id={descId}
-                  rows={2}
-                  value={desc}
-                  onChange={(e) => setDesc(e.target.value)}
-                  placeholder="Mô tả nhóm đối tượng..."
-                  className="mt-1 block w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-700 uppercase">Điều kiện</label>
-                  {/* R8-11: the combinator only matters — and is only shown — once there is more
-                      than one rule to combine. */}
-                  {rules.length > 1 && (
-                    <label className="text-xs font-semibold text-slate-700 inline-flex items-center gap-2">
-                      Kết hợp bằng
-                      <select
-                        aria-label="Toán tử kết hợp điều kiện"
-                        value={operator}
-                        onChange={(e) => setOperator(e.target.value)}
-                        className="rounded-lg border p-1.5"
-                      >
-                        <option value="AND">AND (thỏa tất cả)</option>
-                        <option value="OR">OR (thỏa một trong số)</option>
-                      </select>
-                    </label>
-                  )}
-                </div>
-
-                {rules.map((rule, index) => (
-                  <div key={index} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
-                    <label className="text-xs font-semibold text-slate-700">Tiêu chí
+              {rules.map((rule, index) => (
+                <div key={index} className="grid grid-cols-[1fr_auto] items-end gap-2 rounded-2xl border border-slate-200 p-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:border-0 sm:p-0">
+                  <div className="col-span-2 grid gap-2 sm:col-span-3 sm:grid-cols-3">
+                    <label className="text-caption font-semibold text-slate-600">Tiêu chí
                       <select
                         aria-label={`Tiêu chí điều kiện ${index + 1}`}
                         value={rule.criterion}
                         onChange={(e) => updateRule(index, { criterion: e.target.value })}
-                        className="mt-1 block w-full rounded-lg border p-2"
+                        className={inputClass('mt-1 h-10 pr-8')}
                       >
                         <option value="IS_PRO">PRO</option><option value="COURSE_OWNED">Sở hữu khóa</option>
                         <option value="COMPLETED_LESSONS_COUNT">Số bài hoàn thành</option><option value="AVG_EXAM_SCORE">Điểm thi TB</option><option value="DAYS_SINCE_JOINED">Ngày tham gia</option>
                       </select>
                     </label>
-                    <label className="text-xs font-semibold text-slate-700">Toán tử
+                    <label className="text-caption font-semibold text-slate-600">Toán tử
                       <select
                         aria-label={`Toán tử điều kiện ${index + 1}`}
                         value={rule.operator}
                         onChange={(e) => updateRule(index, { operator: e.target.value })}
-                        className="mt-1 block w-full rounded-lg border p-2"
+                        className={inputClass('mt-1 h-10 pr-8')}
                       >
                         <option value="EQUALS">Bằng</option><option value="GREATER_THAN_OR_EQUAL">Từ</option><option value="LESS_THAN_OR_EQUAL">Đến</option>
                       </select>
                     </label>
-                    <label className="text-xs font-semibold text-slate-700">Giá trị
+                    <label className="text-caption font-semibold text-slate-600">Giá trị
                       <input
                         aria-label={`Giá trị điều kiện ${index + 1}`}
                         required
                         value={rule.value}
                         onChange={(e) => updateRule(index, { value: e.target.value })}
-                        className="mt-1 block w-full rounded-lg border p-2"
+                        className={inputClass('mt-1 h-10')}
                       />
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => removeRule(index)}
-                      disabled={rules.length <= 1}
-                      aria-label={`Xóa điều kiện ${index + 1}`}
-                      className="p-2 rounded-lg border border-slate-300 text-slate-500 hover:text-rose-600 hover:border-rose-300 disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
                   </div>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => removeRule(index)}
+                    disabled={rules.length <= 1}
+                    aria-label={`Xóa điều kiện ${index + 1}`}
+                    className={`${iconActionClass('danger')} col-start-2 h-10 w-10 border border-slate-200 sm:col-start-auto`}
+                  >
+                    <X className="h-4 w-4" strokeWidth={1.75} />
+                  </button>
+                </div>
+              ))}
 
-                <button
-                  type="button"
-                  onClick={addRule}
-                  className="inline-flex items-center space-x-1 text-xs font-bold text-indigo-600 hover:text-indigo-800"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Thêm điều kiện</span>
-                </button>
-              </div>
+              <button type="button" onClick={addRule} className={buttonClass('tertiary', 'sm')}>
+                <Plus className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                <span>Thêm điều kiện</span>
+              </button>
+            </div>
 
-              <div className="flex justify-end space-x-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {saving ? 'Đang tạo...' : 'Tạo phân khúc'}
-                </button>
-              </div>
-            </form>
+            <ModalActions>
+              <Button variant="secondary" onClick={() => setShowModal(false)}>Hủy</Button>
+              <Button type="submit" variant="primary" disabled={saving}>{saving ? 'Đang tạo...' : 'Tạo phân khúc'}</Button>
+            </ModalActions>
+          </form>
         </Modal>
       )}
-    </div>
+    </StudioPage>
   );
 };

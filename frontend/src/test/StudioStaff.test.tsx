@@ -120,4 +120,28 @@ describe('StudioStaff', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(capture.put).toBeUndefined();
   });
+
+  it('offers the Blog and Sự kiện modules with their actions and saves e.g. BLOG:PUBLISH / EVENT:DELETE', async () => {
+    const capture: { put?: { url: string; body: unknown } } = {};
+    mockApi(capture);
+    render(<StudioStaff />);
+    await waitFor(() => expect(screen.getByText('Trợ Giảng Một')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /Thêm trợ giảng mới/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Phân quyền Trợ giảng' });
+    const blog = within(dialog).getByRole('group', { name: 'Blog' });
+    const events = within(dialog).getByRole('group', { name: 'Sự kiện' });
+    expect(within(blog).getAllByRole('checkbox')).toHaveLength(5);
+    expect(within(events).getAllByRole('checkbox')).toHaveLength(4);
+    ['Xem', 'Tạo', 'Sửa', 'Xuất bản', 'Xóa'].forEach((label) => expect(within(blog).getByLabelText(label)).toBeInTheDocument());
+    expect(within(events).queryByLabelText('Xuất bản')).not.toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByLabelText('Thành viên'), { target: { value: 'student-1' } });
+    fireEvent.click(within(blog).getByLabelText('Xuất bản'));
+    fireEvent.click(within(events).getByLabelText('Xóa'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu quyền' }));
+
+    await waitFor(() => expect(capture.put).toBeDefined());
+    expect(capture.put!.body).toEqual([{ module: 'BLOG', action: 'PUBLISH' }, { module: 'EVENT', action: 'DELETE' }]);
+  });
 });

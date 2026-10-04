@@ -170,26 +170,75 @@ async function settle(page, ms = 600) {
 
 async function register(page, user) {
   await page.goto(`${BASE}/login`);
-  await page.getByRole('button', { name: 'Chưa có tài khoản? Đăng ký mới' }).click();
+  // The login card's mode switch (the top bar's "Đăng ký miễn phí" is a link, not a button).
+  await page.getByRole('button', { name: 'Đăng ký miễn phí', exact: true }).click();
   await page.getByLabel('Họ và tên').fill(user.name);
   await page.getByLabel('Email').fill(user.email);
-  await page.getByLabel('Mật khẩu').fill(PASSWORD);
+  await page.getByLabel('Mật khẩu', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Tạo tài khoản' }).click();
   await page.waitForURL(/\/classes$/, { timeout: 15000 });
-  await page.getByTitle('Đăng xuất').waitFor({ timeout: 10000 });
+  await page.getByRole('button', { name: 'Mở menu tài khoản' }).waitFor({ timeout: 10000 });
 }
 
 async function login(page, user) {
   await page.goto(`${BASE}/login`);
   await page.getByLabel('Email').fill(user.email);
-  await page.getByLabel('Mật khẩu').fill(PASSWORD);
+  await page.getByLabel('Mật khẩu', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
   await page.waitForURL(/\/classes$/, { timeout: 15000 });
-  await page.getByTitle('Đăng xuất').waitFor({ timeout: 10000 });
+  await page.getByRole('button', { name: 'Mở menu tài khoản' }).waitFor({ timeout: 10000 });
 }
 
 function isLoggedIn(page) {
-  return page.getByTitle('Đăng xuất').isVisible();
+  return page.getByRole('button', { name: 'Mở menu tài khoản' }).isVisible();
+}
+
+/**
+ * Tạo lớp qua trang toàn màn hình /classes/new (thay cho hộp thoại cũ) và vào lớp bằng "Vào lớp học".
+ * Máy chủ tự sinh slug từ tên lớp (bỏ dấu, thêm -2/-3 khi trùng) nên slug được đọc từ URL sau khi vào lớp, không tự chọn.
+ *   category: một chip lĩnh vực (bắt buộc), visibility: 'PUBLIC' | 'PRIVATE', paid: { price: '50.000' } (phí mỗi tháng),
+ *   approval: bật "Duyệt từng người trước khi vào", cover/avatar: đường dẫn tệp ảnh.
+ * Hộp thoại "… đã mở" báo việc chưa xong (phí/ảnh) bằng role=alert -> ném lỗi. Trả về { slug, classId }.
+ */
+async function createClassViaUI(page, {
+  title, desc = '', category = 'Ôn thi', visibility = 'PUBLIC', paid = null, approval = false, cover = null, avatar = null,
+}) {
+  await page.goto(`${BASE}/classes/new`);
+  await page.getByRole('heading', { name: 'Tạo lớp học', level: 1 }).waitFor({ timeout: 15000 });
+  await page.getByLabel('Tên lớp học · bắt buộc').fill(title);
+  await page.getByRole('group', { name: 'Lĩnh vực · bắt buộc' }).getByRole('button', { name: category, exact: true }).click();
+  if (desc) await page.getByLabel(/^Mô tả ngắn/).fill(desc);
+  const choose = async (group, name) => {
+    const btn = page.getByRole('group', { name: group }).getByRole('button', { name: new RegExp(`^${name}`) });
+    await btn.click();
+    if ((await btn.getAttribute('aria-pressed')) !== 'true') throw new Error(`"${name}" không được chọn`);
+  };
+  await choose('Ai thấy lớp', visibility === 'PRIVATE' ? 'Riêng tư' : 'Công khai');
+  await choose('Học phí', paid ? 'Có phí' : 'Miễn phí');
+  if (paid) await page.getByLabel('Phí mỗi tháng · bắt buộc').fill(String(paid.price));
+  if (approval) {
+    const sw = page.getByRole('switch', { name: 'Duyệt từng người trước khi vào' });
+    await sw.click();
+    if ((await sw.getAttribute('aria-checked')) !== 'true') throw new Error('công tắc duyệt thành viên không bật');
+  }
+  // Ô ảnh: cột xem trước (>1000px) hoặc ngay trong form (màn hẹp).
+  const wide = (page.viewportSize() || { width: 1366 }).width > 1000;
+  if (cover) await page.getByTestId(wide ? 'slot-cover-desktop-input' : 'slot-cover-narrow-input').setInputFiles(cover);
+  if (avatar) await page.getByTestId(wide ? 'slot-avatar-desktop-input' : 'slot-avatar-narrow-input').setInputFiles(avatar);
+  const [resp] = await Promise.all([
+    page.waitForResponse((r) => r.request().method() === 'POST' && /\/api\/v1\/classes$/.test(r.url()), { timeout: 15000 }),
+    page.getByRole('button', { name: 'Tạo lớp học', exact: true }).click(),
+  ]);
+  if (resp.status() !== 200) throw new Error(`POST /classes -> ${resp.status()}`);
+  const done = page.getByRole('dialog', { name: `${title} đã mở` });
+  await done.waitFor({ timeout: 20000 });
+  if (await done.getByRole('alert').count()) throw new Error(`tạo lớp chưa xong: ${(await done.getByRole('alert').innerText()).replace(/\s+/g, ' ')}`);
+  await done.getByRole('link', { name: 'Vào lớp học' }).click();
+  await page.waitForURL(/\/classes\/[^/]+\/feed$/, { timeout: 15000 });
+  const slug = new URL(page.url()).pathname.split('/')[2];
+  await page.getByRole('heading', { name: title, level: 1 }).waitFor({ timeout: 10000 });
+  const href = await page.getByRole('link', { name: 'Studio quản trị' }).getAttribute('href');
+  return { slug, classId: href.split('/').pop() };
 }
 
 /** Horizontal-overflow probe: which elements stick out past the viewport (ignoring inner scrollers). */
@@ -247,5 +296,5 @@ function loadState() {
 module.exports = {
   BASE, PASSWORD, FIXTURES, SHOTS_ROOT, STATE_FILE,
   assertSafeTarget, unexpectedEvents, log, newRunId, launchBrowser, newCtx, instrument, createRunner,
-  settle, register, login, isLoggedIn, overflowCheck, saveState, loadState,
+  settle, register, login, isLoggedIn, createClassViaUI, overflowCheck, saveState, loadState,
 };
