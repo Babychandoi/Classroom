@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import { Compass } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
@@ -47,6 +47,7 @@ import { StudioAudit } from './pages/studio/StudioAudit';
 import { StudioAbout, StudioDocuments, StudioFeed } from './pages/studio/StudioCommunity';
 import { StudioBlog } from './pages/studio/StudioBlog';
 import { StudioEvents } from './pages/studio/StudioEvents';
+import { StudioCourseWizard } from './pages/studio/StudioCourseWizard';
 
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { AdminOverview } from './pages/admin/AdminOverview';
@@ -127,94 +128,105 @@ export const AppNavbar: React.FC = () => {
   return FULL_SCREEN_PATHS.includes(pathname.replace(/\/+$/, '')) ? null : <Navbar />;
 };
 
+// The app lives in a *data* router (RouterProvider with one catch-all route whose element holds the <Routes> tree below)
+// instead of <BrowserRouter>: only a data router offers useBlocker, which the course wizard needs to ask "Thoát mà chưa
+// lưu?" before leaving by link, Back button or any other navigation.
+const AppShell: React.FC = () => {
+  return (
+    <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
+      <AppNavbar />
+      <div className="flex-1 flex flex-col">
+        <Routes>
+          {/* Home & Auth */}
+          <Route path="/" element={<Navigate to="/classes" replace />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/classes" element={<ClassesPage />} />
+          <Route path="/classes/new" element={<RequireLogin><CreateClassPage /></RequireLogin>} />
+          {/* D-19: where an invite link lands (public: a guest sees the class card and is asked to sign in). */}
+          <Route path="/join/:code" element={<JoinByInvitePage />} />
+          <Route path="/me/profile" element={<RequireLogin><MyProfilePage /></RequireLogin>} />
+          <Route path="/me/classes" element={<RequireLogin><MyClassesPage /></RequireLogin>} />
+          <Route path="/me/courses" element={<RequireLogin><MyCoursesPage /></RequireLogin>} />
+          <Route path="/me/events" element={<RequireLogin><MyEventsPage /></RequireLogin>} />
+
+          {/* Classroom Tabs Route */}
+          <Route path="/classes/:slug" element={<ClassroomLayout />}>
+            <Route index element={<Navigate to="feed" replace />} />
+            <Route path="feed" element={<FeedTab />} />
+            {/* Blog and events are readable by every class viewer (guests included on a public class). */}
+            <Route path="blog" element={<BlogTab />} />
+            <Route path="blog/:postId" element={<BlogPostPage />} />
+            <Route path="events" element={<EventsTab />} />
+            <Route path="events/:eventId" element={<EventDetailPage />} />
+            {/* R18-10: everything below except feed/about/store is member-only on the server (401 for a
+                guest). RequireSignIn shows a sign-in prompt to a visitor instead of firing requests that
+                can only fail (each one also cost an extra /auth/refresh). */}
+            <Route path="learn" element={<RequireSignIn><LearnTab /></RequireSignIn>} />
+            <Route path="learn/lessons/:lessonId" element={<RequireSignIn><LessonViewPage /></RequireSignIn>} />
+            <Route path="exams" element={<RequireSignIn><ExamsTab /></RequireSignIn>} />
+            <Route path="exams/:examId/attempt" element={<RequireSignIn><ExamAttemptPage /></RequireSignIn>} />
+            <Route path="exams/:examId/result" element={<RequireSignIn><ExamResultPage /></RequireSignIn>} />
+            <Route path="leaderboard" element={<RequireSignIn><LeaderboardTab /></RequireSignIn>} />
+            <Route path="documents" element={<RequireSignIn><DocumentsTab /></RequireSignIn>} />
+            <Route path="members" element={<RequireSignIn><MembersTab /></RequireSignIn>} />
+            <Route path="members/:userId" element={<RequireSignIn><MemberProfilePage /></RequireSignIn>} />
+            <Route path="about" element={<AboutTab />} />
+            <Route path="store" element={<StoreTab />} />
+          </Route>
+
+          {/* Studio Routes */}
+          <Route path="/studio/classes/:id" element={<RequireLogin><StudioLayout /></RequireLogin>}>
+            {/* R7-01: StudioLayout itself redirects the bare index route to the first Studio
+                page the signed-in user is actually authorized for (see StudioLayout.tsx),
+                instead of hardcoding "overview" which requires class-wide STUDIO:VIEW. */}
+            <Route path="overview" element={<StudioOverview />} />
+            <Route path="courses" element={<StudioCourses />} />
+            {/* Course wizard: create (new) and edit / continue a draft (:courseId/edit?step=n). */}
+            <Route path="courses/new" element={<StudioCourseWizard />} />
+            <Route path="courses/:courseId/edit" element={<StudioCourseWizard />} />
+            <Route path="exams" element={<StudioExams />} />
+            <Route path="grading" element={<StudioGrading />} />
+            <Route path="leaderboard" element={<StudioLeaderboard />} />
+            <Route path="staff" element={<StudioStaff />} />
+            <Route path="members" element={<StudioMembers />} />
+            <Route path="settings" element={<StudioSettings />} />
+            <Route path="segments" element={<StudioSegments />} />
+            <Route path="store" element={<StudioStore />} />
+            <Route path="audit" element={<StudioAudit />} />
+            <Route path="feed" element={<StudioFeed />} />
+            <Route path="documents" element={<StudioDocuments />} />
+            <Route path="about" element={<StudioAbout />} />
+            <Route path="blog" element={<StudioBlog />} />
+            <Route path="events" element={<StudioEvents />} />
+          </Route>
+
+          {/* Platform admin ("Quản trị nền tảng"): guests go to /login, other accounts see a ForbiddenState. */}
+          <Route path="/admin" element={<RequireLogin><AdminLayout /></RequireLogin>}>
+            <Route index element={<Navigate to="overview" replace />} />
+            <Route path="overview" element={<AdminOverview />} />
+            <Route path="users" element={<AdminUsers />} />
+            <Route path="users/:id" element={<AdminUserDetail />} />
+            <Route path="classes" element={<AdminClasses />} />
+            <Route path="classes/:id" element={<AdminClassDetail />} />
+            <Route path="privacy" element={<AdminPrivacy />} />
+            <Route path="audit" element={<AdminAudit />} />
+            <Route path="*" element={<Navigate to="overview" replace />} />
+          </Route>
+
+          {/* Fallback */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </div>
+    </div>
+  );
+};
+
 export const App: React.FC = () => {
+  const [router] = React.useState(() => createBrowserRouter([{ path: '*', element: <AppShell /> }]));
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
-          <AppNavbar />
-          <div className="flex-1 flex flex-col">
-            <Routes>
-              {/* Home & Auth */}
-              <Route path="/" element={<Navigate to="/classes" replace />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/privacy" element={<PrivacyPage />} />
-              <Route path="/classes" element={<ClassesPage />} />
-              <Route path="/classes/new" element={<RequireLogin><CreateClassPage /></RequireLogin>} />
-              {/* D-19: where an invite link lands (public: a guest sees the class card and is asked to sign in). */}
-              <Route path="/join/:code" element={<JoinByInvitePage />} />
-              <Route path="/me/profile" element={<RequireLogin><MyProfilePage /></RequireLogin>} />
-              <Route path="/me/classes" element={<RequireLogin><MyClassesPage /></RequireLogin>} />
-              <Route path="/me/courses" element={<RequireLogin><MyCoursesPage /></RequireLogin>} />
-              <Route path="/me/events" element={<RequireLogin><MyEventsPage /></RequireLogin>} />
-
-              {/* Classroom Tabs Route */}
-              <Route path="/classes/:slug" element={<ClassroomLayout />}>
-                <Route index element={<Navigate to="feed" replace />} />
-                <Route path="feed" element={<FeedTab />} />
-                {/* Blog and events are readable by every class viewer (guests included on a public class). */}
-                <Route path="blog" element={<BlogTab />} />
-                <Route path="blog/:postId" element={<BlogPostPage />} />
-                <Route path="events" element={<EventsTab />} />
-                <Route path="events/:eventId" element={<EventDetailPage />} />
-                {/* R18-10: everything below except feed/about/store is member-only on the server (401 for a
-                    guest). RequireSignIn shows a sign-in prompt to a visitor instead of firing requests that
-                    can only fail (each one also cost an extra /auth/refresh). */}
-                <Route path="learn" element={<RequireSignIn><LearnTab /></RequireSignIn>} />
-                <Route path="learn/lessons/:lessonId" element={<RequireSignIn><LessonViewPage /></RequireSignIn>} />
-                <Route path="exams" element={<RequireSignIn><ExamsTab /></RequireSignIn>} />
-                <Route path="exams/:examId/attempt" element={<RequireSignIn><ExamAttemptPage /></RequireSignIn>} />
-                <Route path="exams/:examId/result" element={<RequireSignIn><ExamResultPage /></RequireSignIn>} />
-                <Route path="leaderboard" element={<RequireSignIn><LeaderboardTab /></RequireSignIn>} />
-                <Route path="documents" element={<RequireSignIn><DocumentsTab /></RequireSignIn>} />
-                <Route path="members" element={<RequireSignIn><MembersTab /></RequireSignIn>} />
-                <Route path="members/:userId" element={<RequireSignIn><MemberProfilePage /></RequireSignIn>} />
-                <Route path="about" element={<AboutTab />} />
-                <Route path="store" element={<StoreTab />} />
-              </Route>
-
-              {/* Studio Routes */}
-              <Route path="/studio/classes/:id" element={<RequireLogin><StudioLayout /></RequireLogin>}>
-                {/* R7-01: StudioLayout itself redirects the bare index route to the first Studio
-                    page the signed-in user is actually authorized for (see StudioLayout.tsx),
-                    instead of hardcoding "overview" which requires class-wide STUDIO:VIEW. */}
-                <Route path="overview" element={<StudioOverview />} />
-                <Route path="courses" element={<StudioCourses />} />
-                <Route path="exams" element={<StudioExams />} />
-                <Route path="grading" element={<StudioGrading />} />
-                <Route path="leaderboard" element={<StudioLeaderboard />} />
-                <Route path="staff" element={<StudioStaff />} />
-                <Route path="members" element={<StudioMembers />} />
-                <Route path="settings" element={<StudioSettings />} />
-                <Route path="segments" element={<StudioSegments />} />
-                <Route path="store" element={<StudioStore />} />
-                <Route path="audit" element={<StudioAudit />} />
-                <Route path="feed" element={<StudioFeed />} />
-                <Route path="documents" element={<StudioDocuments />} />
-                <Route path="about" element={<StudioAbout />} />
-                <Route path="blog" element={<StudioBlog />} />
-                <Route path="events" element={<StudioEvents />} />
-              </Route>
-
-              {/* Platform admin ("Quản trị nền tảng"): guests go to /login, other accounts see a ForbiddenState. */}
-              <Route path="/admin" element={<RequireLogin><AdminLayout /></RequireLogin>}>
-                <Route index element={<Navigate to="overview" replace />} />
-                <Route path="overview" element={<AdminOverview />} />
-                <Route path="users" element={<AdminUsers />} />
-                <Route path="users/:id" element={<AdminUserDetail />} />
-                <Route path="classes" element={<AdminClasses />} />
-                <Route path="classes/:id" element={<AdminClassDetail />} />
-                <Route path="privacy" element={<AdminPrivacy />} />
-                <Route path="audit" element={<AdminAudit />} />
-                <Route path="*" element={<Navigate to="overview" replace />} />
-              </Route>
-
-              {/* Fallback */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </div>
-        </div>
-      </BrowserRouter>
+      <RouterProvider router={router} />
     </AuthProvider>
   );
 };

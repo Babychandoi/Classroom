@@ -118,6 +118,7 @@ export interface Course {
   title: string;
   description?: string;
   coverImageUrl?: string;
+  createdAt?: string;
   accessMode: 'FREE' | 'PURCHASE_REQUIRED';
   status: string;
   position: number;

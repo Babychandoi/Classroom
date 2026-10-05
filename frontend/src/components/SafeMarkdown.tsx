@@ -68,10 +68,10 @@ export function parseMarkdownBlocks(source: string): Block[] {
   return blocks;
 }
 
-const INLINE = /\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)\s]+)\)/g;
+const INLINE = /\*\*(.+?)\*\*|\*([^*\s](?:[^*]*[^*\s])?)\*|\[([^\]]+)\]\(([^)\s]+)\)/g;
 const SAFE_URL = /^https?:\/\//i;
 
-/** Inline pass: **bold** and http(s) links; everything else is literal text. */
+/** Inline pass: **bold**, *italic* and http(s) links; everything else is literal text. */
 export function renderInline(text: string, keyPrefix = 'i'): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let last = 0;
@@ -82,10 +82,12 @@ export function renderInline(text: string, keyPrefix = 'i'): React.ReactNode[] {
     const key = `${keyPrefix}-${n++}`;
     if (match[1] !== undefined) {
       out.push(<strong key={key} className="font-semibold text-slate-900">{match[1]}</strong>);
-    } else if (SAFE_URL.test(match[3])) {
+    } else if (match[2] !== undefined) {
+      out.push(<em key={key}>{match[2]}</em>);
+    } else if (SAFE_URL.test(match[4])) {
       out.push(
-        <a key={key} href={match[3]} target="_blank" rel="noopener noreferrer nofollow" className="font-medium text-blue-600 underline-offset-2 hover:text-blue-700 hover:underline">
-          {match[2]}
+        <a key={key} href={match[4]} target="_blank" rel="noopener noreferrer nofollow" className="font-medium text-blue-600 underline-offset-2 hover:text-blue-700 hover:underline">
+          {match[3]}
         </a>,
       );
     } else {

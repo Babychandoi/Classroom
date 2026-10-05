@@ -9,7 +9,7 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
-const SIZE_CLASS = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' } as const;
+const SIZE_CLASS = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-3xl' } as const;
 
 // Only the topmost open modal reacts to Escape (a confirmation opened over a form must not also close the form).
 const openModals: symbol[] = [];

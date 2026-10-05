@@ -118,52 +118,68 @@ const persist = () => saveState({
     return owner.url();
   });
   const courseCard = () => owner.locator('article', { has: owner.locator('h3', { hasText: COURSE }) }).first();
-  await step('J2', 'create course', owner, async () => {
+  // Mở trình hướng dẫn của khóa vừa tạo từ danh sách ("Chỉnh sửa"; bản nháp mở lại đúng bước đã đi tới), rồi nhảy tới bước n.
+  const openWizardStep = async (n) => {
     await owner.goto(`${S()}/courses`);
-    await owner.getByRole('button', { name: 'Tạo khóa học mới' }).click();
-    await owner.getByLabel('Tên khóa học').fill(COURSE);
-    await owner.getByLabel('Mô tả khóa học').fill('Khoa hoc E2E');
-    await owner.getByRole('button', { name: 'Tạo khóa học', exact: true }).click();
+    await courseCard().getByRole('link', { name: /Chỉnh sửa/ }).click();
+    await owner.getByLabel(/Tên khóa học/).or(owner.getByRole('heading', { name: /Thêm bài học|Chọn cách bán|Xem trước & xuất bản/ })).first().waitFor({ timeout: 10000 });
+    const stepper = owner.getByRole('navigation', { name: 'Các bước tạo khóa học' }).getByRole('button');
+    if ((await stepper.nth(n - 1).getAttribute('aria-current')) !== 'step') await stepper.nth(n - 1).click();
+    await settle(owner, 400);
+  };
+  await step('J2', 'create course (wizard step 1 -> "Lưu nháp")', owner, async () => {
+    await owner.goto(`${S()}/courses`);
+    await owner.getByRole('link', { name: 'Tạo khóa học' }).first().click();
+    await owner.getByLabel(/Tên khóa học/).fill(COURSE);
+    await owner.getByLabel(/Mô tả ngắn/).fill('Khoa hoc E2E');
+    await owner.getByRole('button', { name: 'Lưu nháp' }).click();
+    await owner.getByText(/Đã lưu lúc/).waitFor({ timeout: 10000 });
+    await owner.goto(`${S()}/courses`);
     await owner.locator('h3', { hasText: COURSE }).waitFor({ timeout: 10000 });
+    if (!(await courseCard().getByRole('link', { name: /Chỉnh sửa/ }).isVisible())) throw new Error('no "Chỉnh sửa" link on the new course');
+    for (const gone of ['Thêm chương', 'Xem bài học', 'Xuất bản', 'Lưu trữ', 'Xóa']) {
+      if (await courseCard().getByRole('button', { name: gone, exact: true }).count()) throw new Error(`"${gone}" should no longer be on the list`);
+    }
   });
-  await step('J2', 'create section', owner, async () => {
-    await courseCard().getByRole('button', { name: 'Thêm chương' }).click();
-    await owner.getByPlaceholder('Tên chương học mới (VD: Chương 1: Giới thiệu)...').fill(SECTION);
-    await owner.getByRole('button', { name: 'Lưu chương' }).click();
-    await settle(owner);
+  await step('J2', 'create category in wizard step 3', owner, async () => {
+    await openWizardStep(3);
+    await owner.getByRole('button', { name: 'Thêm danh mục' }).click();
+    await owner.getByLabel('Tên danh mục mới').fill(SECTION);
+    await owner.getByRole('button', { name: 'Lưu danh mục' }).click();
+    await owner.getByText(`Danh mục 1: ${SECTION}`).waitFor({ timeout: 8000 });
   });
-  await step('J2', 'expand course shows the new section', owner, async () => {
-    await courseCard().getByRole('button', { name: 'Xem bài học' }).click();
-    await owner.locator('h4', { hasText: SECTION }).waitFor({ timeout: 8000 });
-  });
-  await step('J2', 'create VIDEO lesson with mp4 upload', owner, async () => {
-    await courseCard().getByRole('button', { name: 'Thêm bài học' }).click();
-    await owner.getByLabel('Tên bài học', { exact: true }).fill(LESSON);
-    await owner.getByLabel('Loại bài học', { exact: true }).selectOption('VIDEO');
+  await step('J2', 'create VIDEO lesson, upload mp4 and save it', owner, async () => {
+    await owner.getByRole('button', { name: 'Thêm bài học', exact: true }).click();
+    await owner.getByLabel('Tên bài học mới').fill(LESSON);
+    await owner.getByRole('button', { name: 'Tạo bài' }).click();
+    await owner.getByLabel(/Video bài học/).waitFor({ timeout: 8000 });
     const [uploadResp] = await Promise.all([
       owner.waitForResponse((r) => r.request().method() === 'PUT' && new RegExp(`:${MINIO_PORT}/`).test(r.url()), { timeout: 20000 }),
-      courseCard().locator('input[type=file]').setInputFiles(path.join(FIXTURES, 'tiny.mp4')),
+      owner.getByLabel(/Video bài học/).setInputFiles(path.join(FIXTURES, 'tiny.mp4')),
     ]);
     state.uploadHost = new URL(uploadResp.url()).origin;
     if (uploadResp.status() >= 300) throw new Error(`MinIO PUT ${uploadResp.status()}`);
-    await owner.getByText('Đã tải tệp').waitFor({ timeout: 15000 });
-    await owner.getByRole('button', { name: 'Tạo bài' }).click();
-    await settle(owner);
+    await owner.getByText(/Đã tải tệp/).waitFor({ timeout: 15000 });
+    await owner.getByRole('button', { name: 'Lưu bài học' }).click();
+    await owner.getByText(/Đã lưu lúc/, { exact: false }).first().waitFor({ timeout: 10000 });
     return `uploadHost=${state.uploadHost}`;
   });
-  await step('J2', 'new lesson visible in expanded course without re-toggle (R17-02)', owner, async () => {
-    await courseCard().getByText(`${LESSON} · Video`).waitFor({ timeout: 4000 });
+  await step('J2', 'lesson is in the tree and still there after a reload', owner, async () => {
+    await owner.getByRole('button', { name: LESSON, exact: true }).waitFor({ timeout: 4000 });
+    await owner.reload();
+    await owner.getByRole('button', { name: LESSON, exact: true }).waitFor({ timeout: 10000 });
+    await owner.getByRole('button', { name: LESSON, exact: true }).click();
+    await owner.getByText('Có video').waitFor({ timeout: 8000 });
   });
-  await step('J2', 'lesson visible after collapse/expand', owner, async () => {
-    const card = courseCard();
-    if (await card.getByRole('button', { name: 'Ẩn nội dung' }).isVisible()) await card.getByRole('button', { name: 'Ẩn nội dung' }).click();
-    await card.getByRole('button', { name: 'Xem bài học' }).click();
-    await card.getByText(`${LESSON} · Video`).waitFor({ timeout: 8000 });
-  });
-  await step('J2', 'publish course', owner, async () => {
-    await courseCard().getByRole('button', { name: 'Xuất bản' }).click();
+  await step('J2', 'publish course from wizard step 4', owner, async () => {
+    await owner.getByRole('button', { name: /Tiếp tục: Kiểm tra/ }).click();
+    await owner.getByRole('heading', { name: 'Xem trước & xuất bản' }).waitFor({ timeout: 8000 });
+    await owner.getByRole('button', { name: 'Xuất bản', exact: true }).click();
+    await owner.getByText(/Khóa học đã được xuất bản/).waitFor({ timeout: 10000 });
+    if (await owner.getByRole('button', { name: 'Xuất bản', exact: true }).count()) throw new Error('Xuất bản still offered after publish');
+    await owner.getByRole('button', { name: 'Ngừng xuất bản' }).waitFor({ timeout: 5000 });
+    await owner.goto(`${S()}/courses`);
     await courseCard().getByText('Đã đăng', { exact: true }).waitFor({ timeout: 10000 });
-    if (await courseCard().getByRole('button', { name: 'Xuất bản' }).count()) throw new Error('Xuất bản still offered after publish');
   });
 
   const examCard = () => owner.locator('article', { has: owner.locator('h3', { hasText: EXAM }) }).first();

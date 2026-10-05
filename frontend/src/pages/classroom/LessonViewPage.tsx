@@ -4,6 +4,7 @@ import { Course, Lesson, QuestionAnswer } from '../../types';
 import { api } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { LoadingSpinner, ErrorBanner } from '../../components/UIStates';
+import { SafeMarkdown } from '../../components/SafeMarkdown';
 import { Avatar, Badge, ProgressBar, Textarea, buttonClass, inputClass } from '../../components/ui';
 import {
   ArrowLeft, ArrowRight, Check, ChevronRight, Clock, Download, FileText, Lock, MessageSquare, PlayCircle, Send, Video,
@@ -498,7 +499,9 @@ export const LessonViewPage: React.FC = () => {
                     {lesson.contentText ? (
                       <>
                         {lesson.type === 'VIDEO' && <h2 className="mb-3 text-[19px] font-semibold leading-[27px] tracking-[-0.2px] text-slate-900">Bản chép lời và mô tả video</h2>}
-                        <div className="whitespace-pre-line text-body text-slate-600 sm:text-[16px] sm:leading-[27px]">{lesson.contentText}</div>
+                        {lesson.type === 'VIDEO'
+                          ? <div className="whitespace-pre-line text-body text-slate-600 sm:text-[16px] sm:leading-[27px]">{lesson.contentText}</div>
+                          : <SafeMarkdown source={lesson.contentText} size="body" />}
                       </>
                     ) : (
                       <p className="text-ui text-slate-500">

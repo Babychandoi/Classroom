@@ -73,9 +73,12 @@ const cardOf = (page, title) => page.locator('article', { has: page.locator('h3'
   await step('G0', 'owner creates three more courses (they must come out in creation order)', owner, async () => {
     await owner.goto(studio('courses'));
     for (const title of COURSES) {
-      await owner.getByRole('button', { name: 'Tạo khóa học mới' }).click();
-      await owner.getByLabel('Tên khóa học').fill(title);
-      await owner.getByRole('button', { name: 'Tạo khóa học', exact: true }).click();
+      // Trình hướng dẫn từng bước: nhập tên ở bước 1 rồi "Lưu nháp" (POST tạo bản nháp), quay lại danh sách.
+      await owner.getByRole('link', { name: 'Tạo khóa học' }).first().click();
+      await owner.getByLabel(/Tên khóa học/).fill(title);
+      await owner.getByRole('button', { name: 'Lưu nháp' }).click();
+      await owner.getByText(/Đã lưu lúc/).waitFor({ timeout: 10000 });
+      await owner.goto(studio('courses'));
       await owner.locator('h3', { hasText: title }).waitFor({ timeout: 10000 });
     }
     return COURSES.join(' | ');
@@ -177,7 +180,7 @@ const cardOf = (page, title) => page.locator('article', { has: page.locator('h3'
 
   // ---------------- G2: quét mọi hộp thoại ở màn hình thấp ----------------
   const dialogs = [
-    ['Studio khóa học', () => studio('courses'), 'Tạo khóa học mới'],
+    // Tạo khóa học không còn là hộp thoại (trình hướng dẫn từng bước); hộp thoại "Sửa khóa học" vẫn nằm ở danh sách nhưng cần sẵn một khóa.
     ['Studio kỳ thi', () => studio('exams'), 'Tạo kỳ thi mới'],
     ['Studio sản phẩm', () => studio('store'), 'Tạo gói sản phẩm mới'],
     ['Studio phân khúc', () => studio('segments'), 'Tạo nhóm phân khúc'],
@@ -246,12 +249,18 @@ const cardOf = (page, title) => page.locator('article', { has: page.locator('h3'
   await step('G3', 'R18-04: arrows reorder courses (ends disabled) and the order survives a reload', owner, async () => {
     await owner.goto(studio('courses'));
     await owner.locator('h3', { hasText: COURSES[2] }).waitFor();
-    const first = owner.getByRole('button', { name: `Chuyển khóa học "${S.courseTitle}" lên trên` });
-    const last = owner.getByRole('button', { name: `Chuyển khóa học "${COURSES[2]}" xuống dưới` });
-    if (!(await first.isDisabled()) || !(await last.isDisabled())) throw new Error('the outer arrows should be disabled');
+    // Sắp xếp nằm trong menu "⋯" của từng khóa học.
+    const menu = (title) => owner.getByRole('button', { name: `Thao tác khác cho khóa học "${title}"` });
+    await menu(S.courseTitle).click();
+    const first = owner.getByRole('menuitem', { name: `Chuyển khóa học "${S.courseTitle}" lên trên` });
+    if (!(await first.isDisabled())) throw new Error('the top course cannot move up');
+    await owner.keyboard.press('Escape');
+    await menu(COURSES[2]).click();
+    const last = owner.getByRole('menuitem', { name: `Chuyển khóa học "${COURSES[2]}" xuống dưới` });
+    if (!(await last.isDisabled())) throw new Error('the bottom course cannot move down');
     const [resp] = await Promise.all([
       owner.waitForResponse((r) => r.request().method() === 'PUT' && /\/courses\/reorder$/.test(r.url())),
-      owner.getByRole('button', { name: `Chuyển khóa học "${COURSES[2]}" lên trên` }).click(),
+      owner.getByRole('menuitem', { name: `Chuyển khóa học "${COURSES[2]}" lên trên` }).click(),
     ]);
     if (resp.status() !== 200) throw new Error(`reorder -> ${resp.status()}`);
     const want = [S.courseTitle, COURSES[0], COURSES[2], COURSES[1]];
@@ -266,18 +275,22 @@ const cardOf = (page, title) => page.locator('article', { has: page.locator('h3'
     await staff.goto(studio('courses'));
     await staff.locator('main h3', { hasText: COURSES[0] }).waitFor({ timeout: 10000 });
     await settle(staff, 300);
-    const arrows = await staff.getByRole('button', { name: /Chuyển khóa học/ }).count();
+    await staff.getByRole('button', { name: /Thao tác khác cho khóa học/ }).first().click();
+    const arrows = await staff.getByRole('menuitem', { name: /Chuyển khóa học/ }).count();
     if (arrows) throw new Error(`${arrows} reorder arrows shown to scoped-only staff`);
   });
 
   // ---------------- G4: xóa khóa học có quyền trợ giảng gắn riêng ----------------
-  await step('G4', 'R18-07/R18-06: deleting a course a staff grant is scoped to is a 409 naming the staff, shown only in that course card', owner, async () => {
+  await step('G4', 'R18-07: deleting a course a staff grant is scoped to is a 409 naming the staff, shown in the wizard danger zone', owner, async () => {
     await owner.goto(studio('courses'));
     await owner.locator('h3', { hasText: COURSES[0] }).waitFor();
-    await cardOf(owner, COURSES[0]).getByRole('button', { name: 'Xóa', exact: true }).click();
+    // Xóa khóa học nằm trong "Quản lý khóa học" của trình hướng dẫn (hiện ngay ở bước 1).
+    await cardOf(owner, COURSES[0]).getByRole('link', { name: /Chỉnh sửa/ }).click();
+    const zone = owner.getByRole('region', { name: 'Quản lý khóa học' });
+    await zone.getByRole('button', { name: 'Xóa khóa học' }).click();
     const [resp] = await Promise.all([
       owner.waitForResponse((r) => r.request().method() === 'DELETE' && /\/courses\/[^/]+$/.test(r.url())),
-      owner.getByRole('button', { name: 'Xác nhận', exact: true }).click(),
+      owner.getByRole('alertdialog').getByRole('button', { name: 'Xóa khóa học' }).click(),
     ]);
     if (resp.status() !== 409) throw new Error(`DELETE -> ${resp.status()}, expected 409`);
     const body = await resp.json();
@@ -286,25 +299,39 @@ const cardOf = (page, title) => page.locator('article', { has: page.locator('h3'
     for (const needle of [STAFF.name, 'COURSE:EDIT', 'Studio > Trợ giảng']) {
       if (!message.includes(needle)) throw new Error(`message lacks "${needle}": ${message}`);
     }
-    await cardOf(owner, COURSES[0]).getByText(message).waitFor({ timeout: 5000 });
+    await zone.getByText(message).waitFor({ timeout: 5000 });
     const shown = await owner.getByText(message, { exact: true }).count();
-    if (shown !== 1) throw new Error(`error is rendered ${shown} times, expected exactly once (in the affected card)`);
-    for (const other of [S.courseTitle, COURSES[1], COURSES[2]]) {
-      if (await cardOf(owner, other).locator('[role=alert]').count()) throw new Error(`the error leaked into "${other}"`);
-    }
+    if (shown !== 1) throw new Error(`error is rendered ${shown} times, expected exactly once (in the danger zone)`);
     return message.slice(0, 90);
   });
   await step('G4', 'a course with no scoped grant is still deletable', owner, async () => {
-    await cardOf(owner, COURSES[1]).getByRole('button', { name: 'Xóa', exact: true }).click();
-    await owner.getByRole('button', { name: 'Xác nhận', exact: true }).click();
+    await owner.goto(studio('courses'));
+    await cardOf(owner, COURSES[1]).getByRole('link', { name: /Chỉnh sửa/ }).click();
+    await owner.getByRole('region', { name: 'Quản lý khóa học' }).getByRole('button', { name: 'Xóa khóa học' }).click();
+    await owner.getByRole('alertdialog').getByRole('button', { name: 'Xóa khóa học' }).click();
+    await owner.waitForURL(/\/courses$/, { timeout: 8000 });
     await owner.locator('h3', { hasText: COURSES[1] }).waitFor({ state: 'detached', timeout: 8000 });
   });
 
   // ---------------- G5: bàn phím ở tab Khóa học ----------------
   await step('G5', 'owner publishes two of the new courses so learners see several cards', owner, async () => {
+    // Xuất bản cần ít nhất một bài học: thêm danh mục + bài học ở bước 3, rồi "Xuất bản" ở bước 4 của trình hướng dẫn.
     for (const title of [COURSES[0], COURSES[2]]) {
-      await cardOf(owner, title).getByRole('button', { name: 'Xuất bản' }).click();
-      await cardOf(owner, title).getByText('Đã đăng', { exact: true }).waitFor({ timeout: 8000 });
+      await owner.goto(studio('courses'));
+      await cardOf(owner, title).getByRole('link', { name: /Chỉnh sửa/ }).click();
+      await owner.getByLabel(/Tên khóa học/).waitFor({ timeout: 10000 });
+      await owner.getByRole('navigation', { name: 'Các bước tạo khóa học' }).getByRole('button').nth(2).click();
+      await owner.getByRole('button', { name: 'Thêm danh mục' }).click();
+      await owner.getByLabel('Tên danh mục mới').fill('Danh mục G5');
+      await owner.getByRole('button', { name: 'Lưu danh mục' }).click();
+      await owner.getByRole('button', { name: 'Thêm bài học', exact: true }).click();
+      await owner.getByLabel('Tên bài học mới').fill('Bài G5');
+      await owner.getByRole('button', { name: 'Tạo bài' }).click();
+      await owner.getByRole('button', { name: 'Bài G5' }).first().waitFor({ timeout: 8000 });
+      await owner.getByRole('button', { name: /Tiếp tục: Kiểm tra/ }).click();
+      await owner.getByRole('heading', { name: 'Xem trước & xuất bản' }).waitFor({ timeout: 8000 });
+      await owner.getByRole('button', { name: 'Xuất bản', exact: true }).click();
+      await owner.getByText(/Khóa học đã được xuất bản/).waitFor({ timeout: 10000 });
     }
   });
   const stuCtx = await newCtx(browser);
@@ -349,11 +376,10 @@ const cardOf = (page, title) => page.locator('article', { has: page.locator('h3'
     if (!before || !before.title.includes(COURSES[2])) throw new Error(`could not focus the "${COURSES[2]}" card, focused: ${JSON.stringify(before)}`);
     if (before.pressed === 'true') throw new Error('the target card was already selected; pick another for a meaningful check');
     await stu.keyboard.press('Enter');
-    // COURSES[2] chưa có bài học nên Enter chọn nó làm khóa nổi bật (khóa có bài sẽ mở thẳng bài học).
-    await stu.waitForFunction((t) => { const el = document.activeElement; return el && el.getAttribute('aria-pressed') === 'true' && el.textContent.includes(t); }, COURSES[2], { timeout: 5000 });
-    await stu.getByRole('heading', { name: COURSES[2] }).waitFor({ timeout: 5000 });
+    // Xuất bản cần ít nhất một bài học, nên COURSES[2] có bài: Enter trên thẻ mở thẳng bài học đầu (khóa không bài mới chọn làm khóa nổi bật).
+    await stu.waitForURL(/\/learn\/lessons\//, { timeout: 8000 });
     await shot(stu, 'G5-learn-keyboard');
-    return `${total} cards reachable; Enter selected "${COURSES[2]}"`;
+    return `${total} cards reachable; Enter opened a lesson of "${COURSES[2]}"`;
   });
 
   // ---------------- G6: Studio > Cài đặt ----------------

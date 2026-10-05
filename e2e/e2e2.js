@@ -1,6 +1,6 @@
 'use strict';
 // Kiểm tra bổ sung trên dữ liệu của lần chạy e2e.js gần nhất (đọc shots/last-run.json):
-//   F1  Studio: thêm chương khi khóa đang mở -> hiện ngay; sắp xếp lại chương (R17-02, R13)
+//   F1  Studio (bước 3 của trình hướng dẫn khóa học): thêm danh mục -> hiện ngay; sắp xếp lại bằng Alt+mũi tên (R17-02, R13)
 //   F2  Studio: lịch thi round-trip - không lệch múi giờ khi lưu không sửa, xóa lịch được (R16-04/R16-06)
 //   F3  Bảng xếp hạng lọc theo kỳ thi (R16)
 //   F4  Danh sách lớp phân trang "Xem thêm lớp học" (R16-08) - chỉ kiểm được khi có > 50 lớp
@@ -13,8 +13,6 @@ if (!S.classId) { console.error('Thiếu classId (shots/last-run.json hoặc E2E
 const RUN = newRunId();
 const { step, shot, events, summarize, instrument } = createRunner(path.join(SHOTS_ROOT, `follow-${RUN}`));
 
-const H4 = 'h4';
-const SECTION_PLACEHOLDER = 'Tên chương học mới (VD: Chương 1: Giới thiệu)...';
 
 (async () => {
   const browser = await launchBrowser();
@@ -26,42 +24,48 @@ const SECTION_PLACEHOLDER = 'Tên chương học mới (VD: Chương 1: Giới t
 
   await step('F0', 'login as the class owner', page, async () => { await login(page, S.owner); });
 
-  // ---- F1: chương ----
+  // ---- F1: danh mục (chương) trong bước 3 của trình hướng dẫn khóa học ----
   const card = () => page.locator('article', { has: page.locator('h3', { hasText: S.courseTitle }) }).first();
-  await step('F1', 'new section appears at once in the expanded course', page, async () => {
+  const tree = () => page.getByRole('region', { name: 'Cấu trúc nội dung' });
+  const order = async () => (await tree().locator('button[aria-expanded]').allInnerTexts()).map((t) => t.trim());
+  await step('F1', 'new category appears at once in the step-3 tree', page, async () => {
     await page.goto(`${BASE}/studio/classes/${S.classId}/courses`);
-    await card().getByRole('button', { name: 'Xem bài học' }).click();
-    await page.locator(H4).first().waitFor();
+    await card().getByRole('link', { name: /Chỉnh sửa/ }).click();
+    await page.getByLabel(/Tên khóa học/).waitFor({ timeout: 10000 });
+    await page.getByRole('navigation', { name: 'Các bước tạo khóa học' }).getByRole('button').nth(2).click();
+    await tree().waitFor({ timeout: 10000 });
     const title = `Chuong 2 ${newRunId()}`;
-    await card().getByRole('button', { name: 'Thêm chương' }).click();
-    await page.getByPlaceholder(SECTION_PLACEHOLDER).fill(title);
-    await page.getByRole('button', { name: 'Lưu chương' }).click();
-    await page.locator(H4, { hasText: title }).waitFor({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Thêm danh mục' }).click();
+    await page.getByLabel('Tên danh mục mới').fill(title);
+    await page.getByRole('button', { name: 'Lưu danh mục' }).click();
+    await tree().getByText(title).waitFor({ timeout: 5000 });
     S.section2 = title;
     return title;
   });
-  await step('F1', 'new section lands after the existing ones and survives collapse/expand', page, async () => {
-    const order = async () => (await card().locator(H4).allInnerTexts()).map((t) => t.trim());
+  await step('F1', 'new category lands after the existing ones and survives a reload', page, async () => {
     const before = await order();
-    if (before[before.length - 1] !== S.section2) throw new Error(`new section is not last: ${before.join(' | ')}`);
-    await card().getByRole('button', { name: 'Ẩn nội dung' }).click();
-    await card().getByRole('button', { name: 'Xem bài học' }).click();
-    await page.locator(H4, { hasText: S.section2 }).waitFor();
+    if (!before[before.length - 1].endsWith(S.section2)) throw new Error(`new category is not last: ${before.join(' | ')}`);
+    await page.reload();
+    await tree().getByText(S.section2).waitFor();
     const after = await order();
-    if (after.join('|') !== before.join('|')) throw new Error(`order changed after re-expand: ${before.join(' | ')} -> ${after.join(' | ')}`);
+    if (after.join('|') !== before.join('|')) throw new Error(`order changed after reload: ${before.join(' | ')} -> ${after.join(' | ')}`);
     return after.join(' | ');
   });
-  await step('F1', 'reorder sections (move new one up)', page, async () => {
-    const order = async () => (await card().locator(H4).allInnerTexts()).map((t) => t.trim());
+  await step('F1', 'reorder categories with Alt+ArrowUp on the handle (move new one up)', page, async () => {
     const before = await order();
-    await page.getByRole('button', { name: `Chuyển chương "${S.section2}" lên trên` }).click();
+    const handle = page.getByRole('button', { name: `Sắp xếp danh mục "${S.section2}": kéo thả, hoặc nhấn Alt + mũi tên lên/xuống` });
+    await handle.focus();
+    await Promise.all([
+      page.waitForResponse((r) => r.request().method() === 'PUT' && /\/sections\/reorder$/.test(r.url())),
+      page.keyboard.press('Alt+ArrowUp'),
+    ]);
     await page.waitForFunction(
-      (first) => document.querySelector('h4') && document.querySelector('h4').textContent.includes(first),
+      (first) => { const b = document.querySelector('section[aria-label="Cấu trúc nội dung"] button[aria-expanded]'); return b && b.textContent.includes(first); },
       S.section2,
       { timeout: 5000 },
     );
     const after = await order();
-    if (after[0] !== S.section2) throw new Error(`reorder did not move it first: ${before.join(' | ')} -> ${after.join(' | ')}`);
+    if (!after[0].endsWith(S.section2)) throw new Error(`reorder did not move it first: ${before.join(' | ')} -> ${after.join(' | ')}`);
     await shot(page, 'F1-sections-reorder');
     return `${before.join(' | ')} -> ${after.join(' | ')}`;
   });
