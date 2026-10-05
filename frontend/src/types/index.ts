@@ -158,6 +158,12 @@ export interface Lesson {
   contentText?: string;
   mediaAssetId?: string;
   mediaDownloadUrl?: string;
+  /** UPLOAD when a file is attached, YOUTUBE / GOOGLE_DRIVE for a pasted link, null / absent without video. */
+  videoProvider?: 'UPLOAD' | 'YOUTUBE' | 'GOOGLE_DRIVE' | null;
+  /** Canonical viewing URL of an external video (only for people who may learn the course). */
+  videoUrl?: string;
+  /** Embeddable URL of an external video (youtube-nocookie / drive preview). */
+  embedUrl?: string;
   durationMinutes: number;
   position: number;
   completed: boolean;

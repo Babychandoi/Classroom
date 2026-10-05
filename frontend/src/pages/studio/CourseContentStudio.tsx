@@ -9,6 +9,7 @@ import { nextPosition } from '../../api/ordering';
 import { Modal } from '../../components/Modal';
 import { SafeMarkdown } from '../../components/SafeMarkdown';
 import { Badge, Button, Input, Select, Textarea, Toggle, inputClass } from '../../components/ui';
+import { PROVIDER_LABEL, VideoProvider, parseVideoLink, videoLinkError } from '../../api/videoLinks';
 import { ModalActions } from './studioUi';
 
 // Step 3 of the course wizard ("Thêm bài học & tài liệu"): the content studio. Three columns on wide screens (structure tree,
@@ -28,14 +29,21 @@ interface LessonDraft {
   captionsVtt: string;
   /** '' = no file. A new id only becomes the lesson's file when saved. */
   mediaAssetId: string;
+  /** Pasted YouTube / Google Drive link ('' = none). A lesson has one video source: this or an uploaded file. */
+  videoUrl: string;
   durationMinutes: number;
 }
+type VideoSource = 'UPLOAD' | VideoProvider;
 const draftOf = (l: Lesson): LessonDraft => ({
-  title: l.title, type: l.type, contentText: l.contentText || '', captionsVtt: l.captionsVtt || '', mediaAssetId: l.mediaAssetId || '', durationMinutes: l.durationMinutes || 0,
+  title: l.title, type: l.type, contentText: l.contentText || '', captionsVtt: l.captionsVtt || '', mediaAssetId: l.mediaAssetId || '',
+  videoUrl: l.videoProvider === 'YOUTUBE' || l.videoProvider === 'GOOGLE_DRIVE' ? l.videoUrl || '' : '',
+  durationMinutes: l.durationMinutes || 0,
 });
+/** A pasted link and the canonical one the server stores for it are the same source. */
+const canonLink = (u: string) => parseVideoLink(u)?.videoUrl ?? u.trim();
 const sameDraft = (a: LessonDraft, b: LessonDraft) =>
   a.title === b.title && a.type === b.type && a.contentText === b.contentText && a.captionsVtt === b.captionsVtt
-  && a.mediaAssetId === b.mediaAssetId && a.durationMinutes === b.durationMinutes;
+  && a.mediaAssetId === b.mediaAssetId && canonLink(a.videoUrl) === canonLink(b.videoUrl) && a.durationMinutes === b.durationMinutes;
 
 /** Moves `movedId` next to `targetId` (before or after it) in `ids`. */
 export function reorderIds(ids: string[], movedId: string, targetId: string, after: boolean): string[] {
@@ -161,6 +169,8 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [mediaName, setMediaName] = useState('');
+  const [source, setSource] = useState<VideoSource>('UPLOAD');
+  const [switchTo, setSwitchTo] = useState<VideoSource | null>(null);
   const [errors, setErrors] = useState<{ tree?: string; lesson?: string }>({});
   const [addingSection, setAddingSection] = useState(false);
   const [newSectionTitle, setNewSectionTitle] = useState('');
@@ -188,6 +198,8 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
     if (!lesson) { setDraft(null); return; }
     setDraft(draftOf(lesson));
     setMediaName('');
+    setSource(lesson.videoProvider === 'YOUTUBE' || lesson.videoProvider === 'GOOGLE_DRIVE' ? lesson.videoProvider : 'UPLOAD');
+    setSwitchTo(null);
     setTab('content');
     setSavedAt(null);
     setErrors((e) => ({ ...e, lesson: undefined }));
@@ -219,6 +231,7 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
   const saveLesson = async (): Promise<boolean> => {
     if (!lesson || !draft || !canEdit) return true;
     if (!draft.title.trim()) { fail('lesson', 'Nhập tên bài học trước khi lưu.'); return false; }
+    if (draft.type === 'VIDEO' && source !== 'UPLOAD' && videoLinkError(draft.videoUrl, source)) { fail('lesson', 'Sửa liên kết video trước khi lưu.'); return false; }
     setSaving(true);
     fail('lesson', null);
     try {
@@ -229,6 +242,8 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
         captionsVtt: draft.captionsVtt,
         // A blank id detaches the file; null would leave it untouched.
         mediaAssetId: draft.mediaAssetId,
+        // "" clears an external link; only VIDEO lessons take one (a lesson turned into another type must drop its link).
+        ...(draft.type === 'VIDEO' ? { videoUrl: draft.videoUrl.trim() } : lesson.videoProvider === 'YOUTUBE' || lesson.videoProvider === 'GOOGLE_DRIVE' ? { videoUrl: '' } : {}),
         durationMinutes: draft.durationMinutes,
       });
       await onChanged();
@@ -398,9 +413,23 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
 
   const toggleCollapsed = (id: string) => setCollapsed((cur) => { const next = new Set(cur); if (next.has(id)) next.delete(id); else next.add(id); return next; });
 
+  const wantsSource = (to: VideoSource) => {
+    if (!draft || to === source) return;
+    const discards = source === 'UPLOAD' ? !!draft.mediaAssetId : !!draft.videoUrl.trim();
+    if (discards) setSwitchTo(to);
+    else setSource(to);
+  };
+  const confirmSource = () => {
+    if (!switchTo) return;
+    setDraft((d) => (d ? { ...d, mediaAssetId: '', videoUrl: '' } : d));
+    setMediaName('');
+    setSource(switchTo);
+    setSwitchTo(null);
+  };
+
   // ---- render --------------------------------------------------------------------------------------------------------
   const card = 'rounded-card border border-slate-200 bg-white p-4 shadow-hairline sm:p-5';
-  const hasContent = !!(draft && (draft.contentText.trim() || draft.mediaAssetId || draft.captionsVtt.trim()));
+  const hasContent = !!(draft && (draft.contentText.trim() || draft.mediaAssetId || draft.videoUrl.trim() || draft.captionsVtt.trim()));
   const hasMedia = !!draft?.mediaAssetId;
   const tabs = draft && draft.type !== 'VIDEO' ? ([['content', 'Nội dung'], ['docs', 'Tài liệu']] as const) : ([['content', 'Nội dung']] as const);
 
@@ -559,7 +588,10 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
   const bodyId = `${ids}-body`;
   const vttId = `${ids}-vtt`;
   const fileId = `${ids}-file`;
+  const linkId = `${ids}-link`;
   const disabled = !canEdit || saving;
+  const linkErr = draft && draft.type === 'VIDEO' && source !== 'UPLOAD' ? videoLinkError(draft.videoUrl, source) : null;
+  const link = draft && draft.type === 'VIDEO' && source !== 'UPLOAD' ? parseVideoLink(draft.videoUrl) : null;
 
   const detail = !lesson || !draft ? (
     <section aria-label="Chi tiết bài học" className={cx(card, 'flex min-h-[220px] flex-col items-center justify-center text-center')}>
@@ -632,13 +664,64 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
           <div role="tabpanel" id={`${ids}-panel-content`} aria-labelledby={`${ids}-tab-content`} className="space-y-4">
             {draft.type === 'VIDEO' ? (
               <>
-                <div className="space-y-1.5">
-                  <label htmlFor={fileId} className="block text-meta font-semibold text-slate-900">Video bài học (tải lên)</label>
-                  <input id={fileId} type="file" accept="video/*" disabled={disabled || uploading} onChange={(e) => uploadFile(e.target.files?.[0])}
-                    className="block w-full text-meta text-slate-600 file:mr-3 file:h-9 file:cursor-pointer file:rounded-[10px] file:border file:border-solid file:border-slate-200 file:bg-white file:px-3 file:text-meta file:font-semibold file:text-slate-900 hover:file:bg-slate-100" />
-                  <p className="text-caption text-slate-500">Video được tải lên kho lưu trữ của hệ thống. Chưa hỗ trợ dán liên kết YouTube, Vimeo hoặc Bunny.</p>
+                <div role="tablist" aria-label="Nguồn video" className="inline-flex rounded-btn bg-slate-100 p-1">
+                  {(['UPLOAD', 'YOUTUBE', 'GOOGLE_DRIVE'] as const).map((src, i, all) => (
+                    <button
+                      key={src} type="button" role="tab" id={`${ids}-src-${src}`} aria-selected={source === src} tabIndex={source === src ? 0 : -1} disabled={disabled}
+                      onClick={() => wantsSource(src)}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+                        e.preventDefault();
+                        const next = all[(i + (e.key === 'ArrowRight' ? 1 : all.length - 1)) % all.length];
+                        wantsSource(next);
+                        document.getElementById(`${ids}-src-${next}`)?.focus();
+                      }}
+                      className={cx('h-9 rounded-[9px] px-3.5 text-meta font-semibold', source === src ? 'bg-white text-slate-900 shadow-hairline' : 'text-slate-600 hover:text-slate-900')}
+                    >
+                      {src === 'UPLOAD' ? 'Tải lên' : PROVIDER_LABEL[src]}
+                    </button>
+                  ))}
                 </div>
-                <FileState uploading={uploading} assetId={draft.mediaAssetId} name={mediaName} url={lesson.mediaAssetId === draft.mediaAssetId ? lesson.mediaDownloadUrl : undefined} onRemove={() => setDraft({ ...draft, mediaAssetId: '' })} disabled={disabled} />
+                {source === 'UPLOAD' ? (
+                  <>
+                    <div className="space-y-1.5">
+                      <label htmlFor={fileId} className="block text-meta font-semibold text-slate-900">Video bài học (tải lên)</label>
+                      <input id={fileId} type="file" accept="video/*" disabled={disabled || uploading} onChange={(e) => uploadFile(e.target.files?.[0])}
+                        className="block w-full text-meta text-slate-600 file:mr-3 file:h-9 file:cursor-pointer file:rounded-[10px] file:border file:border-solid file:border-slate-200 file:bg-white file:px-3 file:text-meta file:font-semibold file:text-slate-900 hover:file:bg-slate-100" />
+                      <p className="text-caption text-slate-500">Video được tải lên kho lưu trữ của hệ thống. Muốn dùng video có sẵn, chọn tab YouTube hoặc Google Drive.</p>
+                    </div>
+                    <FileState uploading={uploading} assetId={draft.mediaAssetId} name={mediaName} url={lesson.mediaAssetId === draft.mediaAssetId ? lesson.mediaDownloadUrl : undefined} onRemove={() => setDraft({ ...draft, mediaAssetId: '' })} disabled={disabled} />
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="space-y-1.5">
+                      <label htmlFor={linkId} className="block text-meta font-semibold text-slate-900">Liên kết video {PROVIDER_LABEL[source]}</label>
+                      <Input
+                        id={linkId} inputMode="url" autoComplete="off" value={draft.videoUrl} disabled={disabled} aria-invalid={!!linkErr} aria-describedby={`${linkId}-hint`}
+                        placeholder={source === 'YOUTUBE' ? 'https://www.youtube.com/watch?v=…' : 'https://drive.google.com/file/d/…/view'}
+                        onChange={(e) => setDraft({ ...draft, videoUrl: e.target.value })}
+                      />
+                      {linkErr ? (
+                        <p id={`${linkId}-hint`} role="alert" className="text-caption text-red-600">{linkErr}</p>
+                      ) : (
+                        <p id={`${linkId}-hint`} className="text-caption text-slate-500">
+                          {source === 'YOUTUBE'
+                            ? 'Dán liên kết video YouTube (watch, youtu.be, shorts, embed). Video được phát bằng youtube-nocookie.com.'
+                            : 'Dán liên kết tệp video trên Google Drive và đặt quyền chia sẻ “Bất kỳ ai có liên kết”, nếu không học viên sẽ không xem được.'}
+                        </p>
+                      )}
+                    </div>
+                    {link && !linkErr && (
+                      <div className="aspect-video w-full max-w-[520px] overflow-hidden rounded-2xl bg-black">
+                        <iframe
+                          title={`Xem trước video ${PROVIDER_LABEL[link.provider]}`} src={link.embedUrl} loading="lazy"
+                          allow="autoplay; encrypted-media; picture-in-picture; fullscreen" referrerPolicy="strict-origin-when-cross-origin"
+                          sandbox="allow-scripts allow-same-origin allow-presentation allow-popups" className="h-full w-full border-0"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <label htmlFor={bodyId} className="block text-meta font-semibold text-slate-900">Bản chép lời và mô tả hình ảnh của video</label>
                   <Textarea id={bodyId} rows={5} value={draft.contentText} disabled={disabled} placeholder="Bản chép lời và mô tả hình ảnh của video" onChange={(e) => setDraft({ ...draft, contentText: e.target.value })} />
@@ -678,7 +761,7 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
             <span role="status" aria-live="polite" className="text-caption text-slate-600">
               {saving ? 'Đang lưu...' : dirty ? 'Có thay đổi chưa lưu' : savedAt ? `Đã lưu lúc ${savedAt}` : ''}
             </span>
-            <Button variant="primary" size="md" disabled={saving || uploading || !dirty} onClick={() => void saveLesson()}>Lưu bài học</Button>
+            <Button variant="primary" size="md" disabled={saving || uploading || !dirty || !!linkErr} onClick={() => void saveLesson()}>Lưu bài học</Button>
           </div>
         )}
       </section>
@@ -688,6 +771,7 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
   const metaChips: string[] = [];
   if (draft) {
     if (draft.type === 'VIDEO' && hasMedia) metaChips.push('Có video');
+    if (draft.type === 'VIDEO' && !hasMedia && source !== 'UPLOAD' && parseVideoLink(draft.videoUrl)) metaChips.push(`Có video · ${PROVIDER_LABEL[source]}`);
     if (draft.type !== 'VIDEO' && hasMedia) metaChips.push('Có tệp đính kèm');
     if (draft.contentText.trim()) metaChips.push(draft.type === 'VIDEO' ? 'Có bản chép lời' : 'Có bài viết');
     if (draft.captionsVtt.trim()) metaChips.push('Có phụ đề');
@@ -748,6 +832,17 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
         {detail}
         {side}
       </div>
+      {switchTo && (
+        <Modal size="md" title="Đổi nguồn video?" role="alertdialog" onClose={() => setSwitchTo(null)}>
+          <p className="text-ui text-slate-600">
+            Mỗi bài học chỉ dùng một nguồn video. Đổi sang {switchTo === 'UPLOAD' ? 'tải lên' : PROVIDER_LABEL[switchTo]} sẽ bỏ {source === 'UPLOAD' ? 'video đã tải lên' : `liên kết ${PROVIDER_LABEL[source]}`} khỏi bài học này (áp dụng khi bạn bấm “Lưu bài học”).
+          </p>
+          <ModalActions className="mt-5">
+            <Button variant="secondary" onClick={() => setSwitchTo(null)}>Giữ nguồn hiện tại</Button>
+            <Button variant="danger" onClick={confirmSource}>Đổi nguồn video</Button>
+          </ModalActions>
+        </Modal>
+      )}
       {confirm && (
         <Modal size="md" title="Xác nhận thao tác" role="alertdialog" onClose={() => setConfirm(null)}>
           <p className="text-ui text-slate-600">Bạn có chắc chắn muốn {confirm.label}?</p>

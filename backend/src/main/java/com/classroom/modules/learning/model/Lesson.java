@@ -1,5 +1,8 @@
 package com.classroom.modules.learning.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.classroom.modules.learning.service.VideoLinkParser;
 import jakarta.persistence.*;
 import java.util.UUID;
 
@@ -41,6 +44,54 @@ public class Lesson {
 
     @Column(nullable = false)
     private boolean archived = false;
+
+    // D-31: external video. The stored columns are never bound from, or written to, JSON; clients send only "videoUrl" (parsed by the
+    // service) and read the derived videoProvider / videoUrl / embedUrl.
+    @Column(name = "video_provider", length = 16)
+    private String storedVideoProvider;
+
+    @Column(name = "video_ref", length = 128)
+    private String storedVideoRef;
+
+    @Transient
+    private String videoUrlInput;
+
+    @JsonIgnore
+    public String getStoredVideoProvider() { return storedVideoProvider; }
+    @JsonIgnore
+    public void setStoredVideoProvider(String v) { this.storedVideoProvider = v; }
+    @JsonIgnore
+    public String getStoredVideoRef() { return storedVideoRef; }
+    @JsonIgnore
+    public void setStoredVideoRef(String v) { this.storedVideoRef = v; }
+
+    /** What the author pasted (request only): null = keep, "" = clear, otherwise parsed by the service. */
+    @JsonIgnore
+    public String getVideoUrlInput() { return videoUrlInput; }
+    /** Request side of "videoUrl" (the response side is {@link #getVideoUrl()}). */
+    public void setVideoUrl(String v) { this.videoUrlInput = v; }
+
+    /** UPLOAD when a file is attached, the external provider, or null (response only). */
+    @JsonProperty(value = "videoProvider", access = JsonProperty.Access.READ_ONLY)
+    public String getVideoProvider() {
+        if (mediaAssetId != null && !mediaAssetId.isBlank()) return "UPLOAD";
+        return storedVideoRef == null ? null : storedVideoProvider;
+    }
+
+    public String getVideoUrl() {
+        return storedVideoRef == null ? null : VideoLinkParser.canonicalUrl(storedVideoProvider, storedVideoRef);
+    }
+
+    @JsonProperty(value = "embedUrl", access = JsonProperty.Access.READ_ONLY)
+    public String getEmbedUrl() {
+        return storedVideoRef == null ? null : VideoLinkParser.embedUrl(storedVideoProvider, storedVideoRef);
+    }
+
+    /** D-31: the one definition of "this lesson has a video" - an uploaded file or an external link. */
+    @JsonIgnore
+    public boolean hasVideo() {
+        return (mediaAssetId != null && !mediaAssetId.isBlank()) || (storedVideoRef != null && storedVideoProvider != null);
+    }
 
     public Lesson() {
         this.id = UUID.randomUUID().toString();

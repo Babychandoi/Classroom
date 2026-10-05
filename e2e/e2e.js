@@ -280,6 +280,37 @@ const persist = () => saveState({
     await stu.getByRole('button', { name: 'Đánh dấu hoàn thành' }).click();
     await stu.getByRole('button', { name: 'Đã hoàn thành' }).waitFor({ timeout: 8000 });
   });
+  const YT_LESSON = `Bai YouTube ${RUN}`;
+  await step('J3', 'owner adds a lesson with a YouTube link in the wizard (tab YouTube, live preview, save)', owner, async () => {
+    await openWizardStep(3);
+    await owner.getByRole('button', { name: 'Thêm bài học', exact: true }).click();
+    await owner.getByLabel('Tên bài học mới').fill(YT_LESSON);
+    await owner.getByRole('button', { name: 'Tạo bài' }).click();
+    await owner.getByRole('tab', { name: 'YouTube' }).click();
+    await owner.getByLabel(/Liên kết video YouTube/).fill('https://youtu.be/dQw4w9WgXcQ?si=e2e');
+    await owner.getByTitle('Xem trước video YouTube').waitFor({ timeout: 5000 });
+    const [put] = await Promise.all([
+      owner.waitForResponse((r) => r.request().method() === 'PUT' && /\/lessons\/[^/]+$/.test(r.url()), { timeout: 10000 }),
+      owner.getByRole('button', { name: 'Lưu bài học' }).click(),
+    ]);
+    if (put.status() !== 200) throw new Error(`PUT lesson -> ${put.status()} ${await put.text()}`);
+    state.ytLessonId = new URL(put.url()).pathname.split('/').pop();
+    await owner.getByText(/Đã lưu lúc/).first().waitFor({ timeout: 8000 });
+    await owner.getByText('Có video · YouTube').waitFor({ timeout: 5000 });
+  });
+  await step('J3', 'learner page embeds the YouTube video (youtube-nocookie iframe, sandboxed, titled) with a new-tab fallback', stu, async () => {
+    await stu.goto(`${C()}/learn/lessons/${state.ytLessonId}`);
+    const frame = stu.locator('iframe[title^="Video bài học"]');
+    await frame.waitFor({ timeout: 10000 });
+    const src = await frame.getAttribute('src');
+    if (!/^https:\/\/www\.youtube-nocookie\.com\/embed\/dQw4w9WgXcQ$/.test(src || '')) throw new Error(`iframe src ${src}`);
+    const sandbox = await frame.getAttribute('sandbox');
+    if (!sandbox || /allow-top-navigation|allow-forms/.test(sandbox)) throw new Error(`sandbox ${sandbox}`);
+    await stu.getByRole('link', { name: /Mở trong tab mới/ }).waitFor({ timeout: 3000 });
+    if (await stu.locator('video').count()) throw new Error('a <video> is rendered next to the embed');
+    await shot(stu, 'J3-lesson-youtube');
+    return src;
+  });
   await step('J3', 'documents tab: download works', stu, async () => {
     await stu.goto(`${C()}/documents`);
     await stu.getByText(DOC).first().waitFor({ timeout: 10000 });
@@ -454,7 +485,8 @@ const persist = () => saveState({
   await step('J6', 'mobile lesson page', mob, async () => {
     await mob.goto(`${C()}/learn`);
     await mob.getByRole('button', { name: /^(Vào học|Học tiếp)$/ }).first().click();
-    await mob.locator('video').waitFor({ timeout: 10000 });
+    // "Học tiếp" lands on the next unfinished lesson, which is the YouTube one: an iframe instead of a <video>.
+    await mob.locator('video, iframe[title^="Video bài học"]').first().waitFor({ timeout: 10000 });
     await settle(mob);
     const o = await overflowCheck(mob);
     await mob.screenshot({ path: path.join(SHOTS, 'J6-mobile-lesson.png') });

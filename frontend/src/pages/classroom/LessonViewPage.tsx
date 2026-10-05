@@ -392,7 +392,28 @@ export const LessonViewPage: React.FC = () => {
         <article className="min-w-0 space-y-6 lg:order-2" aria-labelledby="lesson-title">
           {lesson.type === 'VIDEO' && (
             <section aria-label="Video bài học" className="overflow-hidden rounded-2xl bg-slate-900 shadow-lift sm:rounded-card">
-              {videoUrl ? (
+              {lesson.embedUrl ? (
+                <div>
+                  <div className="aspect-video bg-black">
+                    <iframe
+                      title={`Video bài học: ${lesson.title}`}
+                      src={lesson.embedUrl}
+                      className="h-full w-full border-0"
+                      allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                      allowFullScreen
+                      referrerPolicy="strict-origin-when-cross-origin"
+                      sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
+                    />
+                  </div>
+                  {lesson.videoUrl && (
+                    <p className="bg-slate-900 px-4 py-2.5 text-meta text-slate-300">
+                      Video {lesson.videoProvider === 'GOOGLE_DRIVE' ? 'Google Drive' : 'YouTube'}.{' '}
+                      <a href={lesson.videoUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-white underline underline-offset-2">Mở trong tab mới</a>
+                      <span className="sr-only"> (mở cửa sổ mới)</span>
+                    </p>
+                  )}
+                </div>
+              ) : videoUrl ? (
                 <div className="aspect-video bg-black">
                   {/* R8-01/R9-06: src is a short-lived presigned MinIO URL, so the browser streams
                       and seeks directly against the object store (Range support included) instead

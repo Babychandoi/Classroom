@@ -200,6 +200,14 @@ Thành viên `EXPIRED` **đọc được**: thẻ lớp (`GET /classes/{id}`, `/
 - `POST /api/v1/lessons/{lessonId}/questions`: Đặt câu hỏi trong bài
 - `POST /api/v1/questions/{questionId}/answers`: Trả lời câu hỏi Q&A
 
+### 4.1 Video ngoài (YouTube / Google Drive) cho bài học (D-31)
+
+Bài `VIDEO` có đúng một nguồn video: tệp tải lên (`mediaAssetId`) HOẶC liên kết ngoài. `POST /sections/{id}/lessons` và `PUT /lessons/{id}` nhận thêm `videoUrl?: string` (chuỗi người soạn dán): vắng = giữ nguyên; `""` (hoặc chỉ khoảng trắng) = xóa video ngoài; khác rỗng = máy chủ phân tích (`VideoLinkParser`) và chỉ lưu `video_provider` (`YOUTUBE` | `GOOGLE_DRIVE`) + `video_ref` (id, `^[A-Za-z0-9_-]{6,128}$`). `videoProvider` / `videoRef` / `embedUrl` / `storedVideo*` trong thân request bị bỏ qua (không bind được).
+
+Chỉ nhận https của: `youtube.com`, `www.`/`m.youtube.com`, `youtu.be`, `youtube-nocookie.com`, `www.youtube-nocookie.com` (`/watch?v=`, `/embed/`, `/shorts/`, `/live/`, `/v/`, `youtu.be/ID`; id 11 ký tự; bỏ qua `t`, `list`, `si`...) và `drive.google.com` (`/file/d/ID/(view|preview|edit)`, `/file/u/<n>/d/ID/...`, `/open?id=ID`, `/uc?id=ID`). http, userinfo, cổng khác, host na ná (`youtube.com.evil.example`, `evilyoutube.com`), thư mục Drive, Docs, id sai → 400 `BAD_REQUEST` "Chỉ hỗ trợ liên kết video YouTube hoặc Google Drive (dạng https://…)". Có `videoUrl` mà bài còn `mediaAssetId` (hoặc đặt `mediaAssetId` khi còn liên kết, hoặc đổi loại khác `VIDEO` khi còn liên kết) → 400 "Mỗi bài chỉ dùng một nguồn video: tải tệp lên hoặc dán liên kết"; đổi nguồn trong một request bằng cách gửi `videoUrl: ""` cùng `mediaAssetId`. Bài không phải `VIDEO` dùng `videoUrl` → 400.
+
+Phản hồi bài học (tạo/sửa, `GET /lessons/{id}`, bài trong `GET /courses/{id}`) có thêm `videoProvider: 'UPLOAD' | 'YOUTUBE' | 'GOOGLE_DRIVE' | null` (`UPLOAD` khi có `mediaAssetId`), `videoUrl` (`https://www.youtube.com/watch?v=ID` / `https://drive.google.com/file/d/ID/view`) và `embedUrl` (`https://www.youtube-nocookie.com/embed/ID` / `https://drive.google.com/file/d/ID/preview`), luôn dựng lại từ id đã kiểm tra. Cùng luật hiển thị như `mediaAssetId`: `videoUrl`/`embedUrl` chỉ cho người học được khóa (`canLearn`), COURSE:PREVIEW hoặc người soạn (COURSE:EDIT); người khác (kể cả thành viên chưa mua khóa trả phí) chỉ thấy `videoProvider`, `GET /lessons/{id}` của họ vẫn 403. Audit `LESSON_CREATE` / `LESSON_UPDATE` ghi `videoProvider`. Đã dán link thì tiến độ/hoàn thành hoạt động như video tải lên.
+
 ---
 
 ## 5. Bảng tin & Cộng đồng (Feed & Posts)

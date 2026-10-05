@@ -217,6 +217,7 @@ public class LearningService {
                     continue;
                 }
                 LessonDto lDto = toLessonDto(lesson);
+                if (canLearn || canEdit) exposeVideoLinks(lDto, lesson);
                 if (userId != null) {
                     boolean completed = progressRepository.findByUserIdAndLessonId(userId, lesson.getId())
                             .map(LessonProgress::isCompleted)
@@ -269,6 +270,7 @@ public class LearningService {
         requireVisibleToLearner(lesson, course, userId);
 
         LessonDto dto = toLessonDto(lesson);
+        exposeVideoLinks(dto, lesson); // enforceLearn passed above
 
         if (userId != null) {
             boolean completed = progressRepository.findByUserIdAndLessonId(userId, lesson.getId())
@@ -735,6 +737,33 @@ public class LearningService {
         }
     }
 
+    /**
+     * D-31: applies what the author pasted. {@code input} null = keep; blank = clear the external video; otherwise it is parsed (400 when it is
+     * not a supported https YouTube / Google Drive file link) and only the provider and id are stored. Call after the media attachment was
+     * settled; {@link #requireSingleVideoSource} then enforces "one source, VIDEO lessons only".
+     */
+    private void applyVideoUrl(Lesson lesson, String input) {
+        if (input == null) return;
+        if (input.isBlank()) {
+            lesson.setStoredVideoProvider(null);
+            lesson.setStoredVideoRef(null);
+            return;
+        }
+        VideoLinkParser.Parsed parsed = VideoLinkParser.parse(input);
+        lesson.setStoredVideoProvider(parsed.provider());
+        lesson.setStoredVideoRef(parsed.ref());
+    }
+
+    private void requireSingleVideoSource(Lesson lesson) {
+        if (lesson.getStoredVideoRef() == null) return;
+        if (!"VIDEO".equalsIgnoreCase(lesson.getType())) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Chỉ bài học loại VIDEO mới dùng liên kết video");
+        }
+        if (lesson.getMediaAssetId() != null && !lesson.getMediaAssetId().isBlank()) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Mỗi bài chỉ dùng một nguồn video: tải tệp lên hoặc dán liên kết");
+        }
+    }
+
     // R19-01(c): READ_COMMITTED. The section/course/permission reads before mediaService.getAssetForUpdate freeze the
     // MySQL REPEATABLE READ snapshot, so the "media already attached to a document/lesson" check made AFTER that lock
     // could not see an attachment a concurrent transaction had just committed - the same file was attached twice.
@@ -767,10 +796,22 @@ public class LearningService {
         }
 
         validateCaptions(lesson.getCaptionsVtt());
+        lesson.setStoredVideoProvider(null); // D-31: never trust anything but the parsed videoUrl
+        lesson.setStoredVideoRef(null);
+        applyVideoUrl(lesson, lesson.getVideoUrlInput());
+        requireSingleVideoSource(lesson);
         lesson.setId(java.util.UUID.randomUUID().toString()); // Ignore client ID; create always inserts.
         lesson.setSectionId(sectionId);
         lesson.setCourseId(course.getId());
-        return lessonRepository.save(lesson);
+        Lesson created = lessonRepository.save(lesson);
+        auditService.record(course.getClassId(), currentUserId, "LESSON_CREATE", "LESSON", created.getId(),
+                String.format("{\"title\":\"%s\",\"videoProvider\":%s}", created.getTitle(), providerJson(created)));
+        return created;
+    }
+
+    private static String providerJson(Lesson lesson) {
+        String provider = lesson.getVideoProvider();
+        return provider == null ? "null" : "\"" + provider + "\"";
     }
 
     /**
@@ -816,9 +857,11 @@ public class LearningService {
         }
 
         validateLesson(lesson);
+        applyVideoUrl(lesson, patch.getVideoUrlInput()); // D-31
+        requireSingleVideoSource(lesson);
         Lesson saved = lessonRepository.save(lesson);
         auditService.record(course.getClassId(), currentUserId, "LESSON_UPDATE", "LESSON", lessonId,
-                String.format("{\"title\":\"%s\"}", saved.getTitle()));
+                String.format("{\"title\":\"%s\",\"videoProvider\":%s}", saved.getTitle(), providerJson(saved)));
         return saved;
     }
 
@@ -1012,6 +1055,12 @@ public class LearningService {
         return dto;
     }
 
+    /** D-31: the external video's URLs, for callers already cleared to learn the course (or to edit it). Never for anyone else. */
+    private static void exposeVideoLinks(LessonDto dto, Lesson lesson) {
+        dto.setVideoUrl(lesson.getVideoUrl());
+        dto.setEmbedUrl(lesson.getEmbedUrl());
+    }
+
     private LessonDto toLessonDto(Lesson lesson) {
         LessonDto dto = new LessonDto();
         dto.setId(lesson.getId());
@@ -1022,6 +1071,7 @@ public class LearningService {
         dto.setContentText(lesson.getContentText());
         dto.setCaptionsVtt(lesson.getCaptionsVtt());
         dto.setMediaAssetId(lesson.getMediaAssetId());
+        dto.setVideoProvider(lesson.getVideoProvider()); // D-31: the provider is public metadata; the URLs only via exposeVideoLinks
         dto.setDurationMinutes(lesson.getDurationMinutes());
         dto.setPosition(lesson.getPosition());
         dto.setArchived(lesson.isArchived());

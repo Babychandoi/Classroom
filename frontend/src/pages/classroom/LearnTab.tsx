@@ -377,7 +377,8 @@ const FeaturedCourse: React.FC<{
                     </div>
                     <ul>
                       {section.lessons.map((lesson) => {
-                        const meta = lesson.durationMinutes > 0 ? `${lesson.durationMinutes} phút` : null;
+                        const provider = lesson.videoProvider === 'YOUTUBE' ? 'YouTube' : lesson.videoProvider === 'GOOGLE_DRIVE' ? 'Google Drive' : null;
+                        const meta = [provider, lesson.durationMinutes > 0 ? `${lesson.durationMinutes} phút` : null].filter(Boolean).join(' · ') || null;
                         const row = (
                           <>
                             {lesson.completed ? (

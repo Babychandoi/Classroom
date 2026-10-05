@@ -12,6 +12,16 @@ public class LessonDto {
     private String contentText;
     private String mediaAssetId;
     private String mediaDownloadUrl;
+    // D-31: UPLOAD | YOUTUBE | GOOGLE_DRIVE | null. The URLs are only filled for callers who may learn (or edit) the course.
+    private String videoProvider;
+    private String videoUrl;
+    private String embedUrl;
+    public String getVideoProvider() { return videoProvider; }
+    public void setVideoProvider(String videoProvider) { this.videoProvider = videoProvider; }
+    public String getVideoUrl() { return videoUrl; }
+    public void setVideoUrl(String videoUrl) { this.videoUrl = videoUrl; }
+    public String getEmbedUrl() { return embedUrl; }
+    public void setEmbedUrl(String embedUrl) { this.embedUrl = embedUrl; }
     private int durationMinutes;
     private int position;
     private boolean completed;

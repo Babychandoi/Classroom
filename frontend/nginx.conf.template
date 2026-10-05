@@ -49,7 +49,7 @@ server {
     # it must never be hardcoded to a fixed host/port again. img-src/connect-src already allow
     # http:/https: broadly; media-src/frame-src/object-src are scoped narrower since they gate
     # active content (video/iframe/object playback).
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; media-src 'self' blob: ${MINIO_PUBLIC_ORIGIN}; frame-src 'self' ${MINIO_PUBLIC_ORIGIN}; object-src 'none'; connect-src 'self' ${MINIO_PUBLIC_ORIGIN}; base-uri 'self'; form-action 'self'; frame-ancestors 'none';" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; media-src 'self' blob: ${MINIO_PUBLIC_ORIGIN}; frame-src 'self' ${MINIO_PUBLIC_ORIGIN} https://www.youtube-nocookie.com https://drive.google.com; object-src 'none'; connect-src 'self' ${MINIO_PUBLIC_ORIGIN}; base-uri 'self'; form-action 'self'; frame-ancestors 'none';" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
     location / {

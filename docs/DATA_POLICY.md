@@ -6,6 +6,8 @@ Cập nhật 01/10/2026. Áp dụng cho bản web chạy trên máy chủ của 
 
 Email/tên/hồ sơ phục vụ định danh và lựa chọn hiển thị PRIVATE/CLASS/PUBLIC. Dữ liệu thành viên, tiến độ, bài làm và điểm phục vụ lớp học. Đơn hàng/entitlement phục vụ cấp quyền và xử lý khiếu nại. Audit và bộ đếm bảo vệ hệ thống. MySQL là nguồn chính; MongoDB/Neo4j là bản chiếu, MinIO lưu tệp. Không gửi dữ liệu cho cổng thanh toán thật trong phiên bản này.
 
+Video bài học có thể là liên kết YouTube (`youtube-nocookie.com`) hoặc Google Drive nhúng bằng iframe: khi người học mở bài, trình duyệt của họ kết nối trực tiếp tới Google, nên địa chỉ IP và User-Agent của người xem được gửi cho Google theo chính sách của họ; chúng tôi chỉ lưu nhà cung cấp và mã video, không lưu gì về lượt xem ngoài tiến độ học.
+
 ## Thời gian lưu
 
 | Dữ liệu | Chính sách |

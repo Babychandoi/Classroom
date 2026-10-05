@@ -634,12 +634,94 @@ describe('StudioCourseWizard - content studio (step 3)', () => {
     expect(screen.getByLabelText('Tệp đính kèm')).toBeInTheDocument();
   });
 
-  it('video lessons only offer uploading (no external video URL) and no document tab', async () => {
+  it('video lessons offer upload / YouTube / Google Drive sources and no document tab', async () => {
     mockServer((url) => (url === `${API}/courses/c1` ? withLessons() : undefined));
     renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
     fireEvent.click(await screen.findByRole('button', { name: 'Bài A' }));
     expect(await screen.findByLabelText(/Video bài học/)).toHaveAttribute('type', 'file');
+    const tabs = within(screen.getByRole('tablist', { name: 'Nguồn video' })).getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['Tải lên', 'YouTube', 'Google Drive']);
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByRole('tab', { name: 'Tài liệu' })).not.toBeInTheDocument();
+  });
+
+  const ytLesson = { ...lessonA, videoProvider: 'YOUTUBE', videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', embedUrl: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ' };
+  const withYoutube = () => draft({ sections: [{ ...section, lessons: [ytLesson] }] as any });
+
+  it('validates a pasted YouTube link, previews it in a sandboxed iframe and saves videoUrl with no upload', async () => {
+    const calls = mockServer((url, method) => {
+      if (url === `${API}/courses/c1` && method === 'GET') return withLessons();
+      if (url === `${API}/lessons/la` && method === 'PUT') return {};
+      return undefined;
+    });
+    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
+    fireEvent.click(await screen.findByRole('button', { name: 'Bài A' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'YouTube' }));
+    const field = screen.getByLabelText(/Liên kết video YouTube/);
+
+    fireEvent.change(field, { target: { value: 'https://vimeo.com/123' } });
+    expect(screen.getByText(/Liên kết YouTube không hợp lệ/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Lưu bài học' })).toBeDisabled();
+    expect(screen.queryByTitle(/Xem trước video/)).not.toBeInTheDocument();
+
+    fireEvent.change(field, { target: { value: 'https://youtu.be/dQw4w9WgXcQ?si=abc' } });
+    const frame = screen.getByTitle('Xem trước video YouTube');
+    expect(frame).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
+    expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-popups');
+    expect(screen.getByTestId('lesson-preview').parentElement).toHaveTextContent('Có video · YouTube');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu bài học' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ videoUrl: 'https://youtu.be/dQw4w9WgXcQ?si=abc', mediaAssetId: '' });
+  });
+
+  it('rejects a Drive link on the YouTube tab with a hint to switch tab', async () => {
+    mockServer((url) => (url === `${API}/courses/c1` ? withLessons() : undefined));
+    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
+    fireEvent.click(await screen.findByRole('button', { name: 'Bài A' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'YouTube' }));
+    fireEvent.change(screen.getByLabelText(/Liên kết video YouTube/), { target: { value: 'https://drive.google.com/file/d/1AbCdEfGhIj/view' } });
+    expect(screen.getByText(/hãy chọn tab Google Drive/)).toBeInTheDocument();
+  });
+
+  it('asks before discarding the current source and clears the link with videoUrl ""', async () => {
+    const calls = mockServer((url, method) => {
+      if (url === `${API}/courses/c1` && method === 'GET') return withYoutube();
+      if (url === `${API}/lessons/la` && method === 'PUT') return {};
+      return undefined;
+    });
+    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
+    fireEvent.click(await screen.findByRole('button', { name: 'Bài A' }));
+    expect(await screen.findByLabelText(/Liên kết video YouTube/)).toHaveValue('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    expect(screen.getByRole('tab', { name: 'YouTube' })).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Tải lên' }));
+    const dialog = await screen.findByRole('alertdialog', { name: 'Đổi nguồn video?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Giữ nguồn hiện tại' }));
+    expect(screen.getByRole('tab', { name: 'YouTube' })).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Tải lên' }));
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Đổi nguồn video' }));
+    expect(screen.getByLabelText(/Video bài học/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu bài học' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ videoUrl: '', mediaAssetId: '' });
+  });
+
+  it('shows the server 400 text when the backend refuses the link', async () => {
+    mockServer((url, method) => {
+      if (url === `${API}/courses/c1` && method === 'GET') return withLessons();
+      if (url === `${API}/lessons/la` && method === 'PUT') {
+        return new Response(JSON.stringify({ success: false, error: { code: 'BAD_REQUEST', message: 'Chỉ hỗ trợ liên kết video YouTube hoặc Google Drive (dạng https://…)' } }), { status: 400 });
+      }
+      return undefined;
+    });
+    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
+    fireEvent.click(await screen.findByRole('button', { name: 'Bài A' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Google Drive' }));
+    fireEvent.change(screen.getByLabelText(/Liên kết video Google Drive/), { target: { value: 'https://drive.google.com/file/d/1AbCdEfGhIj/view' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu bài học' }));
+    expect(await screen.findByText('Chỉ hỗ trợ liên kết video YouTube hoặc Google Drive (dạng https://…)')).toBeInTheDocument();
   });
 
   it('is read-only without COURSE:EDIT handled by the wizard guard; a read-only class hides the tree actions', async () => {
