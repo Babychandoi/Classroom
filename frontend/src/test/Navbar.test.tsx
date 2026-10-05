@@ -62,6 +62,26 @@ describe('Navbar', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
+  it('lists the personal shortcuts right under the profile card, before discovery, admin and privacy', () => {
+    authState = { user: { ...mockUser, role: 'PLATFORM_ADMIN' }, isLoading: false };
+    render(<Navbar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Mở menu tài khoản' }));
+    const items = screen.getAllByRole('menuitem').map((el) => el.textContent?.trim());
+    expect(items).toEqual([
+      'Hồ sơ của tôi',
+      'Lớp học của tôi',
+      'Khóa học của tôi',
+      'Sự kiện tham gia',
+      'Khám phá lớp học',
+      'Quản trị nền tảng',
+      'Quyền riêng tư & dữ liệu',
+      'Đăng xuất',
+    ]);
+    expect(screen.getByRole('menuitem', { name: 'Lớp học của tôi' })).toHaveAttribute('href', '/me/classes');
+    expect(screen.getByRole('menuitem', { name: 'Khóa học của tôi' })).toHaveAttribute('href', '/me/courses');
+    expect(screen.getByRole('menuitem', { name: 'Sự kiện tham gia' })).toHaveAttribute('href', '/me/events');
+  });
+
   it('offers "Quản trị nền tảng" in the account menu to a PLATFORM_ADMIN only', () => {
     authState = { user: mockUser, isLoading: false };
     const { unmount } = render(<Navbar />);

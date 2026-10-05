@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { GraduationCap, UserCheck, LogOut, ChevronDown, ChevronRight, Compass, ShieldCheck, ShieldHalf, UserRound } from 'lucide-react';
+import { GraduationCap, UserCheck, LogOut, ChevronDown, ChevronRight, Compass, ShieldCheck, ShieldHalf, UserRound, BookOpen, CalendarCheck, School } from 'lucide-react';
 import { isPlatformAdmin } from '../api/admin';
 import { Avatar } from './ui';
 
@@ -31,6 +31,13 @@ function useDismiss(open: boolean, close: () => void, ref: React.RefObject<HTMLE
     };
   }, [open, close, ref]);
 }
+
+// Personal shortcuts, right under the profile card (personal -> discovery -> admin -> privacy -> logout).
+const PERSONAL_LINKS = [
+  { to: '/me/classes', label: 'Lớp học của tôi', Icon: School },
+  { to: '/me/courses', label: 'Khóa học của tôi', Icon: BookOpen },
+  { to: '/me/events', label: 'Sự kiện tham gia', Icon: CalendarCheck },
+] as const;
 
 const MENU_ROW = 'flex h-12 w-full items-center gap-3 rounded-btn px-2 text-left text-ui font-medium text-slate-900 transition-colors duration-micro hover:bg-slate-100';
 const MENU_ICON = 'inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-900';
@@ -180,6 +187,13 @@ export const Navbar: React.FC = () => {
                   </div>
 
                   <div className="px-3 pb-1.5 pt-0.5">
+                    {PERSONAL_LINKS.map(({ to, label, Icon }) => (
+                      <Link key={to} to={to} role="menuitem" onClick={closeAccount} className={MENU_ROW}>
+                        <span className={MENU_ICON} aria-hidden="true"><Icon className="h-[17px] w-[17px]" strokeWidth={1.7} /></span>
+                        <span className="min-w-0 flex-1">{label}</span>
+                        <ChevronRight className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} aria-hidden="true" />
+                      </Link>
+                    ))}
                     <Link to="/classes" role="menuitem" onClick={closeAccount} className={MENU_ROW}>
                       <span className={MENU_ICON} aria-hidden="true"><Compass className="h-[17px] w-[17px]" strokeWidth={1.7} /></span>
                       <span className="min-w-0 flex-1">Khám phá lớp học</span>

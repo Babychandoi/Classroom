@@ -437,6 +437,35 @@ interface AdminClassDetail extends AdminClassRow {
 
 Giữ nguyên `GET /privacy/requests` và `PUT /privacy/requests/{userId}` (đã yêu cầu `PLATFORM_ADMIN`); giao diện quản trị chuyển hàng đợi này sang trang riêng. Đóng tài khoản (COMPLETED) coi lớp `SUSPENDED` từ `ACTIVE` như lớp đang hoạt động (phải chuyển quyền/lưu trữ trước).
 
+## 13. Trang "của tôi" (D-30)
+
+Ba endpoint đọc dưới `/api/v1/me/**`, chỉ cho người đã đăng nhập (khách → 401), khung phản hồi chuẩn. Chỉ trả những gì người gọi đã được thấy qua các endpoint thường (cùng luật nhìn lớp D-19/D-29): lớp `SUSPENDED` chỉ hiện với chủ lớp; lớp `PRIVATE` trả cho người thuộc về nó (đây là chỗ họ tìm lại lớp riêng tư). Phân trang `page` (từ 0, âm → 0) và `size` (mặc định 20, tối đa 50, kẹp về khoảng này); trả danh sách phẳng. Số truy vấn cố định, không phụ thuộc số dòng (`MeQueryCountTest`).
+
+### 13.1 `GET /me/classes?page&size`
+
+Lớp người gọi sở hữu, là nhân sự `ACTIVE`, hoặc có thành viên `ACTIVE` / `EXPIRED` / `PENDING` (yêu cầu tham gia đang chờ duyệt vẫn hiện để người gửi theo dõi; `REMOVED` và `BLOCKED` không hiện). Riêng `PENDING` chỉ hiện khi lớp vẫn `ACTIVE` và không `PRIVATE` (yêu cầu chờ không bao giờ làm lộ lớp). Thứ tự: lớp sở hữu trước, rồi theo hàng thành viên mới nhất (`joinedAt` giảm dần), rồi lớp mới nhất. Mỗi phần tử là `ClassroomDto` đầy đủ như `GET /classes` (coverUrl/avatarUrl/category/visibility/accessType/memberState/userRole/accessExpiresAt/pendingRequestCount/upcomingEventCount), dựng theo lô, ảnh ký một lượt.
+
+### 13.2 `GET /me/courses?page&size`
+
+```ts
+interface MyCourse {
+  id: string; classId: string; classTitle: string; classSlug: string; classAvatarUrl?: string | null;
+  title: string; description?: string | null; coverImageUrl?: string | null;
+  accessMode: 'FREE' | 'PURCHASE_REQUIRED';
+  totalLessons: number; completedLessons: number;   // chỉ bài không lưu trữ (và chương không lưu trữ), như tiến độ trang khóa học
+  progressPercent: number;                          // số nguyên 0..100 (làm tròn)
+  lastActivityAt?: string | null;                   // lần cập nhật tiến độ bài học gần nhất của người gọi; null nếu chưa học
+  nextLessonId?: string | null;                     // bài đầu tiên chưa hoàn thành theo thứ tự giáo trình (chương rồi bài); null khi đã xong hết
+  started: boolean;                                 // completedLessons > 0 hoặc có bất kỳ dòng tiến độ nào
+}
+```
+
+Khóa học `PUBLISHED` mà người gọi học được (`LearningPolicy.canLearn`: miễn phí cho thành viên `ACTIVE` còn hạn / chủ lớp, hoặc có quyền mua còn hiệu lực với khóa trả phí), trong lớp họ là chủ lớp hoặc thành viên `ACTIVE` còn hạn (không `EXPIRED`, không lớp bị tạm khóa trừ chủ lớp). Thứ tự: khóa đã bắt đầu trước (`lastActivityAt` giảm dần), sau đó theo tên lớp (không phân biệt hoa thường) rồi vị trí khóa. Nháp, khóa trả phí chưa mua, lớp mà người gọi chỉ đang chờ duyệt / hết hạn không hiện.
+
+### 13.3 `GET /me/events?scope=upcoming|past|all&page&size`
+
+Sự kiện người gọi đã đăng ký, dạng `ClassEvent` của §11, có `classTitle` / `classSlug`; `isRegistered` luôn `true`. `meetingUrl` chỉ có khi người đó vẫn đủ điều kiện (cùng luật `GET /events/{id}`: thành viên `ACTIVE` với sự kiện MEMBERS và mọi sự kiện lớp PAID/PRIVATE, hoặc chưa bị chặn với sự kiện PUBLIC của lớp công khai; chủ lớp luôn có). Chỉ sự kiện của lớp người gọi còn nhìn thấy. `scope` mặc định `upcoming` (`endsAt >= now`, `startsAt` tăng dần); `past` (`endsAt < now`, `startsAt` giảm dần); `all` = upcoming trước rồi past. Sự kiện `CANCELLED` vẫn có (giao diện gắn nhãn). `scope` khác → 400.
+
 ## Round 23: About, phụ đề và quyền dữ liệu
 
 PUT /classes/{classId}/about nhận contentMarkdown, rulesMarkdown, publishedVersion và sections (tối đa 12: title, contentMarkdown, imageUrl HTTPS hoặc mediaAssetId ABOUT, imageAlt). Phiên bản cũ trả 409; ảnh upload có URL ký ngắn hạn và theo quyền thấy lớp. GET có private/no-store. Upload ABOUT yêu cầu ABOUT:EDIT, JPG/PNG/WebP/GIF tối đa 5 MB.

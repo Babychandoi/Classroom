@@ -51,4 +51,19 @@ public interface LessonProgressRepository extends JpaRepository<LessonProgress, 
         String getCourseId();
         long getTotal();
     }
+
+    /** D-30: per course the caller has any progress row in: row count and the latest update; one grouped query for all candidates. */
+    @Query("SELECT p.courseId AS courseId, COUNT(p) AS total, MAX(p.completedAt) AS lastAt FROM LessonProgress p "
+            + "WHERE p.userId = :userId AND p.courseId IN :courseIds GROUP BY p.courseId")
+    List<CourseActivity> activityByUserAndCourseIdIn(@Param("userId") String userId, @Param("courseIds") List<String> courseIds);
+
+    /** D-30: the lessons the caller completed in these courses (for the resume point). */
+    @Query("SELECT p.lessonId FROM LessonProgress p WHERE p.userId = :userId AND p.courseId IN :courseIds AND p.completed = true")
+    List<String> findCompletedLessonIds(@Param("userId") String userId, @Param("courseIds") List<String> courseIds);
+
+    interface CourseActivity {
+        String getCourseId();
+        long getTotal();
+        java.time.Instant getLastAt();
+    }
 }

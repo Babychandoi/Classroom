@@ -286,6 +286,13 @@ public class ClassroomService {
         return toDtos(pageOfClasses, currentUserId);
     }
 
+    /** D-30: GET /me/classes - one page of the classes the caller owns / staffs / belongs to / has asked to join (see ClassroomRepository#findMine). */
+    @Transactional(readOnly = true)
+    public List<ClassroomDto> listMine(String userId, int page, int size) {
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_PAGE_SIZE));
+        return toDtos(classroomRepository.findMine(userId, pageable), userId);
+    }
+
     @Transactional(readOnly = true)
     public ClassroomDto getBySlug(String slug, String currentUserId) {
         Classroom classroom = classroomRepository.findBySlug(slug)

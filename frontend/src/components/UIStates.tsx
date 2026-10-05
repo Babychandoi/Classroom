@@ -17,12 +17,15 @@ export const EmptyState: React.FC<{
   actionText?: string;
   onAction?: () => void;
   icon?: React.ReactNode;
+  /** Extra actions (links) under the button, e.g. a primary and a secondary call to action. */
+  children?: React.ReactNode;
 }> = ({
   title = 'Chưa có dữ liệu',
   description = 'Hiện tại chưa có nội dung nào trong mục này.',
   actionText,
   onAction,
   icon,
+  children,
 }) => (
   <div className="flex flex-col items-center justify-center rounded-card border border-slate-200 bg-white p-10 text-center shadow-hairline sm:p-12">
     <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-community bg-slate-100 text-slate-500">
@@ -39,6 +42,7 @@ export const EmptyState: React.FC<{
         {actionText}
       </button>
     )}
+    {children && <div className="flex flex-wrap items-center justify-center gap-3">{children}</div>}
   </div>
 );
 

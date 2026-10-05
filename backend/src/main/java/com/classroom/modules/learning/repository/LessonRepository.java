@@ -47,4 +47,17 @@ public interface LessonRepository extends JpaRepository<Lesson, String> {
         String getCourseId();
         long getTotal();
     }
+
+    /**
+     * D-30: learner-visible lessons (not archived, section not archived) of these courses in curriculum order - section position, then
+     * lesson position - for the "resume here" lesson of "my courses". Only id and course are read.
+     */
+    @Query("SELECT l.courseId AS courseId, l.id AS lessonId FROM Lesson l, Section s WHERE s.id = l.sectionId AND l.courseId IN :courseIds"
+            + " AND l.archived = false AND s.archived = false ORDER BY l.courseId ASC, s.position ASC, s.id ASC, l.position ASC, l.id ASC")
+    List<CurriculumLesson> findVisibleCurriculum(@Param("courseIds") List<String> courseIds);
+
+    interface CurriculumLesson {
+        String getCourseId();
+        String getLessonId();
+    }
 }

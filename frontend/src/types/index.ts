@@ -92,6 +92,25 @@ export interface Classroom {
   createdAt: string;
 }
 
+/** GET /me/courses item (docs/API-ME.md): a course the caller can learn, with their own progress and resume point. */
+export interface MyCourse {
+  id: string;
+  classId: string;
+  classTitle: string;
+  classSlug: string;
+  classAvatarUrl?: string | null;
+  title: string;
+  description?: string | null;
+  coverImageUrl?: string | null;
+  accessMode: 'FREE' | 'PURCHASE_REQUIRED';
+  totalLessons: number;
+  completedLessons: number;
+  progressPercent: number;
+  lastActivityAt?: string | null;
+  nextLessonId?: string | null;
+  started: boolean;
+}
+
 export interface Course {
   id: string;
   classId: string;

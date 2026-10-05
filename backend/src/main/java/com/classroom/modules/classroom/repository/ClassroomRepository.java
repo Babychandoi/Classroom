@@ -86,4 +86,19 @@ public interface ClassroomRepository extends JpaRepository<Classroom, String> {
     List<Classroom> searchVisibleToUserByPopularity(@Param("userId") String userId, @Param("pattern") String pattern,
                                                     @Param("category") String category,
                                                     @Param("now") java.time.Instant now, Pageable pageable);
+
+    /**
+     * D-30: "my classes" - what the caller owns, staffs (ACTIVE assignment) or belongs to (membership ACTIVE / EXPIRED), plus classes where
+     * their join request is PENDING - but only while that class is still visible to everybody (ACTIVE and not PRIVATE, so a pending request
+     * never exposes a class). REMOVED and BLOCKED are not listed. A SUSPENDED class is the owner's alone (D-29). Owned first, then by the
+     * latest membership row, then newest; pass an unsorted pageable.
+     */
+    @Query("SELECT c FROM Classroom c WHERE c.ownerId = :userId"
+            + " OR (UPPER(c.status) <> 'SUSPENDED' AND (EXISTS (SELECT 1 FROM StaffAssignment s WHERE s.classId = c.id AND s.userId = :userId AND UPPER(s.status) = 'ACTIVE')"
+            + " OR EXISTS (SELECT 1 FROM ClassMember m WHERE m.classId = c.id AND m.userId = :userId AND UPPER(m.state) IN ('ACTIVE', 'EXPIRED'))"
+            + " OR (UPPER(c.status) = 'ACTIVE' AND UPPER(c.visibility) <> 'PRIVATE' AND EXISTS (SELECT 1 FROM ClassMember m3 WHERE m3.classId = c.id AND m3.userId = :userId AND UPPER(m3.state) = 'PENDING'))))"
+            + " ORDER BY CASE WHEN c.ownerId = :userId THEN 0 ELSE 1 END ASC,"
+            + " COALESCE((SELECT MAX(m2.joinedAt) FROM ClassMember m2 WHERE m2.classId = c.id AND m2.userId = :userId), c.createdAt) DESC,"
+            + " c.createdAt DESC, c.id ASC")
+    List<Classroom> findMine(@Param("userId") String userId, Pageable pageable);
 }

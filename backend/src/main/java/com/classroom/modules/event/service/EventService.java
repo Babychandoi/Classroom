@@ -504,7 +504,44 @@ public class EventService {
      * @param railClasses non-null only for the cross-class rail: fills classTitle / classSlug and never reveals {@code meetingUrl}
      */
     private List<ClassEventDto> toDtos(List<ClassEvent> events, Viewer viewer, Map<String, Classroom> railClasses) {
-        String userId = viewer.userId();
+        return assemble(events, viewer.userId(), e -> viewer, railClasses == null ? null : railClasses, railClasses != null);
+    }
+
+    /**
+     * D-30: the cross-class listing of the caller's own registrations. Same assembly (hosts, registrations, covers: a fixed number of
+     * statements); the caller's standing is resolved once per class from two batched reads instead of per event. A manager is always an
+     * ACTIVE member (canManage needs isMember), so {@code manager} adds nothing to eligibility here and is not looked up.
+     */
+    @Transactional(readOnly = true)
+    public List<ClassEventDto> listMine(String userId, String scope, int page, int size) {
+        String normalised = scope == null || scope.isBlank() ? "UPCOMING" : scope.trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("UPCOMING", "PAST", "ALL").contains(normalised)) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Phạm vi sự kiện chỉ có thể là upcoming, past hoặc all");
+        }
+        Pageable pageable = org.springframework.data.domain.PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 50));
+        List<ClassEvent> rows = eventRepository.findRegisteredBy(userId, normalised, now(), pageable);
+        if (rows.isEmpty()) return List.of();
+        List<String> classIds = rows.stream().map(ClassEvent::getClassId).distinct().toList();
+        Map<String, Classroom> classes = new HashMap<>();
+        classroomRepository.findAllById(classIds).forEach(c -> classes.put(c.getId(), c));
+        Map<String, ClassMember> memberships = new HashMap<>();
+        memberRepository.findByUserIdAndClassIdIn(userId, classIds).forEach(m -> memberships.put(m.getClassId(), m));
+        Instant at = Instant.now();
+        Map<String, Viewer> viewers = new HashMap<>();
+        for (String classId : classIds) {
+            Classroom classroom = classes.get(classId);
+            ClassMember m = memberships.get(classId);
+            boolean owner = classroom != null && userId.equals(classroom.getOwnerId());
+            boolean member = owner || (classroom != null && !AccessPolicy.isSuspended(classroom) && m != null && m.isActiveAt(at));
+            boolean blocked = m != null && ("BLOCKED".equalsIgnoreCase(m.getState()) || "BANNED".equalsIgnoreCase(m.getState()));
+            viewers.put(classId, new Viewer(userId, owner, member, blocked,
+                    classroom != null && (classroom.isPaid() || classroom.isPrivate())));
+        }
+        return assemble(rows, userId, e -> viewers.get(e.getClassId()), classes, false);
+    }
+
+    private List<ClassEventDto> assemble(List<ClassEvent> events, String userId, java.util.function.Function<ClassEvent, Viewer> viewerFor,
+                                         Map<String, Classroom> railClasses, boolean rail) {
         if (events.isEmpty()) return List.of();
         Set<String> hostIds = new LinkedHashSet<>();
         Set<String> coverIds = new LinkedHashSet<>();
@@ -523,7 +560,7 @@ public class EventService {
         List<ClassEventDto> result = new ArrayList<>(events.size());
         for (ClassEvent e : events) {
             boolean isRegistered = registered.contains(e.getId());
-            boolean revealUrl = railClasses == null && viewer.seesMeetingUrl(e, isRegistered);
+            boolean revealUrl = !rail && viewerFor.apply(e).seesMeetingUrl(e, isRegistered);
             Classroom railClass = railClasses == null ? null : railClasses.get(e.getClassId());
             result.add(new ClassEventDto(
                     e.getId(), e.getClassId(),

@@ -8,6 +8,9 @@ import { LoginPage } from './pages/LoginPage';
 import { ClassesPage } from './pages/ClassesPage';
 import { CreateClassPage } from './pages/CreateClassPage';
 import { MyProfilePage } from './pages/MyProfilePage';
+import { MyClassesPage } from './pages/MyClassesPage';
+import { MyCoursesPage } from './pages/MyCoursesPage';
+import { MyEventsPage } from './pages/MyEventsPage';
 import { ClassroomLayout } from './pages/ClassroomLayout';
 import { JoinByInvitePage } from './pages/JoinByInvitePage';
 
@@ -141,6 +144,9 @@ export const App: React.FC = () => {
               {/* D-19: where an invite link lands (public: a guest sees the class card and is asked to sign in). */}
               <Route path="/join/:code" element={<JoinByInvitePage />} />
               <Route path="/me/profile" element={<RequireLogin><MyProfilePage /></RequireLogin>} />
+              <Route path="/me/classes" element={<RequireLogin><MyClassesPage /></RequireLogin>} />
+              <Route path="/me/courses" element={<RequireLogin><MyCoursesPage /></RequireLogin>} />
+              <Route path="/me/events" element={<RequireLogin><MyEventsPage /></RequireLogin>} />
 
               {/* Classroom Tabs Route */}
               <Route path="/classes/:slug" element={<ClassroomLayout />}>

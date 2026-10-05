@@ -3,7 +3,7 @@ import { ArrowLeft } from 'lucide-react';
 import { Eyebrow, buttonClass } from '../components/ui';
 
 // Reading layout (max 720, body 17/29 #334155) - the policy is long-form text.
-export const PrivacyPage = () => <main className="mx-auto w-full max-w-reading space-y-8 px-4 py-8 text-body text-slate-700 sm:px-0 sm:py-12 sm:text-reading [&_p]:leading-[26px] sm:[&_p]:leading-[29px]">
+export const PrivacyPage = () => <main className="mx-auto w-full max-w-container space-y-8 px-4 py-8 text-body text-slate-700 sm:px-8 sm:py-12 sm:text-reading [&_p]:leading-[26px] sm:[&_p]:leading-[29px]">
   <div>
     <Link to="/classes" className="inline-flex items-center gap-1.5 text-ui font-medium text-slate-600 transition-colors duration-micro hover:text-slate-900"><ArrowLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />Về lớp học</Link>
     <Eyebrow className="mt-8">Quyền riêng tư</Eyebrow>

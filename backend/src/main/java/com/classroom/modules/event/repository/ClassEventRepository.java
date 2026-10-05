@@ -50,4 +50,18 @@ public interface ClassEventRepository extends JpaRepository<ClassEvent, String> 
     long countUpcomingByClassId(@Param("classId") String classId, @Param("now") Instant now);
 
     boolean existsByClassId(String classId);
+
+    /**
+     * D-30: "my events" - events {@code userId} registered for, in classes they can still see (the {@code ClassroomRepository#findVisibleToUser}
+     * rule). Cancelled events are included. {@code scope}: upcoming (not ended, soonest first), past (ended, latest first) or all (upcoming
+     * first, then past). Pass an unsorted pageable.
+     */
+    @Query("SELECT e FROM ClassEvent e, Classroom c, EventRegistration r WHERE c.id = e.classId AND r.eventId = e.id AND r.userId = :userId"
+            + " AND ((UPPER(c.status) = 'ACTIVE' AND UPPER(c.visibility) <> 'PRIVATE') OR c.ownerId = :userId"
+            + " OR (UPPER(c.status) <> 'SUSPENDED' AND (EXISTS (SELECT 1 FROM StaffAssignment s WHERE s.classId = c.id AND s.userId = :userId AND UPPER(s.status) = 'ACTIVE')"
+            + " OR EXISTS (SELECT 1 FROM ClassMember m WHERE m.classId = c.id AND m.userId = :userId AND UPPER(m.state) IN ('ACTIVE', 'EXPIRED')))))"
+            + " AND (:scope = 'ALL' OR (:scope = 'UPCOMING' AND e.endsAt >= :now) OR (:scope = 'PAST' AND e.endsAt < :now))"
+            + " ORDER BY CASE WHEN e.endsAt >= :now THEN 0 ELSE 1 END ASC,"
+            + " CASE WHEN e.endsAt >= :now THEN e.startsAt END ASC, CASE WHEN e.endsAt < :now THEN e.startsAt END DESC, e.id ASC")
+    List<ClassEvent> findRegisteredBy(@Param("userId") String userId, @Param("scope") String scope, @Param("now") Instant now, Pageable pageable);
 }

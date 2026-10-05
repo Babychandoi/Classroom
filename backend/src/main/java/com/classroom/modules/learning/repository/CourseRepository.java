@@ -32,4 +32,15 @@ public interface CourseRepository extends JpaRepository<Course, String> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from Course c where c.id = :id")
     java.util.Optional<Course> findByIdForUpdate(@Param("id") String id);
+
+    /**
+     * D-30: PUBLISHED courses of the classes {@code userId} currently belongs to - the owner, or a member whose row is ACTIVE and not lapsed
+     * (staff are members too; D-19 {@code ClassMemberRepository#ACTIVE_AT}). A SUSPENDED class counts for its owner only (D-29). This is the
+     * candidate set of "my courses": the caller still has to pass {@code LearningPolicy#canLearn} (purchase-required entitlement).
+     */
+    @Query("SELECT c FROM Course c, Classroom k WHERE k.id = c.classId AND UPPER(c.status) = 'PUBLISHED' AND (k.ownerId = :userId"
+            + " OR (UPPER(k.status) <> 'SUSPENDED' AND EXISTS (SELECT 1 FROM ClassMember m WHERE m.classId = k.id AND m.userId = :userId"
+            + " AND m.state = 'ACTIVE' AND (m.accessExpiresAt IS NULL OR m.accessExpiresAt > :now))))"
+            + " ORDER BY LOWER(k.title) ASC, k.id ASC, c.position ASC, c.createdAt ASC, c.id ASC")
+    List<Course> findLearnerCandidates(@Param("userId") String userId, @Param("now") java.time.Instant now);
 }
