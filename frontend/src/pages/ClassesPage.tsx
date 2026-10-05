@@ -33,6 +33,9 @@ const classesUrl = (page: number, size: number, extra: Record<string, string | u
   return `/classes?page=${page}&size=${size}${params}`;
 };
 
+/** A PRIVATE class is never listed on the home page (rails, search, catalog): it is only reached through its invite link. */
+const isListed = (cls: Classroom) => String(cls.visibility || 'PUBLIC').toUpperCase() !== 'PRIVATE';
+
 /** The caller already belongs to the class (owner, staff or an active member). */
 const isMine = (cls: Classroom) =>
   !!cls.isOwner || !!cls.isMember || cls.userRole === 'OWNER' || cls.userRole === 'STAFF';
@@ -275,7 +278,7 @@ export const ClassesPage: React.FC = () => {
       setError(null);
       const data = (await api.get<Classroom[]>(classesUrl(0, CLASSES_PAGE_SIZE, { q: query || undefined }))) || [];
       if (seq !== requestSeq.current) return;
-      setClasses(data);
+      setClasses(data.filter(isListed));
       setNextPage(1);
       setHasMore(data.length >= CLASSES_PAGE_SIZE);
     } catch (err: any) {
@@ -296,7 +299,7 @@ export const ClassesPage: React.FC = () => {
       // De-dup by id: a class created meanwhile can shift rows across a page boundary.
       setClasses((current) => {
         const seen = new Set(current.map((c) => c.id));
-        return [...current, ...data.filter((c) => !seen.has(c.id))];
+        return [...current, ...data.filter((c) => isListed(c) && !seen.has(c.id))];
       });
       setNextPage(nextPage + 1);
       setHasMore(data.length >= CLASSES_PAGE_SIZE);
@@ -319,7 +322,7 @@ export const ClassesPage: React.FC = () => {
     let cancelled = false;
     const loadRail = (sort: 'popular' | 'newest', set: (v: Classroom[] | null) => void) =>
       api.get<Classroom[]>(classesUrl(0, RAIL_SIZE, { sort }))
-        .then((data) => { if (!cancelled) set(data || []); })
+        .then((data) => { if (!cancelled) set((data || []).filter(isListed)); })
         .catch(() => { if (!cancelled) set(null); });
     void loadRail('popular', setPopular);
     void loadRail('newest', setNewest);

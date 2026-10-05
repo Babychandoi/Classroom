@@ -5,8 +5,8 @@ import { ClassesPage } from '../pages/ClassesPage';
 import type { Classroom } from '../types';
 
 /**
- * D-19: explore cards carry "Riêng tư" (only ever on a class the viewer can see) and "Miễn phí" / "Trả phí · 199.000đ / 30 ngày"
- * badges, three filter chips narrow the loaded classes, and every create CTA opens /classes/new.
+ * D-19: explore cards carry "Miễn phí" / "Trả phí · 199.000đ / 30 ngày"
+ * badges, three filter chips narrow the loaded classes, a PRIVATE class is never listed, and every create CTA opens /classes/new.
  */
 
 const mockNavigate = vi.fn();
@@ -78,15 +78,15 @@ describe('ClassesPage badges and fee filter (D-19)', () => {
     expect(within(card('Lớp free-public')).queryByText('Riêng tư')).not.toBeInTheDocument();
     expect(within(card('Lớp paid-30')).getByText('Trả phí · 199.000đ / 30 ngày')).toBeInTheDocument();
     expect(within(card('Lớp paid-life')).getByText('Trả phí · 500.000đ / trọn đời')).toBeInTheDocument();
-    expect(within(card('Lớp private-free')).getByText('Riêng tư')).toBeInTheDocument();
-    expect(within(card('Lớp private-free')).getByText('Miễn phí')).toBeInTheDocument();
   });
 
-  it('never shows "Riêng tư" on a class the server did not mark private (a PRIVATE class the viewer cannot see is not sent at all)', async () => {
+  it('never lists a PRIVATE class on the home page, not even to its owner (it is only reached through its invite link)', async () => {
     render(<ClassesPage />);
     await waitFor(() => expect(screen.getAllByText('Lớp free-public').length).toBeGreaterThan(0));
+    expect(screen.queryByText('Lớp private-free')).not.toBeInTheDocument();
     await openCatalog();
-    expect(screen.getAllByText('Riêng tư')).toHaveLength(1);
+    expect(screen.queryByText('Lớp private-free')).not.toBeInTheDocument();
+    expect(screen.queryByText('Riêng tư')).not.toBeInTheDocument();
   });
 
   it('filters the loaded classes with the Tất cả / Miễn phí / Trả phí chips', async () => {
@@ -106,15 +106,13 @@ describe('ClassesPage badges and fee filter (D-19)', () => {
     expect(screen.getByText('Lớp paid-30')).toBeInTheDocument();
     expect(screen.getByText('Lớp paid-life')).toBeInTheDocument();
     expect(screen.queryByText('Lớp free-public')).not.toBeInTheDocument();
-    expect(screen.queryByText('Lớp private-free')).not.toBeInTheDocument();
 
     fireEvent.click(free);
     expect(screen.getByText('Lớp free-public')).toBeInTheDocument();
-    expect(screen.getByText('Lớp private-free')).toBeInTheDocument();
     expect(screen.queryByText('Lớp paid-30')).not.toBeInTheDocument();
 
     fireEvent.click(all);
-    expect(screen.getAllByRole('heading', { level: 3 }).length).toBe(4);
+    expect(screen.getAllByRole('heading', { level: 3 }).length).toBe(3);
   });
 
   it('says so (and offers a way back) when the filter matches nothing among the loaded classes', async () => {
