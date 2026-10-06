@@ -62,7 +62,7 @@ public class AssignmentService {
         // across all submissions for the lesson and is held until the insert commits.
         Lesson lesson = lessons.findByIdForUpdate(lessonId)
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy bài học"));
-        if (!"ASSIGNMENT".equalsIgnoreCase(lesson.getType()))
+        if (!lesson.isAssignmentEnabled())
             throw new AppException(ErrorCode.BAD_REQUEST, "Bài học này không phải bài tập");
         Course course = course(lesson);
         learningPolicy.enforceLearn(userId, course);
@@ -248,7 +248,7 @@ public class AssignmentService {
 
     private Lesson assignment(String id) {
         Lesson lesson = lessons.findById(id).orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy bài học"));
-        if (!"ASSIGNMENT".equalsIgnoreCase(lesson.getType()))
+        if (!lesson.isAssignmentEnabled())
             throw new AppException(ErrorCode.BAD_REQUEST, "Bài học này không phải bài tập");
         return lesson;
     }

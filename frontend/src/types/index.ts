@@ -148,14 +148,38 @@ export interface Section {
   lessons: Lesson[];
 }
 
+export interface LessonComponents {
+  video: boolean;
+  videoProvider: 'UPLOAD' | 'YOUTUBE' | 'GOOGLE_DRIVE' | null;
+  content: boolean;
+  attachments: number;
+  assignment: boolean;
+}
+
+export interface LessonAttachment {
+  id: string;
+  mediaAssetId: string;
+  title: string;
+  fileName?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  position: number;
+}
+
 export interface Lesson {
   captionsVtt?: string;
   id: string;
   sectionId: string;
   courseId: string;
   title: string;
-  type: 'VIDEO' | 'TEXT' | 'DOCUMENT' | 'ASSIGNMENT';
+  /** Legacy summary the server derives from the components (assignment, else video, else documents, else text). Do not branch on it. */
+  type?: 'VIDEO' | 'TEXT' | 'DOCUMENT' | 'ASSIGNMENT';
   contentText?: string;
+  /** A lesson is a bundle of optional components: video, content, documents (attachments) and an assignment. */
+  components?: LessonComponents;
+  attachments?: LessonAttachment[];
+  hasAssignment?: boolean;
+  assignmentInstructions?: string;
   mediaAssetId?: string;
   mediaDownloadUrl?: string;
   /** UPLOAD when a file is attached, YOUTUBE / GOOGLE_DRIVE for a pasted link, null / absent without video. */

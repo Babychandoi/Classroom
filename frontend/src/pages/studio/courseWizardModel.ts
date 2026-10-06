@@ -1,5 +1,6 @@
 import type { Course, Section } from '../../types';
 import { formatDong } from '../../api/format';
+import { bundleOf, hasAnyComponent } from '../../api/lessonComponents';
 
 // Pure rules of the course wizard (no React): the step list, the form shape, number formatting, per-step validity and the
 // review checklist. Kept apart so the locking / gating rules can be unit-tested without rendering anything.
@@ -109,12 +110,18 @@ export const step2Error = (form: CourseForm) => priceError(form) ?? durationErro
 export function activeLessonCount(sections: Section[] | undefined): number {
   return (sections ?? []).filter((s) => !s.archived).reduce((n, s) => n + (s.lessons ?? []).filter((l) => !l.archived).length, 0);
 }
+/** Visible lessons that hold at least one component (video, content, documents or an assignment): only these count as course content. */
+export function contentLessonCount(sections: Section[] | undefined): number {
+  return (sections ?? []).filter((s) => !s.archived).reduce(
+    (n, s) => n + (s.lessons ?? []).filter((l) => !l.archived && hasAnyComponent(bundleOf(l))).length, 0,
+  );
+}
 export function activeSectionCount(sections: Section[] | undefined): number {
   return (sections ?? []).filter((s) => !s.archived).length;
 }
 
 export function step3Error(course: Course | null): string | null {
-  return activeLessonCount(course?.sections) > 0 ? null : 'Thêm ít nhất một bài học để tiếp tục.';
+  return contentLessonCount(course?.sections) > 0 ? null : 'Thêm ít nhất một bài học có nội dung (video, nội dung, tài liệu hoặc bài tập) để tiếp tục.';
 }
 
 /** First blocking message of a step (null = the step is valid). Step 4 has no inputs of its own. */
@@ -168,7 +175,7 @@ export interface ChecklistContext extends WizardData {
 
 export function buildChecklist(ctx: ChecklistContext): CheckItem[] {
   const { form, course } = ctx;
-  const lessons = activeLessonCount(course?.sections);
+  const lessons = contentLessonCount(course?.sections);
   const paid = form.accessMode === 'PURCHASE_REQUIRED';
   const items: CheckItem[] = [
     {
@@ -185,7 +192,7 @@ export function buildChecklist(ctx: ChecklistContext): CheckItem[] {
     },
     {
       key: 'lessons', ok: lessons > 0, blocking: true, step: 3,
-      label: lessons > 0 ? `Đã có ${lessons} bài học` : 'Đã có ít nhất 1 bài học', fix: 'Thêm một danh mục và ít nhất một bài học ở bước Nội dung bài học.',
+      label: lessons > 0 ? `Đã có ${lessons} bài học có nội dung` : 'Đã có ít nhất 1 bài học có nội dung', fix: 'Thêm một danh mục và ít nhất một bài học có video, nội dung, tài liệu hoặc bài tập ở bước Nội dung bài học.',
     },
   ];
   if (paid) {

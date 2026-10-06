@@ -5,7 +5,7 @@ import { Modal } from '../../components/Modal';
 import { Avatar, Badge, Button, CoverImage } from '../../components/ui';
 import { formatDong } from '../../api/format';
 import { ModalActions } from './studioUi';
-import { LESSON_TYPE_LABELS } from './CourseContentStudio';
+import { bundleOf, componentChips } from '../../api/lessonComponents';
 import { CourseForm, activeLessonCount, parseDuration, parsePrice } from './courseWizardModel';
 
 // "Xem trước thẻ khóa học" / "Xem trước trang khóa học": static copies of what a learner sees in the Learn tab (CourseCard and
@@ -149,8 +149,7 @@ export const CourseDetailPreview: React.FC<PreviewProps & { classroom: Pick<Clas
                       <li key={lesson.id} className="grid min-h-[40px] grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 px-4 py-1.5 sm:px-6">
                         <span className="min-w-0 truncate text-meta font-medium text-slate-900">{lesson.title}</span>
                         <span className="flex-shrink-0 text-caption text-slate-500 tabular">
-                          {LESSON_TYPE_LABELS[lesson.type] ?? lesson.type}
-                          {lesson.durationMinutes > 0 ? ` · ${lesson.durationMinutes} phút` : ''}
+                          {[...componentChips(bundleOf(lesson)), lesson.durationMinutes > 0 ? `${lesson.durationMinutes} phút` : ''].filter(Boolean).join(' · ')}
                         </span>
                       </li>
                     ))}

@@ -21,6 +21,10 @@ public interface LessonRepository extends JpaRepository<Lesson, String> {
     long countBySectionId(String sectionId);
     List<Lesson> findByMediaAssetId(String mediaAssetId);
 
+    /** D-32: the lesson(s) that hold this media asset as an attached document. */
+    @Query("SELECT l FROM Lesson l WHERE l.id IN (SELECT a.lessonId FROM LessonAttachment a WHERE a.mediaAssetId = :assetId)")
+    List<Lesson> findByAttachmentMediaAssetId(@Param("assetId") String assetId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT l FROM Lesson l WHERE l.sectionId = :sectionId")
     List<Lesson> findBySectionIdForUpdate(@Param("sectionId") String sectionId);

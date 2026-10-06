@@ -168,20 +168,18 @@ public class LearningServiceTest {
     // ----- R8-09: createLesson must validate type/durationMinutes/position -----
 
     @Test
-    @DisplayName("R8-09: createLesson rejects an unsupported lesson type with BAD_REQUEST")
-    void createLessonRejectsUnsupportedType() {
+    @DisplayName("D-32: a requested lesson type is ignored; the stored type is derived from the components")
+    void createLessonIgnoresRequestedType() {
         com.classroom.modules.learning.model.Section section =
                 new com.classroom.modules.learning.model.Section("course-1", "Section 1", 0);
         section.setId("section-1");
         when(sectionRepository.findById("section-1")).thenReturn(Optional.of(section));
         when(courseRepository.findById("course-1")).thenReturn(Optional.of(course));
+        when(lessonRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        Lesson badLesson = new Lesson("section-1", "course-1", "Lesson X", "PODCAST", 0);
+        Lesson lesson = new Lesson("section-1", "course-1", "Lesson X", "PODCAST", 0);
 
-        AppException ex = assertThrows(AppException.class,
-                () -> learningService.createLesson("section-1", badLesson, "owner-1"));
-        assertEquals(com.classroom.common.ErrorCode.BAD_REQUEST, ex.getErrorCode());
-        verify(lessonRepository, never()).save(any());
+        assertEquals("TEXT", learningService.createLesson("section-1", lesson, "owner-1").getType());
     }
 
     @Test
@@ -234,7 +232,7 @@ public class LearningServiceTest {
 
         Lesson result = learningService.createLesson("section-1", goodLesson, "owner-1");
 
-        assertEquals("VIDEO", result.getType());
+        assertEquals("TEXT", result.getType(), "no video, document or assignment yet: derived TEXT");
         verify(lessonRepository).save(any());
     }
 

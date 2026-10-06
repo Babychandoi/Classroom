@@ -36,21 +36,21 @@ public class LessonController {
     }
 
     @PostMapping("/sections/{sectionId}/lessons")
-    public ResponseEntity<ApiResponse<Lesson>> createLesson(
+    public ResponseEntity<ApiResponse<LessonDto>> createLesson(
             @PathVariable String sectionId,
             @CurrentUser UserPrincipal principal,
             @RequestBody Lesson lesson) {
         Lesson created = learningService.createLesson(sectionId, lesson, principal.getId());
-        return ResponseEntity.ok(ApiResponse.ok(created));
+        return ResponseEntity.ok(ApiResponse.ok(learningService.toManagerView(created)));
     }
 
     @PutMapping("/lessons/{lessonId}")
-    public ResponseEntity<ApiResponse<Lesson>> updateLesson(
+    public ResponseEntity<ApiResponse<LessonDto>> updateLesson(
             @PathVariable String lessonId,
             @CurrentUser UserPrincipal principal,
             @RequestBody Lesson patch) {
         Lesson updated = learningService.updateLesson(lessonId, patch, principal.getId());
-        return ResponseEntity.ok(ApiResponse.ok(updated));
+        return ResponseEntity.ok(ApiResponse.ok(learningService.toManagerView(updated)));
     }
 
     @DeleteMapping("/lessons/{lessonId}")
@@ -62,12 +62,12 @@ public class LessonController {
     }
 
     @PostMapping("/lessons/{lessonId}/archive")
-    public ResponseEntity<ApiResponse<Lesson>> archiveLesson(
+    public ResponseEntity<ApiResponse<LessonDto>> archiveLesson(
             @PathVariable String lessonId,
             @CurrentUser UserPrincipal principal,
             @RequestParam(defaultValue = "true") boolean archived) {
         Lesson result = learningService.archiveLesson(lessonId, archived, principal.getId());
-        return ResponseEntity.ok(ApiResponse.ok(result));
+        return ResponseEntity.ok(ApiResponse.ok(learningService.toManagerView(result)));
     }
 
     @PutMapping("/sections/{sectionId}/lessons/reorder")

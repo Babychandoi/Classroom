@@ -16,6 +16,19 @@ public class LessonDto {
     private String videoProvider;
     private String videoUrl;
     private String embedUrl;
+    // D-32: components. hasAssignment / components are public metadata; attachments and instructions only for callers who may learn or manage.
+    private boolean hasAssignment;
+    private String assignmentInstructions;
+    private java.util.List<LessonAttachmentDto> attachments = java.util.List.of();
+    private LessonComponentsDto components;
+    public boolean isHasAssignment() { return hasAssignment; }
+    public void setHasAssignment(boolean hasAssignment) { this.hasAssignment = hasAssignment; }
+    public String getAssignmentInstructions() { return assignmentInstructions; }
+    public void setAssignmentInstructions(String assignmentInstructions) { this.assignmentInstructions = assignmentInstructions; }
+    public java.util.List<LessonAttachmentDto> getAttachments() { return attachments; }
+    public void setAttachments(java.util.List<LessonAttachmentDto> attachments) { this.attachments = attachments; }
+    public LessonComponentsDto getComponents() { return components; }
+    public void setComponents(LessonComponentsDto components) { this.components = components; }
     public String getVideoProvider() { return videoProvider; }
     public void setVideoProvider(String videoProvider) { this.videoProvider = videoProvider; }
     public String getVideoUrl() { return videoUrl; }

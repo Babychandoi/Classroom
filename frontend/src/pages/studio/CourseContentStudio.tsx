@@ -1,49 +1,61 @@
 import React, { useEffect, useId, useImperativeHandle, useRef, useState } from 'react';
 import {
-  Bold, Check, ChevronDown, ChevronRight, Circle, FileText, GripVertical, Heading2, Italic, Link2, List, ListOrdered, Pencil, Play, Plus, Trash2, Video,
+  Bold, Check, ChevronDown, ChevronRight, Circle, ClipboardCheck, FileText, GripVertical, Heading2, Italic, Link2, List, ListOrdered, Paperclip, Pencil, Play, Plus,
+  Trash2, Video,
 } from 'lucide-react';
-import type { Lesson, Section } from '../../types';
+import type { Lesson, LessonAttachment, LessonComponents, Section } from '../../types';
 import { api } from '../../api/client';
 import { putToObjectStore } from '../../api/upload';
 import { nextPosition } from '../../api/ordering';
+import { bundleOf, componentChips, formatBytes, hasAnyComponent } from '../../api/lessonComponents';
 import { Modal } from '../../components/Modal';
 import { SafeMarkdown } from '../../components/SafeMarkdown';
-import { Badge, Button, Input, Select, Textarea, Toggle, inputClass } from '../../components/ui';
+import { Badge, Button, Input, Textarea, Toggle, inputClass } from '../../components/ui';
 import { PROVIDER_LABEL, VideoProvider, parseVideoLink, videoLinkError } from '../../api/videoLinks';
 import { ModalActions } from './studioUi';
 
 // Step 3 of the course wizard ("Thêm bài học & tài liệu"): the content studio. Three columns on wide screens (structure tree,
-// lesson detail, preview + checklist), stacked on phones. It talks to the same section / lesson endpoints the old inline editor
-// used; the host only supplies the data and `onChanged` (re-read the course).
+// lesson detail, preview + checklist), stacked on phones. A lesson is a bundle of optional components - Video, Nội dung, Tài liệu
+// (several files), Bài tập - not one "type". Lesson fields are saved with "Lưu bài học"; documents are persisted the moment they are
+// added, renamed, reordered or removed.
 
-export const LESSON_TYPE_LABELS: Record<string, string> = { VIDEO: 'Video', TEXT: 'Văn bản', DOCUMENT: 'Tài liệu', ASSIGNMENT: 'Bài tập' };
-type LessonType = Lesson['type'];
 export const LESSON_TITLE_MAX = 200;
+export const MAX_ATTACHMENTS = 20;
 
 const cx = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(' ');
 
 interface LessonDraft {
   title: string;
-  type: LessonType;
   contentText: string;
   captionsVtt: string;
-  /** '' = no file. A new id only becomes the lesson's file when saved. */
+  /** Uploaded video ('' = none). A new id only becomes the lesson's video when saved. */
   mediaAssetId: string;
-  /** Pasted YouTube / Google Drive link ('' = none). A lesson has one video source: this or an uploaded file. */
+  /** Pasted YouTube / Google Drive link ('' = none). The video is one source: this or an uploaded file. */
   videoUrl: string;
+  hasAssignment: boolean;
+  assignmentInstructions: string;
   durationMinutes: number;
 }
-type VideoSource = 'UPLOAD' | VideoProvider;
+type VideoSource = 'NONE' | 'UPLOAD' | VideoProvider;
+
 const draftOf = (l: Lesson): LessonDraft => ({
-  title: l.title, type: l.type, contentText: l.contentText || '', captionsVtt: l.captionsVtt || '', mediaAssetId: l.mediaAssetId || '',
+  title: l.title,
+  contentText: l.contentText || '',
+  captionsVtt: l.captionsVtt || '',
+  mediaAssetId: l.mediaAssetId || '',
   videoUrl: l.videoProvider === 'YOUTUBE' || l.videoProvider === 'GOOGLE_DRIVE' ? l.videoUrl || '' : '',
+  hasAssignment: !!l.hasAssignment,
+  assignmentInstructions: l.assignmentInstructions || '',
   durationMinutes: l.durationMinutes || 0,
 });
+const sourceOf = (l: Lesson): VideoSource =>
+  l.videoProvider === 'YOUTUBE' || l.videoProvider === 'GOOGLE_DRIVE' ? l.videoProvider : l.mediaAssetId || l.videoProvider === 'UPLOAD' ? 'UPLOAD' : 'NONE';
 /** A pasted link and the canonical one the server stores for it are the same source. */
 const canonLink = (u: string) => parseVideoLink(u)?.videoUrl ?? u.trim();
 const sameDraft = (a: LessonDraft, b: LessonDraft) =>
-  a.title === b.title && a.type === b.type && a.contentText === b.contentText && a.captionsVtt === b.captionsVtt
-  && a.mediaAssetId === b.mediaAssetId && canonLink(a.videoUrl) === canonLink(b.videoUrl) && a.durationMinutes === b.durationMinutes;
+  a.title === b.title && a.contentText === b.contentText && a.captionsVtt === b.captionsVtt
+  && a.mediaAssetId === b.mediaAssetId && canonLink(a.videoUrl) === canonLink(b.videoUrl) && a.hasAssignment === b.hasAssignment
+  && a.assignmentInstructions === b.assignmentInstructions && a.durationMinutes === b.durationMinutes;
 
 /** Moves `movedId` next to `targetId` (before or after it) in `ids`. */
 export function reorderIds(ids: string[], movedId: string, targetId: string, after: boolean): string[] {
@@ -62,9 +74,11 @@ export interface ContentStudioHandle {
 
 type Confirm =
   | { kind: 'delete-section'; id: string; label: string }
-  | { kind: 'delete-lesson'; id: string; label: string };
+  | { kind: 'delete-lesson'; id: string; label: string }
+  | { kind: 'delete-attachment'; id: string; label: string };
 
-type Drag = { kind: 'lesson' | 'section'; id: string; sectionId?: string };
+/** `sectionId` is the parent list of the dragged row: its section for a lesson, the lesson for a document. */
+type Drag = { kind: 'lesson' | 'section' | 'attachment'; id: string; sectionId?: string };
 
 const MD_ACTIONS: { key: string; label: string; icon: React.ReactNode }[] = [
   { key: 'bold', label: 'In đậm', icon: <Bold className="h-4 w-4" strokeWidth={1.75} /> },
@@ -104,8 +118,8 @@ export function applyMarkdown(text: string, start: number, end: number, key: str
   }
 }
 
-const MarkdownEditor: React.FC<{ id: string; value: string; onChange: (v: string) => void; label: string; placeholder: string; disabled: boolean }> = ({
-  id, value, onChange, label, placeholder, disabled,
+const MarkdownEditor: React.FC<{ id: string; value: string; onChange: (v: string) => void; label: string; placeholder: string; disabled: boolean; rows?: number; testId?: string }> = ({
+  id, value, onChange, label, placeholder, disabled, rows = 8, testId = 'markdown-preview',
 }) => {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [preview, setPreview] = useState(false);
@@ -140,16 +154,45 @@ const MarkdownEditor: React.FC<{ id: string; value: string; onChange: (v: string
         </div>
       )}
       {preview ? (
-        <div data-testid="markdown-preview" className="min-h-[120px] rounded-input border border-slate-200 bg-white px-3.5 py-3">
+        <div data-testid={testId} className="min-h-[120px] rounded-input border border-slate-200 bg-white px-3.5 py-3">
           {value.trim() ? <SafeMarkdown source={value} size="body" /> : <p className="text-ui text-slate-500">Chưa có nội dung để xem trước.</p>}
         </div>
       ) : (
-        <Textarea ref={ref} id={id} rows={8} value={value} disabled={disabled} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+        <Textarea ref={ref} id={id} rows={rows} value={value} disabled={disabled} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
       )}
       <p className="text-caption text-slate-500">Hỗ trợ định dạng Markdown đơn giản: **đậm**, *nghiêng*, ## tiêu đề, danh sách và liên kết https.</p>
     </div>
   );
 };
+
+
+const FILE_INPUT_CLASS = 'block w-full text-meta text-slate-600 file:mr-3 file:h-9 file:cursor-pointer file:rounded-[10px] file:border file:border-solid file:border-slate-200 file:bg-white file:px-3 file:text-meta file:font-semibold file:text-slate-900 hover:file:bg-slate-100';
+
+/** Small component icons next to a lesson in the tree (the lesson has no single type). */
+const ComponentIcons: React.FC<{ bundle: LessonComponents }> = ({ bundle }) => {
+  const chips = componentChips(bundle);
+  if (chips.length === 0) return null;
+  return (
+    <span className="flex flex-shrink-0 items-center gap-1 pr-1 text-slate-500" title={chips.join(', ')}>
+      {bundle.video && <Video className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />}
+      {bundle.content && <FileText className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />}
+      {bundle.attachments > 0 && <Paperclip className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />}
+      {bundle.assignment && <ClipboardCheck className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />}
+      <span className="sr-only">{chips.join(', ')}</span>
+    </span>
+  );
+};
+
+const ComponentCard: React.FC<{ title: string; present: boolean; label: string; children: React.ReactNode; hint?: React.ReactNode }> = ({ title, present, label, children, hint }) => (
+  <section aria-label={title} className="space-y-4 rounded-card border border-slate-200 bg-white p-4 shadow-hairline sm:p-5">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h3 className="text-[16px] font-semibold leading-6 text-slate-900">{title}</h3>
+      <Badge tone={present ? 'success' : 'neutral'} size="sm">{present ? 'Đã có' : 'Chưa có'}<span className="sr-only"> {label}</span></Badge>
+    </div>
+    {hint && <p className="-mt-2 text-caption text-slate-500">{hint}</p>}
+    {children}
+  </section>
+);
 
 export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
   classId: string;
@@ -164,20 +207,22 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [draft, setDraft] = useState<LessonDraft | null>(null);
-  const [tab, setTab] = useState<'content' | 'docs'>('content');
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
   const [mediaName, setMediaName] = useState('');
-  const [source, setSource] = useState<VideoSource>('UPLOAD');
+  const [source, setSource] = useState<VideoSource>('NONE');
   const [switchTo, setSwitchTo] = useState<VideoSource | null>(null);
-  const [errors, setErrors] = useState<{ tree?: string; lesson?: string }>({});
+  const [errors, setErrors] = useState<{ tree?: string; lesson?: string; docs?: string }>({});
   const [addingSection, setAddingSection] = useState(false);
   const [newSectionTitle, setNewSectionTitle] = useState('');
   const [addingLessonIn, setAddingLessonIn] = useState<string | null>(null);
   const [newLessonTitle, setNewLessonTitle] = useState('');
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [editSectionTitle, setEditSectionTitle] = useState('');
+  const [editingAttId, setEditingAttId] = useState<string | null>(null);
+  const [editAttTitle, setEditAttTitle] = useState('');
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [pending, setPending] = useState(false);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -187,6 +232,7 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
 
   const allLessons = sections.flatMap((s) => s.lessons ?? []);
   const lesson = allLessons.find((l) => l.id === selectedId) ?? null;
+  const attachments: LessonAttachment[] = lesson?.attachments ?? [];
   const dirty = !!(lesson && draft && !sameDraft(draft, draftOf(lesson)));
   const lessonCount = sections.filter((s) => !s.archived).reduce((n, s) => n + (s.lessons ?? []).filter((l) => !l.archived).length, 0);
   const sectionCount = sections.filter((s) => !s.archived).length;
@@ -198,11 +244,11 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
     if (!lesson) { setDraft(null); return; }
     setDraft(draftOf(lesson));
     setMediaName('');
-    setSource(lesson.videoProvider === 'YOUTUBE' || lesson.videoProvider === 'GOOGLE_DRIVE' ? lesson.videoProvider : 'UPLOAD');
+    setSource(sourceOf(lesson));
     setSwitchTo(null);
-    setTab('content');
+    setEditingAttId(null);
     setSavedAt(null);
-    setErrors((e) => ({ ...e, lesson: undefined }));
+    setErrors((e) => ({ ...e, lesson: undefined, docs: undefined }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
@@ -226,24 +272,29 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
     document.querySelector<HTMLElement>(`[data-handle="${id}"]`)?.focus();
   }, [sections]);
 
-  const fail = (scope: 'tree' | 'lesson', message: string | null) => setErrors((e) => ({ ...e, [scope]: message ?? undefined }));
+  const fail = (scope: 'tree' | 'lesson' | 'docs', message: string | null) => setErrors((e) => ({ ...e, [scope]: message ?? undefined }));
+
+  const linkSource = source === 'YOUTUBE' || source === 'GOOGLE_DRIVE' ? source : null;
+  const linkErr = draft && linkSource ? videoLinkError(draft.videoUrl, linkSource) : null;
+  const link = draft && linkSource ? parseVideoLink(draft.videoUrl) : null;
 
   const saveLesson = async (): Promise<boolean> => {
     if (!lesson || !draft || !canEdit) return true;
     if (!draft.title.trim()) { fail('lesson', 'Nhập tên bài học trước khi lưu.'); return false; }
-    if (draft.type === 'VIDEO' && source !== 'UPLOAD' && videoLinkError(draft.videoUrl, source)) { fail('lesson', 'Sửa liên kết video trước khi lưu.'); return false; }
+    if (linkErr) { fail('lesson', 'Sửa liên kết video trước khi lưu.'); return false; }
+    if (draft.hasAssignment && !draft.assignmentInstructions.trim()) { fail('lesson', 'Nhập yêu cầu bài tập hoặc tắt “Có bài tập” trước khi lưu.'); return false; }
     setSaving(true);
     fail('lesson', null);
     try {
       await api.put(`/lessons/${lesson.id}`, {
         title: draft.title.trim(),
-        type: draft.type,
         contentText: draft.contentText,
         captionsVtt: draft.captionsVtt,
-        // A blank id detaches the file; null would leave it untouched.
-        mediaAssetId: draft.mediaAssetId,
-        // "" clears an external link; only VIDEO lessons take one (a lesson turned into another type must drop its link).
-        ...(draft.type === 'VIDEO' ? { videoUrl: draft.videoUrl.trim() } : lesson.videoProvider === 'YOUTUBE' || lesson.videoProvider === 'GOOGLE_DRIVE' ? { videoUrl: '' } : {}),
+        // One video source: a blank media id detaches the upload, a blank videoUrl clears the link (null would leave it untouched).
+        mediaAssetId: source === 'UPLOAD' ? draft.mediaAssetId : '',
+        videoUrl: linkSource ? draft.videoUrl.trim() : '',
+        hasAssignment: draft.hasAssignment,
+        assignmentInstructions: draft.assignmentInstructions,
         durationMinutes: draft.durationMinutes,
       });
       await onChanged();
@@ -265,23 +316,60 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
     setSelectedId(id);
   };
 
-  const uploadFile = async (file?: File) => {
+  /** Intent -> PUT to the object store -> complete; resolves the media asset id. */
+  const uploadAsset = async (file: File): Promise<string> => {
+    const intent = await api.post<{ assetId: string; uploadUrl: string }>(`/classes/${classId}/media/upload-intents`, {
+      filename: file.name, mimeType: file.type, sizeBytes: file.size, purpose: 'LESSON', scopeCourseId: courseId,
+    });
+    await putToObjectStore(intent.uploadUrl, file, 'Tải file thất bại');
+    await api.post(`/media/${intent.assetId}/complete`);
+    return intent.assetId;
+  };
+
+  const uploadVideo = async (file?: File) => {
     if (!file || !draft) return;
     setUploading(true);
     fail('lesson', null);
     try {
-      const intent = await api.post<{ assetId: string; uploadUrl: string }>(`/classes/${classId}/media/upload-intents`, {
-        filename: file.name, mimeType: file.type, sizeBytes: file.size, purpose: 'LESSON', scopeCourseId: courseId,
-      });
-      await putToObjectStore(intent.uploadUrl, file, 'Tải file thất bại');
-      await api.post(`/media/${intent.assetId}/complete`);
-      setDraft((d) => (d ? { ...d, mediaAssetId: intent.assetId } : d));
+      const assetId = await uploadAsset(file);
+      setDraft((d) => (d ? { ...d, mediaAssetId: assetId } : d));
       setMediaName(file.name);
     } catch (err: any) {
       fail('lesson', err.message || 'Không thể tải media');
     } finally {
       setUploading(false);
     }
+  };
+
+  // ---- documents: persisted immediately -------------------------------------------------------------------------------
+  const addDocuments = async (files: FileList | null) => {
+    if (!lesson || !files || files.length === 0) return;
+    setUploadingDoc(true);
+    fail('docs', null);
+    let count = attachments.length;
+    try {
+      for (const file of Array.from(files)) {
+        if (count >= MAX_ATTACHMENTS) { fail('docs', `Mỗi bài học tối đa ${MAX_ATTACHMENTS} tài liệu.`); break; }
+        const assetId = await uploadAsset(file);
+        await api.post(`/lessons/${lesson.id}/attachments`, { mediaAssetId: assetId, title: file.name });
+        count += 1;
+      }
+    } catch (err: any) {
+      fail('docs', err.message || 'Không thể tải tài liệu');
+    } finally {
+      setUploadingDoc(false);
+      await onChanged();
+    }
+  };
+
+  const renameAttachment = async () => {
+    if (!lesson || !editingAttId || !editAttTitle.trim()) return;
+    fail('docs', null);
+    try {
+      await api.patch(`/lessons/${lesson.id}/attachments/${editingAttId}`, { title: editAttTitle.trim() });
+      setEditingAttId(null);
+      await onChanged();
+    } catch (err: any) { fail('docs', err.message || 'Không thể đổi tên tài liệu'); }
   };
 
   // ---- tree actions --------------------------------------------------------------------------------------------------
@@ -296,13 +384,14 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
     } catch (err: any) { fail('tree', err.message || 'Tạo danh mục thất bại'); }
   };
 
+  /** Creating a lesson takes just a title: an empty bundle you then fill component by component. */
   const addLesson = async (section: Section) => {
     if (!newLessonTitle.trim()) return;
     fail('tree', null);
     if (dirty && !(await saveLesson())) return;
     try {
       const created = await api.post<Lesson>(`/sections/${section.id}/lessons`, {
-        title: newLessonTitle, type: 'VIDEO', contentText: '', captionsVtt: '', mediaAssetId: null, position: nextPosition(section.lessons),
+        title: newLessonTitle, contentText: '', captionsVtt: '', position: nextPosition(section.lessons),
       });
       setNewLessonTitle('');
       setAddingLessonIn(null);
@@ -340,15 +429,17 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
   };
 
   const runConfirm = async (c: Confirm) => {
+    const scope = c.kind === 'delete-lesson' ? 'lesson' : c.kind === 'delete-attachment' ? 'docs' : 'tree';
     setPending(true);
     try {
       if (c.kind === 'delete-section') await api.delete(`/sections/${c.id}`);
+      else if (c.kind === 'delete-attachment') await api.delete(`/lessons/${lesson?.id}/attachments/${c.id}`);
       else await api.delete(`/lessons/${c.id}`);
       if (c.kind === 'delete-lesson' && c.id === selectedId) setSelectedId(null);
       await onChanged();
-      fail(c.kind === 'delete-lesson' ? 'lesson' : 'tree', null);
+      fail(scope, null);
     } catch (err: any) {
-      fail(c.kind === 'delete-lesson' ? 'lesson' : 'tree', err.message || 'Thao tác thất bại');
+      fail(scope, err.message || 'Thao tác thất bại');
     } finally {
       setPending(false);
       setConfirm(null);
@@ -356,42 +447,44 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
   };
 
   // ---- reordering (drag and drop + Alt+arrow on the handle) --------------------------------------------------------------
-  const sendOrder = async (kind: 'lesson' | 'section', sectionId: string | undefined, order: string[], movedId: string) => {
-    fail('tree', null);
+  const sendOrder = async (kind: Drag['kind'], parentId: string | undefined, order: string[], movedId: string) => {
+    const scope = kind === 'attachment' ? 'docs' : 'tree';
+    fail(scope, null);
     try {
       if (kind === 'section') await api.put(`/courses/${courseId}/sections/reorder`, order);
-      else await api.put(`/sections/${sectionId}/lessons/reorder`, order);
+      else if (kind === 'attachment') await api.put(`/lessons/${parentId}/attachments/reorder`, { ids: order });
+      else await api.put(`/sections/${parentId}/lessons/reorder`, order);
       focusHandle.current = movedId;
       setAnnounce(`Đã chuyển đến vị trí ${order.indexOf(movedId) + 1} trên ${order.length}`);
       await onChanged();
     } catch (err: any) {
-      fail('tree', err.message || (kind === 'section' ? 'Không thể sắp xếp lại danh mục' : 'Không thể sắp xếp lại bài học'));
+      fail(scope, err.message || (kind === 'section' ? 'Không thể sắp xếp lại danh mục' : kind === 'attachment' ? 'Không thể sắp xếp lại tài liệu' : 'Không thể sắp xếp lại bài học'));
     }
   };
 
-  const moveBy = (kind: 'lesson' | 'section', sectionId: string | undefined, list: { id: string }[], id: string, delta: -1 | 1) => {
+  const moveBy = (kind: Drag['kind'], parentId: string | undefined, list: { id: string }[], id: string, delta: -1 | 1) => {
     const index = list.findIndex((x) => x.id === id);
     const target = index + delta;
     if (index < 0 || target < 0 || target >= list.length) return;
-    void sendOrder(kind, sectionId, reorderIds(list.map((x) => x.id), id, list[target].id, delta > 0), id);
+    void sendOrder(kind, parentId, reorderIds(list.map((x) => x.id), id, list[target].id, delta > 0), id);
   };
 
-  const handleKey = (e: React.KeyboardEvent, kind: 'lesson' | 'section', sectionId: string | undefined, list: { id: string }[], id: string) => {
+  const handleKey = (e: React.KeyboardEvent, kind: Drag['kind'], parentId: string | undefined, list: { id: string }[], id: string) => {
     if (!canEdit || !e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
-    moveBy(kind, sectionId, list, id, e.key === 'ArrowUp' ? -1 : 1);
+    moveBy(kind, parentId, list, id, e.key === 'ArrowUp' ? -1 : 1);
   };
 
-  const dragProps = (kind: 'lesson' | 'section', id: string, sectionId: string | undefined, list: { id: string }[]) => ({
+  const dragProps = (kind: Drag['kind'], id: string, parentId: string | undefined, list: { id: string }[]) => ({
     draggable: canEdit,
     onDragStart: (e: React.DragEvent) => {
       e.stopPropagation();
-      setDrag({ kind, id, sectionId });
+      setDrag({ kind, id, sectionId: parentId });
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', id);
     },
     onDragOver: (e: React.DragEvent) => {
-      if (!drag || drag.kind !== kind || drag.id === id || (kind === 'lesson' && drag.sectionId !== sectionId)) return;
+      if (!drag || drag.kind !== kind || drag.id === id || (kind !== 'section' && drag.sectionId !== parentId)) return;
       e.preventDefault();
       e.stopPropagation();
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -405,7 +498,7 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
       const order = reorderIds(list.map((x) => x.id), drag.id, id, after);
       setDrag(null);
       setOver(null);
-      if (order.join() !== list.map((x) => x.id).join()) void sendOrder(kind, sectionId, order, drag.id);
+      if (order.join() !== list.map((x) => x.id).join()) void sendOrder(kind, parentId, order, drag.id);
     },
     onDragEnd: () => { setDrag(null); setOver(null); },
   });
@@ -415,7 +508,7 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
 
   const wantsSource = (to: VideoSource) => {
     if (!draft || to === source) return;
-    const discards = source === 'UPLOAD' ? !!draft.mediaAssetId : !!draft.videoUrl.trim();
+    const discards = source === 'UPLOAD' ? !!draft.mediaAssetId : source !== 'NONE' ? !!draft.videoUrl.trim() : false;
     if (discards) setSwitchTo(to);
     else setSource(to);
   };
@@ -426,12 +519,10 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
     setSource(switchTo);
     setSwitchTo(null);
   };
+  const sourceLabel = (src: VideoSource) => (src === 'NONE' ? 'Không có' : src === 'UPLOAD' ? 'Tải lên' : PROVIDER_LABEL[src]);
 
   // ---- render --------------------------------------------------------------------------------------------------------
   const card = 'rounded-card border border-slate-200 bg-white p-4 shadow-hairline sm:p-5';
-  const hasContent = !!(draft && (draft.contentText.trim() || draft.mediaAssetId || draft.videoUrl.trim() || draft.captionsVtt.trim()));
-  const hasMedia = !!draft?.mediaAssetId;
-  const tabs = draft && draft.type !== 'VIDEO' ? ([['content', 'Nội dung'], ['docs', 'Tài liệu']] as const) : ([['content', 'Nội dung']] as const);
 
   const tree = (
     <section aria-label="Cấu trúc nội dung" className={card}>
@@ -446,7 +537,10 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
           const open = !collapsed.has(section.id);
           const panelId = `${ids}-s-${section.id}`;
           return (
-            <div key={section.id} className={cx('rounded-2xl border border-slate-200', drag?.id === section.id && 'opacity-50', dropMark(section.id))} {...dragProps('section', section.id, undefined, sections)} draggable={canEdit && editingSectionId !== section.id && addingLessonIn !== section.id}>
+            <div
+              key={section.id} className={cx('rounded-2xl border border-slate-200', drag?.id === section.id && 'opacity-50', dropMark(section.id))}
+              {...dragProps('section', section.id, undefined, sections)} draggable={canEdit && editingSectionId !== section.id && addingLessonIn !== section.id}
+            >
               {editingSectionId === section.id ? (
                 <div className="flex flex-col gap-2 rounded-t-2xl bg-slate-50 p-3">
                   <input
@@ -524,6 +618,7 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
                           <span className="truncate text-ui text-slate-900">{l.title}</span>
                           {l.archived && <Badge tone="warn" size="xs" className="flex-shrink-0">Nháp</Badge>}
                         </button>
+                        <ComponentIcons bundle={bundleOf(l)} />
                       </li>
                     ))}
                   </ul>
@@ -583,17 +678,25 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
   );
 
   const titleId = `${ids}-title`;
-  const typeId = `${ids}-type`;
   const durId = `${ids}-dur`;
   const bodyId = `${ids}-body`;
   const vttId = `${ids}-vtt`;
   const fileId = `${ids}-file`;
   const linkId = `${ids}-link`;
+  const docsId = `${ids}-docs`;
+  const taskId = `${ids}-task`;
   const disabled = !canEdit || saving;
-  const linkErr = draft && draft.type === 'VIDEO' && source !== 'UPLOAD' ? videoLinkError(draft.videoUrl, source) : null;
-  const link = draft && draft.type === 'VIDEO' && source !== 'UPLOAD' ? parseVideoLink(draft.videoUrl) : null;
 
-  const detail = !lesson || !draft ? (
+  // What the lesson contains right now: unsaved video / content / assignment edits plus the documents already on the server.
+  const live: LessonComponents | null = draft ? {
+    video: source === 'UPLOAD' ? !!draft.mediaAssetId : !!link && !linkErr,
+    videoProvider: source === 'UPLOAD' ? (draft.mediaAssetId ? 'UPLOAD' : null) : link && !linkErr ? link.provider : null,
+    content: !!draft.contentText.trim(),
+    attachments: attachments.length,
+    assignment: draft.hasAssignment,
+  } : null;
+
+  const detail = !lesson || !draft || !live ? (
     <section aria-label="Chi tiết bài học" className={cx(card, 'flex min-h-[220px] flex-col items-center justify-center text-center')}>
       <span aria-hidden="true" className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-community bg-slate-100 text-slate-500"><FileText className="h-6 w-6" strokeWidth={1.5} /></span>
       <h3 className="text-[16px] font-semibold text-slate-900">Chi tiết bài học</h3>
@@ -605,26 +708,18 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
         <h3 className="text-[16px] font-semibold leading-6 text-slate-900">Chi tiết bài học</h3>
         <div className="space-y-1.5">
           <div className="flex items-baseline justify-between gap-3">
-            <label htmlFor={titleId} className="block text-meta font-semibold text-slate-900">A. Tên bài học <span className="text-red-600" aria-hidden="true">*</span></label>
+            <label htmlFor={titleId} className="block text-meta font-semibold text-slate-900">Tên bài học <span className="text-red-600" aria-hidden="true">*</span></label>
             <span className="text-caption text-slate-500 tabular" aria-hidden="true">{draft.title.length}/{LESSON_TITLE_MAX}</span>
           </div>
           <Input id={titleId} value={draft.title} maxLength={LESSON_TITLE_MAX} disabled={disabled} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <label htmlFor={typeId} className="block text-meta font-semibold text-slate-900">Loại bài học</label>
-            <Select id={typeId} value={draft.type} disabled={disabled} onChange={(e) => { setDraft({ ...draft, type: e.target.value as LessonType }); setTab('content'); }}>
-              <option value="VIDEO">Video</option><option value="TEXT">Văn bản</option><option value="DOCUMENT">Tài liệu</option><option value="ASSIGNMENT">Bài tập</option>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <label htmlFor={durId} className="block text-meta font-semibold text-slate-900">Thời lượng (phút)</label>
-            <Input id={durId} type="number" min={0} className="tabular" value={draft.durationMinutes} disabled={disabled} onChange={(e) => setDraft({ ...draft, durationMinutes: parseInt(e.target.value) || 0 })} />
-          </div>
+        <div className="space-y-1.5 sm:max-w-[220px]">
+          <label htmlFor={durId} className="block text-meta font-semibold text-slate-900">Thời lượng (phút)</label>
+          <Input id={durId} type="number" min={0} className="tabular" value={draft.durationMinutes} disabled={disabled} onChange={(e) => setDraft({ ...draft, durationMinutes: parseInt(e.target.value) || 0 })} />
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 px-4 py-3">
           <div className="min-w-0">
-            <p className="text-ui font-semibold text-slate-900">B. Nháp</p>
+            <p className="text-ui font-semibold text-slate-900">Nháp</p>
             <p className="text-meta text-slate-600">Bài nháp bị ẩn với học viên; bỏ chọn để hiển thị.</p>
           </div>
           <Toggle label="Nháp (ẩn với học viên)" checked={!!lesson.archived} disabled={!canEdit} onChange={(v) => void toggleDraftState(v)} />
@@ -636,128 +731,184 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
             </Button>
           </div>
         )}
+        <p className="text-caption text-slate-500">Một bài học có thể gồm video, nội dung, tài liệu và bài tập. Thêm thành phần nào tùy bạn; cần ít nhất một thành phần để khóa học xuất bản được.</p>
       </section>
 
-      <section aria-label="Thêm nội dung" className={cx(card, 'space-y-4')}>
-        <h3 className="text-[16px] font-semibold leading-6 text-slate-900">C. Thêm nội dung</h3>
-        <div role="tablist" aria-label="Loại nội dung" className="flex gap-1 border-b border-slate-200">
-          {tabs.map(([key, label], i) => (
+      <ComponentCard title="Video" present={live.video} label="video">
+        <div role="tablist" aria-label="Nguồn video" className="inline-flex flex-wrap rounded-btn bg-slate-100 p-1">
+          {(['NONE', 'UPLOAD', 'YOUTUBE', 'GOOGLE_DRIVE'] as const).map((src, i, all) => (
             <button
-              key={key} type="button" role="tab" id={`${ids}-tab-${key}`} aria-selected={tab === key} aria-controls={`${ids}-panel-${key}`} tabIndex={tab === key ? 0 : -1}
-              onClick={() => setTab(key)}
+              key={src} type="button" role="tab" id={`${ids}-src-${src}`} aria-selected={source === src} tabIndex={source === src ? 0 : -1} disabled={disabled}
+              onClick={() => wantsSource(src)}
               onKeyDown={(e) => {
-                if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-                  e.preventDefault();
-                  const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length][0];
-                  setTab(next);
-                  document.getElementById(`${ids}-tab-${next}`)?.focus();
-                }
+                if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+                e.preventDefault();
+                const next = all[(i + (e.key === 'ArrowRight' ? 1 : all.length - 1)) % all.length];
+                wantsSource(next);
+                document.getElementById(`${ids}-src-${next}`)?.focus();
               }}
-              className={cx('-mb-px h-10 border-b-2 px-4 text-ui font-semibold', tab === key ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-600 hover:text-slate-900')}
+              className={cx('h-9 rounded-[9px] px-3.5 text-meta font-semibold', source === src ? 'bg-white text-slate-900 shadow-hairline' : 'text-slate-600 hover:text-slate-900')}
             >
-              {label}
+              {sourceLabel(src)}
             </button>
           ))}
         </div>
-
-        {tab === 'content' && (
-          <div role="tabpanel" id={`${ids}-panel-content`} aria-labelledby={`${ids}-tab-content`} className="space-y-4">
-            {draft.type === 'VIDEO' ? (
-              <>
-                <div role="tablist" aria-label="Nguồn video" className="inline-flex rounded-btn bg-slate-100 p-1">
-                  {(['UPLOAD', 'YOUTUBE', 'GOOGLE_DRIVE'] as const).map((src, i, all) => (
-                    <button
-                      key={src} type="button" role="tab" id={`${ids}-src-${src}`} aria-selected={source === src} tabIndex={source === src ? 0 : -1} disabled={disabled}
-                      onClick={() => wantsSource(src)}
-                      onKeyDown={(e) => {
-                        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-                        e.preventDefault();
-                        const next = all[(i + (e.key === 'ArrowRight' ? 1 : all.length - 1)) % all.length];
-                        wantsSource(next);
-                        document.getElementById(`${ids}-src-${next}`)?.focus();
-                      }}
-                      className={cx('h-9 rounded-[9px] px-3.5 text-meta font-semibold', source === src ? 'bg-white text-slate-900 shadow-hairline' : 'text-slate-600 hover:text-slate-900')}
-                    >
-                      {src === 'UPLOAD' ? 'Tải lên' : PROVIDER_LABEL[src]}
-                    </button>
-                  ))}
-                </div>
-                {source === 'UPLOAD' ? (
-                  <>
-                    <div className="space-y-1.5">
-                      <label htmlFor={fileId} className="block text-meta font-semibold text-slate-900">Video bài học (tải lên)</label>
-                      <input id={fileId} type="file" accept="video/*" disabled={disabled || uploading} onChange={(e) => uploadFile(e.target.files?.[0])}
-                        className="block w-full text-meta text-slate-600 file:mr-3 file:h-9 file:cursor-pointer file:rounded-[10px] file:border file:border-solid file:border-slate-200 file:bg-white file:px-3 file:text-meta file:font-semibold file:text-slate-900 hover:file:bg-slate-100" />
-                      <p className="text-caption text-slate-500">Video được tải lên kho lưu trữ của hệ thống. Muốn dùng video có sẵn, chọn tab YouTube hoặc Google Drive.</p>
-                    </div>
-                    <FileState uploading={uploading} assetId={draft.mediaAssetId} name={mediaName} url={lesson.mediaAssetId === draft.mediaAssetId ? lesson.mediaDownloadUrl : undefined} onRemove={() => setDraft({ ...draft, mediaAssetId: '' })} disabled={disabled} />
-                  </>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="space-y-1.5">
-                      <label htmlFor={linkId} className="block text-meta font-semibold text-slate-900">Liên kết video {PROVIDER_LABEL[source]}</label>
-                      <Input
-                        id={linkId} inputMode="url" autoComplete="off" value={draft.videoUrl} disabled={disabled} aria-invalid={!!linkErr} aria-describedby={`${linkId}-hint`}
-                        placeholder={source === 'YOUTUBE' ? 'https://www.youtube.com/watch?v=…' : 'https://drive.google.com/file/d/…/view'}
-                        onChange={(e) => setDraft({ ...draft, videoUrl: e.target.value })}
-                      />
-                      {linkErr ? (
-                        <p id={`${linkId}-hint`} role="alert" className="text-caption text-red-600">{linkErr}</p>
-                      ) : (
-                        <p id={`${linkId}-hint`} className="text-caption text-slate-500">
-                          {source === 'YOUTUBE'
-                            ? 'Dán liên kết video YouTube (watch, youtu.be, shorts, embed). Video được phát bằng youtube-nocookie.com.'
-                            : 'Dán liên kết tệp video trên Google Drive và đặt quyền chia sẻ “Bất kỳ ai có liên kết”, nếu không học viên sẽ không xem được.'}
-                        </p>
-                      )}
-                    </div>
-                    {link && !linkErr && (
-                      <div className="aspect-video w-full max-w-[520px] overflow-hidden rounded-2xl bg-black">
-                        <iframe
-                          title={`Xem trước video ${PROVIDER_LABEL[link.provider]}`} src={link.embedUrl} loading="lazy"
-                          allow="autoplay; encrypted-media; picture-in-picture; fullscreen" referrerPolicy="strict-origin-when-cross-origin"
-                          sandbox="allow-scripts allow-same-origin allow-presentation allow-popups" className="h-full w-full border-0"
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="space-y-1.5">
-                  <label htmlFor={bodyId} className="block text-meta font-semibold text-slate-900">Bản chép lời và mô tả hình ảnh của video</label>
-                  <Textarea id={bodyId} rows={5} value={draft.contentText} disabled={disabled} placeholder="Bản chép lời và mô tả hình ảnh của video" onChange={(e) => setDraft({ ...draft, contentText: e.target.value })} />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor={vttId} className="block text-meta font-semibold text-slate-900">Phụ đề WebVTT</label>
-                  <Textarea id={vttId} rows={5} maxLength={1000000} className="font-mono text-meta" value={draft.captionsVtt} disabled={disabled}
-                    placeholder={'WEBVTT\n\n00:00.000 --> 00:05.000\nLời giảng và âm thanh cần thiết'} onChange={(e) => setDraft({ ...draft, captionsVtt: e.target.value })} />
-                  <p className="text-caption text-slate-500">Cung cấp lời thoại, người nói và âm thanh cần thiết; mô tả hình ảnh trong nội dung bài học.</p>
-                </div>
-              </>
-            ) : (
-              <MarkdownEditor
-                id={bodyId} value={draft.contentText} disabled={disabled} onChange={(v) => setDraft({ ...draft, contentText: v })}
-                label={draft.type === 'ASSIGNMENT' ? 'Yêu cầu bài tập' : draft.type === 'DOCUMENT' ? 'Mô tả tài liệu' : 'Nội dung bài viết'}
-                placeholder={draft.type === 'ASSIGNMENT' ? 'Mô tả yêu cầu, tiêu chí chấm và hạn nộp...' : 'Soạn nội dung bài học...'}
+        {source === 'NONE' && <p className="text-meta text-slate-500">Bài học này chưa có video. Chọn một nguồn nếu bạn muốn thêm.</p>}
+        {source === 'UPLOAD' && (
+          <>
+            <div className="space-y-1.5">
+              <label htmlFor={fileId} className="block text-meta font-semibold text-slate-900">Video bài học (tải lên)</label>
+              <input id={fileId} type="file" accept="video/*" disabled={disabled || uploading} onChange={(e) => uploadVideo(e.target.files?.[0])} className={FILE_INPUT_CLASS} />
+              <p className="text-caption text-slate-500">Video được tải lên kho lưu trữ của hệ thống. Muốn dùng video có sẵn, chọn YouTube hoặc Google Drive.</p>
+            </div>
+            <FileState uploading={uploading} assetId={draft.mediaAssetId} name={mediaName} url={lesson.mediaAssetId === draft.mediaAssetId ? lesson.mediaDownloadUrl : undefined} onRemove={() => setDraft({ ...draft, mediaAssetId: '' })} disabled={disabled} />
+          </>
+        )}
+        {linkSource && (
+          <div className="space-y-2">
+            <div className="space-y-1.5">
+              <label htmlFor={linkId} className="block text-meta font-semibold text-slate-900">Liên kết video {PROVIDER_LABEL[linkSource]}</label>
+              <Input
+                id={linkId} inputMode="url" autoComplete="off" value={draft.videoUrl} disabled={disabled} aria-invalid={!!linkErr} aria-describedby={`${linkId}-hint`}
+                placeholder={linkSource === 'YOUTUBE' ? 'https://www.youtube.com/watch?v=…' : 'https://drive.google.com/file/d/…/view'}
+                onChange={(e) => setDraft({ ...draft, videoUrl: e.target.value })}
               />
+              {linkErr ? (
+                <p id={`${linkId}-hint`} role="alert" className="text-caption text-red-600">{linkErr}</p>
+              ) : (
+                <p id={`${linkId}-hint`} className="text-caption text-slate-500">
+                  {linkSource === 'YOUTUBE'
+                    ? 'Dán liên kết video YouTube (watch, youtu.be, shorts, embed). Video được phát bằng youtube-nocookie.com.'
+                    : 'Dán liên kết tệp video trên Google Drive và đặt quyền chia sẻ “Bất kỳ ai có liên kết”, nếu không học viên sẽ không xem được.'}
+                </p>
+              )}
+            </div>
+            {link && !linkErr && (
+              <div className="aspect-video w-full max-w-[520px] overflow-hidden rounded-2xl bg-black">
+                <iframe
+                  title={`Xem trước video ${PROVIDER_LABEL[link.provider]}`} src={link.embedUrl} loading="lazy"
+                  allow="autoplay; encrypted-media; picture-in-picture; fullscreen" referrerPolicy="strict-origin-when-cross-origin"
+                  sandbox="allow-scripts allow-same-origin allow-presentation allow-popups" className="h-full w-full border-0"
+                />
+              </div>
             )}
           </div>
         )}
-
-        {tab === 'docs' && draft.type !== 'VIDEO' && (
-          <div role="tabpanel" id={`${ids}-panel-docs`} aria-labelledby={`${ids}-tab-docs`} className="space-y-3">
-            <div className="space-y-1.5">
-              <label htmlFor={fileId} className="block text-meta font-semibold text-slate-900">{draft.type === 'DOCUMENT' ? 'Tài liệu (PDF)' : 'Tệp đính kèm'}</label>
-              <input id={fileId} type="file" accept={draft.type === 'DOCUMENT' ? 'application/pdf,.pdf' : undefined} disabled={disabled || uploading} onChange={(e) => uploadFile(e.target.files?.[0])}
-                className="block w-full text-meta text-slate-600 file:mr-3 file:h-9 file:cursor-pointer file:rounded-[10px] file:border file:border-solid file:border-slate-200 file:bg-white file:px-3 file:text-meta file:font-semibold file:text-slate-900 hover:file:bg-slate-100" />
-              <p className="text-caption text-slate-500">Mỗi bài học đính kèm được một tệp.</p>
-            </div>
-            <FileState uploading={uploading} assetId={draft.mediaAssetId} name={mediaName} url={lesson.mediaAssetId === draft.mediaAssetId ? lesson.mediaDownloadUrl : undefined} onRemove={() => setDraft({ ...draft, mediaAssetId: '' })} disabled={disabled} />
+        {source !== 'NONE' && (
+          <div className="space-y-1.5">
+            <label htmlFor={vttId} className="block text-meta font-semibold text-slate-900">Phụ đề WebVTT</label>
+            <Textarea id={vttId} rows={4} maxLength={1000000} className="font-mono text-meta" value={draft.captionsVtt} disabled={disabled}
+              placeholder={'WEBVTT\n\n00:00.000 --> 00:05.000\nLời giảng và âm thanh cần thiết'} onChange={(e) => setDraft({ ...draft, captionsVtt: e.target.value })} />
+            <p className="text-caption text-slate-500">Cung cấp lời thoại, người nói và âm thanh cần thiết. Bản chép lời và mô tả hình ảnh viết ở thẻ “Nội dung” bên dưới.</p>
           </div>
         )}
+      </ComponentCard>
 
+      <ComponentCard title="Nội dung" present={live.content} label="nội dung">
+        <MarkdownEditor
+          id={bodyId} value={draft.contentText} disabled={disabled} onChange={(v) => setDraft({ ...draft, contentText: v })}
+          label="Nội dung bài học" placeholder="Soạn nội dung bài học, hoặc bản chép lời và mô tả hình ảnh của video..."
+        />
+      </ComponentCard>
+
+      <ComponentCard
+        title="Tài liệu" present={live.attachments > 0} label="tài liệu"
+        hint="Tài liệu được lưu ngay khi bạn thêm, đổi tên, sắp xếp hoặc xóa; không cần bấm “Lưu bài học”."
+      >
+        {attachments.length > 0 ? (
+          <ul className="divide-y divide-slate-100 rounded-2xl border border-slate-200">
+            {attachments.map((att) => (
+              <li
+                key={att.id} className={cx('flex items-center gap-1 px-2 py-2', drag?.id === att.id && 'opacity-50', dropMark(att.id))}
+                {...dragProps('attachment', att.id, lesson.id, attachments)}
+              >
+                {canEdit && (
+                  <button
+                    type="button" data-handle={att.id} onKeyDown={(e) => handleKey(e, 'attachment', lesson.id, attachments, att.id)}
+                    aria-label={`Sắp xếp tài liệu "${att.title}": kéo thả, hoặc nhấn Alt + mũi tên lên/xuống`}
+                    className="inline-flex h-9 w-6 flex-shrink-0 cursor-grab items-center justify-center rounded-[8px] text-slate-500 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                  >
+                    <GripVertical className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                  </button>
+                )}
+                {editingAttId === att.id ? (
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    <input
+                      aria-label="Tên tài liệu" value={editAttTitle} maxLength={200} autoFocus onChange={(e) => setEditAttTitle(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void renameAttachment(); } if (e.key === 'Escape') setEditingAttId(null); }}
+                      className={inputClass('h-9 min-w-[140px] flex-1')}
+                    />
+                    <Button size="sm" variant="primary" onClick={renameAttachment}>Lưu tên</Button>
+                    <Button size="sm" variant="secondary" onClick={() => setEditingAttId(null)}>Hủy</Button>
+                  </div>
+                ) : (
+                  <>
+                    <Paperclip className="h-4 w-4 flex-shrink-0 text-slate-500" strokeWidth={1.75} aria-hidden="true" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-ui font-medium text-slate-900">{att.title}</span>
+                      <span className="block truncate text-caption text-slate-500 tabular">{[att.fileName && att.fileName !== att.title ? att.fileName : null, formatBytes(att.sizeBytes)].filter(Boolean).join(' · ')}</span>
+                    </span>
+                    {canEdit && (
+                      <>
+                        <button
+                          type="button" aria-label={`Đổi tên tài liệu "${att.title}"`} title="Đổi tên"
+                          onClick={() => { setEditingAttId(att.id); setEditAttTitle(att.title); }}
+                          className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[8px] text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                        >
+                          <Pencil className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button" aria-label={`Xóa tài liệu "${att.title}"`} title="Xóa tài liệu"
+                          onClick={() => setConfirm({ kind: 'delete-attachment', id: att.id, label: `xóa tài liệu "${att.title}" khỏi bài học` })}
+                          className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[8px] text-slate-500 hover:bg-red-50 hover:text-red-600"
+                        >
+                          <Trash2 className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-meta text-slate-500">Chưa có tài liệu nào.</p>
+        )}
+        {errors.docs && <p role="alert" className="text-meta font-medium text-red-600">{errors.docs}</p>}
+        {canEdit && (
+          <div className="space-y-1.5">
+            <label htmlFor={docsId} className="block text-meta font-semibold text-slate-900">Thêm tài liệu ({attachments.length}/{MAX_ATTACHMENTS})</label>
+            <input
+              id={docsId} type="file" multiple disabled={uploadingDoc || attachments.length >= MAX_ATTACHMENTS}
+              onChange={(e) => { const files = e.target.files; void addDocuments(files).then(() => { if (e.target) e.target.value = ''; }); }}
+              className={FILE_INPUT_CLASS}
+            />
+            {uploadingDoc && <p role="status" className="text-meta text-slate-600">Đang tải tài liệu lên...</p>}
+          </div>
+        )}
+      </ComponentCard>
+
+      <ComponentCard title="Bài tập" present={live.assignment} label="bài tập">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-ui font-semibold text-slate-900">Có bài tập</p>
+            <p className="text-meta text-slate-600">Học viên nộp bài làm bằng văn bản; bạn chấm ở mục Chấm bài.</p>
+          </div>
+          <Toggle label="Có bài tập" checked={draft.hasAssignment} disabled={disabled} onChange={(v) => setDraft({ ...draft, hasAssignment: v })} />
+        </div>
+        {draft.hasAssignment && (
+          <MarkdownEditor
+            id={taskId} rows={6} testId="assignment-preview" value={draft.assignmentInstructions} disabled={disabled}
+            onChange={(v) => setDraft({ ...draft, assignmentInstructions: v })}
+            label="Yêu cầu bài tập" placeholder="Mô tả yêu cầu, tiêu chí chấm và hạn nộp..."
+          />
+        )}
+      </ComponentCard>
+
+      <section aria-label="Lưu bài học" className={cx(card, 'space-y-3')}>
         {errors.lesson && <p role="alert" className="text-meta font-medium text-red-600">{errors.lesson}</p>}
         {canEdit && (
-          <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-100 pt-4">
+          <div className="flex flex-wrap items-center justify-end gap-3">
             <span role="status" aria-live="polite" className="text-caption text-slate-600">
               {saving ? 'Đang lưu...' : dirty ? 'Có thay đổi chưa lưu' : savedAt ? `Đã lưu lúc ${savedAt}` : ''}
             </span>
@@ -768,18 +919,11 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
     </div>
   );
 
-  const metaChips: string[] = [];
-  if (draft) {
-    if (draft.type === 'VIDEO' && hasMedia) metaChips.push('Có video');
-    if (draft.type === 'VIDEO' && !hasMedia && source !== 'UPLOAD' && parseVideoLink(draft.videoUrl)) metaChips.push(`Có video · ${PROVIDER_LABEL[source]}`);
-    if (draft.type !== 'VIDEO' && hasMedia) metaChips.push('Có tệp đính kèm');
-    if (draft.contentText.trim()) metaChips.push(draft.type === 'VIDEO' ? 'Có bản chép lời' : 'Có bài viết');
-    if (draft.captionsVtt.trim()) metaChips.push('Có phụ đề');
-    if (draft.durationMinutes > 0) metaChips.push(`${draft.durationMinutes} phút`);
-  }
-  const checks = draft ? [
+  const chips = live ? componentChips(live) : [];
+  const checks = draft && live ? [
     { ok: !!draft.title.trim(), label: 'Đã nhập tiêu đề bài học' },
-    { ok: hasContent, label: 'Đã thêm nội dung' },
+    { ok: hasAnyComponent(live), label: 'Đã thêm ít nhất một thành phần' },
+    ...(draft.hasAssignment ? [{ ok: !!draft.assignmentInstructions.trim(), label: 'Đã nhập yêu cầu bài tập' }] : []),
   ] : [];
 
   const side = (
@@ -787,9 +931,9 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
       <section aria-label="Xem trước bài học" className={card}>
         <h3 className="mb-3 text-[16px] font-semibold leading-6 text-slate-900">Xem trước bài học</h3>
         <div data-testid="lesson-preview" className="flex aspect-video w-full flex-col items-center justify-center rounded-2xl bg-slate-900 p-4 text-center text-white">
-          {draft ? (
+          {draft && live ? (
             <>
-              {draft.type === 'VIDEO' ? <Play className="mb-2 h-8 w-8" strokeWidth={1.5} aria-hidden="true" /> : <FileText className="mb-2 h-8 w-8" strokeWidth={1.5} aria-hidden="true" />}
+              {live.video ? <Play className="mb-2 h-8 w-8" strokeWidth={1.5} aria-hidden="true" /> : <FileText className="mb-2 h-8 w-8" strokeWidth={1.5} aria-hidden="true" />}
               <p className="line-clamp-2 text-ui font-semibold">{draft.title.trim() || 'Chưa đặt tên bài học'}</p>
             </>
           ) : (
@@ -798,9 +942,10 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
         </div>
         {draft && (
           <div className="mt-3 flex flex-wrap gap-1.5">
-            <Badge tone="level" size="sm">{LESSON_TYPE_LABELS[draft.type]}</Badge>
             {lesson?.archived && <Badge tone="warn" size="sm">Nháp</Badge>}
-            {metaChips.map((c) => <Badge key={c} tone="info" size="sm">{c}</Badge>)}
+            {chips.map((c) => <Badge key={c} tone="info" size="sm">{c}</Badge>)}
+            {draft.durationMinutes > 0 && <Badge tone="level" size="sm">{draft.durationMinutes} phút</Badge>}
+            {chips.length === 0 && <Badge tone="neutral" size="sm">Chưa có thành phần nào</Badge>}
           </div>
         )}
       </section>
@@ -835,7 +980,7 @@ export const CourseContentStudio = React.forwardRef<ContentStudioHandle, {
       {switchTo && (
         <Modal size="md" title="Đổi nguồn video?" role="alertdialog" onClose={() => setSwitchTo(null)}>
           <p className="text-ui text-slate-600">
-            Mỗi bài học chỉ dùng một nguồn video. Đổi sang {switchTo === 'UPLOAD' ? 'tải lên' : PROVIDER_LABEL[switchTo]} sẽ bỏ {source === 'UPLOAD' ? 'video đã tải lên' : `liên kết ${PROVIDER_LABEL[source]}`} khỏi bài học này (áp dụng khi bạn bấm “Lưu bài học”).
+            Mỗi bài học chỉ dùng một nguồn video. Đổi sang {switchTo === 'UPLOAD' ? 'tải lên' : switchTo === 'NONE' ? 'không có video' : PROVIDER_LABEL[switchTo]} sẽ bỏ {source === 'UPLOAD' ? 'video đã tải lên' : source === 'NONE' ? 'video' : `liên kết ${PROVIDER_LABEL[source]}`} khỏi bài học này (áp dụng khi bạn bấm “Lưu bài học”).
           </p>
           <ModalActions className="mt-5">
             <Button variant="secondary" onClick={() => setSwitchTo(null)}>Giữ nguồn hiện tại</Button>

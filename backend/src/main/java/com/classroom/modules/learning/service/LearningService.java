@@ -12,6 +12,8 @@ import com.classroom.modules.identity.model.User;
 import com.classroom.modules.identity.repository.UserRepository;
 import com.classroom.modules.identity.policy.ProfileVisibilityPolicy;
 import com.classroom.modules.learning.dto.CourseDto;
+import com.classroom.modules.learning.dto.LessonAttachmentDto;
+import com.classroom.modules.learning.dto.LessonComponentsDto;
 import com.classroom.modules.learning.dto.LessonDto;
 import com.classroom.modules.learning.dto.QuestionAnswerDto;
 import com.classroom.modules.learning.dto.SectionDto;
@@ -39,6 +41,13 @@ import java.util.Set;
 
 @Service
 public class LearningService {
+
+    /** D-32: documents of lessons; optional so unit tests that build the service by hand keep working (no attachments then). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private LessonAttachmentService attachmentService;
+
+    public static final int MAX_CONTENT_CHARS = 100_000;
+    public static final int MAX_INSTRUCTIONS_CHARS = 20_000;
 
     private final CourseRepository courseRepository;
     private final SectionRepository sectionRepository;
@@ -211,13 +220,13 @@ public class LearningService {
             }
             List<Lesson> lessons = lessonRepository.findBySectionIdOrderByPositionAsc(section.getId());
             List<LessonDto> lessonDtos = new ArrayList<>();
+            Map<String, List<LessonAttachmentDto>> attachmentViews = attachmentsOf(lessons);
 
             for (Lesson lesson : lessons) {
                 if (lesson.isArchived() && !canEdit) {
                     continue;
                 }
-                LessonDto lDto = toLessonDto(lesson);
-                if (canLearn || canEdit) exposeVideoLinks(lDto, lesson);
+                LessonDto lDto = toLessonDto(lesson, attachmentViews.getOrDefault(lesson.getId(), List.of()), canLearn || canEdit);
                 if (userId != null) {
                     boolean completed = progressRepository.findByUserIdAndLessonId(userId, lesson.getId())
                             .map(LessonProgress::isCompleted)
@@ -269,8 +278,7 @@ public class LearningService {
         learningPolicy.enforceLearn(userId, course);
         requireVisibleToLearner(lesson, course, userId);
 
-        LessonDto dto = toLessonDto(lesson);
-        exposeVideoLinks(dto, lesson); // enforceLearn passed above
+        LessonDto dto = toLessonDto(lesson, attachmentsOf(List.of(lesson)).getOrDefault(lesson.getId(), List.of()), true); // enforceLearn passed above
 
         if (userId != null) {
             boolean completed = progressRepository.findByUserIdAndLessonId(userId, lesson.getId())
@@ -707,7 +715,6 @@ public class LearningService {
         return sectionRepository.save(section);
     }
 
-    private static final Set<String> ALLOWED_LESSON_TYPES = Set.of("VIDEO", "TEXT", "DOCUMENT", "ASSIGNMENT");
     private void validateCaptions(String value) {
         if (value != null && !value.isBlank() && (value.length() > 1000000 || !value.stripLeading().startsWith("WEBVTT"))) {
             throw new AppException(ErrorCode.BAD_REQUEST, "Phụ đề cần định dạng WebVTT, tối đa 1 triệu ký tự");
@@ -724,11 +731,7 @@ public class LearningService {
         if (lesson == null || lesson.getTitle() == null || lesson.getTitle().isBlank()) {
             throw new AppException(ErrorCode.BAD_REQUEST, "Tên bài học không được để trống");
         }
-        String type = lesson.getType() == null ? "" : lesson.getType().trim().toUpperCase(java.util.Locale.ROOT);
-        if (!ALLOWED_LESSON_TYPES.contains(type)) {
-            throw new AppException(ErrorCode.BAD_REQUEST, "Loại bài học không hợp lệ: " + lesson.getType());
-        }
-        lesson.setType(type);
+        // D-32: "type" is a derived summary now; whatever a request sends is ignored (see Lesson#recomputeType).
         if (lesson.getDurationMinutes() < 0) {
             throw new AppException(ErrorCode.BAD_REQUEST, "Thời lượng bài học không được âm");
         }
@@ -754,11 +757,39 @@ public class LearningService {
         lesson.setStoredVideoRef(parsed.ref());
     }
 
+    /** D-32: the uploaded-video slot takes video (or audio) files only; documents go to the attachments. */
+    private static void requireVideoMime(MediaAsset media) {
+        String mime = media.getMimeType() == null ? "" : media.getMimeType().toLowerCase(java.util.Locale.ROOT);
+        if (!mime.startsWith("video/") && !mime.startsWith("audio/")) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Chỉ tệp video (hoặc âm thanh) được gắn làm video của bài; tài liệu thêm ở mục Tài liệu");
+        }
+    }
+
+    private static void validateContentLength(Lesson lesson) {
+        if (lesson.getContentText() != null && lesson.getContentText().length() > MAX_CONTENT_CHARS) {
+            throw new AppException(ErrorCode.BAD_REQUEST, "Nội dung bài học tối đa " + MAX_CONTENT_CHARS + " ký tự");
+        }
+    }
+
+    /** D-32: applies hasAssignment / instructions from a request (null = keep) and enforces "instructions required when enabled". */
+    private static void applyAssignment(Lesson target, Boolean enabled, String instructions) {
+        if (enabled != null) target.setAssignmentEnabled(enabled);
+        if (instructions != null) target.setAssignmentInstructions(instructions.isBlank() ? null : instructions);
+        if (target.isAssignmentEnabled()) {
+            String text = target.getAssignmentInstructions();
+            if (text == null || text.isBlank()) {
+                throw new AppException(ErrorCode.BAD_REQUEST, "Bài tập cần có hướng dẫn làm bài");
+            }
+            if (text.length() > MAX_INSTRUCTIONS_CHARS) {
+                throw new AppException(ErrorCode.BAD_REQUEST, "Hướng dẫn bài tập tối đa " + MAX_INSTRUCTIONS_CHARS + " ký tự");
+            }
+        } else {
+            target.setAssignmentInstructions(null);
+        }
+    }
+
     private void requireSingleVideoSource(Lesson lesson) {
         if (lesson.getStoredVideoRef() == null) return;
-        if (!"VIDEO".equalsIgnoreCase(lesson.getType())) {
-            throw new AppException(ErrorCode.BAD_REQUEST, "Chỉ bài học loại VIDEO mới dùng liên kết video");
-        }
         if (lesson.getMediaAssetId() != null && !lesson.getMediaAssetId().isBlank()) {
             throw new AppException(ErrorCode.BAD_REQUEST, "Mỗi bài chỉ dùng một nguồn video: tải tệp lên hoặc dán liên kết");
         }
@@ -789,6 +820,7 @@ public class LearningService {
             if (!"UPLOADED".equalsIgnoreCase(media.getStatus())) {
                 throw new AppException(ErrorCode.BAD_REQUEST, "Tệp chưa hoàn tất quá trình tải lên");
             }
+            requireVideoMime(media);
             if (mediaService.isReferencedByDocument(lesson.getMediaAssetId())
                     || mediaService.isReferencedByLesson(lesson.getMediaAssetId())) {
                 throw new AppException(ErrorCode.BAD_REQUEST, "Tệp đã được gắn với nội dung khác và không thể tái sử dụng");
@@ -800,6 +832,11 @@ public class LearningService {
         lesson.setStoredVideoRef(null);
         applyVideoUrl(lesson, lesson.getVideoUrlInput());
         requireSingleVideoSource(lesson);
+        validateContentLength(lesson);
+        // D-32: the assignment flag is bound only through hasAssignment; a stray instructions text without it is dropped.
+        lesson.setAssignmentEnabled(false);
+        applyAssignment(lesson, lesson.getHasAssignmentInput(), lesson.getAssignmentInstructions());
+        lesson.recomputeType(0);
         lesson.setId(java.util.UUID.randomUUID().toString()); // Ignore client ID; create always inserts.
         lesson.setSectionId(sectionId);
         lesson.setCourseId(course.getId());
@@ -829,7 +866,6 @@ public class LearningService {
         accessPolicy.enforceManage(currentUserId, course.getClassId(), "COURSE", "EDIT", course.getId());
 
         if (patch.getTitle() != null) lesson.setTitle(patch.getTitle());
-        if (patch.getType() != null) lesson.setType(patch.getType());
         if (patch.getContentText() != null) lesson.setContentText(patch.getContentText());
         if (patch.getCaptionsVtt() != null) { validateCaptions(patch.getCaptionsVtt()); lesson.setCaptionsVtt(patch.getCaptionsVtt()); }
         if (patch.getDurationMinutes() >= 0) lesson.setDurationMinutes(patch.getDurationMinutes());
@@ -847,6 +883,7 @@ public class LearningService {
                 if (!"UPLOADED".equalsIgnoreCase(media.getStatus())) {
                     throw new AppException(ErrorCode.BAD_REQUEST, "Tệp chưa hoàn tất quá trình tải lên");
                 }
+                requireVideoMime(media);
                 if (mediaService.isReferencedByDocument(newMediaId) || mediaService.isReferencedByLesson(newMediaId)) {
                     throw new AppException(ErrorCode.BAD_REQUEST, "Tệp đã được gắn với nội dung khác và không thể tái sử dụng");
                 }
@@ -859,6 +896,9 @@ public class LearningService {
         validateLesson(lesson);
         applyVideoUrl(lesson, patch.getVideoUrlInput()); // D-31
         requireSingleVideoSource(lesson);
+        validateContentLength(lesson);
+        applyAssignment(lesson, patch.getHasAssignmentInput(), patch.getAssignmentInstructions()); // D-32
+        lesson.recomputeType(attachmentService == null ? 0 : attachmentService.count(lessonId));
         Lesson saved = lessonRepository.save(lesson);
         auditService.record(course.getClassId(), currentUserId, "LESSON_UPDATE", "LESSON", lessonId,
                 String.format("{\"title\":\"%s\",\"videoProvider\":%s}", saved.getTitle(), providerJson(saved)));
@@ -1055,13 +1095,17 @@ public class LearningService {
         return dto;
     }
 
-    /** D-31: the external video's URLs, for callers already cleared to learn the course (or to edit it). Never for anyone else. */
-    private static void exposeVideoLinks(LessonDto dto, Lesson lesson) {
-        dto.setVideoUrl(lesson.getVideoUrl());
-        dto.setEmbedUrl(lesson.getEmbedUrl());
+    private Map<String, List<LessonAttachmentDto>> attachmentsOf(List<Lesson> lessons) {
+        if (attachmentService == null || lessons.isEmpty()) return Map.of();
+        return attachmentService.viewsFor(lessons.stream().map(Lesson::getId).toList());
     }
 
-    private LessonDto toLessonDto(Lesson lesson) {
+    /**
+     * The lesson as an API view. {@code reveal} = the caller may learn or manage the course: only then the external video's URLs (D-31), the
+     * documents' media ids and the assignment instructions (D-32) are filled; everybody else gets the provider, {@code hasAssignment} and the
+     * {@code components} counts. The derived {@code type} is the stored summary.
+     */
+    private LessonDto toLessonDto(Lesson lesson, List<LessonAttachmentDto> attachments, boolean reveal) {
         LessonDto dto = new LessonDto();
         dto.setId(lesson.getId());
         dto.setSectionId(lesson.getSectionId());
@@ -1071,11 +1115,26 @@ public class LearningService {
         dto.setContentText(lesson.getContentText());
         dto.setCaptionsVtt(lesson.getCaptionsVtt());
         dto.setMediaAssetId(lesson.getMediaAssetId());
-        dto.setVideoProvider(lesson.getVideoProvider()); // D-31: the provider is public metadata; the URLs only via exposeVideoLinks
+        dto.setVideoProvider(lesson.getVideoProvider()); // D-31: the provider is public metadata
         dto.setDurationMinutes(lesson.getDurationMinutes());
         dto.setPosition(lesson.getPosition());
         dto.setArchived(lesson.isArchived());
+        dto.setHasAssignment(lesson.isAssignmentEnabled());
+        dto.setComponents(new LessonComponentsDto(lesson.hasVideo(), lesson.getVideoProvider(),
+                lesson.getContentText() != null && !lesson.getContentText().isBlank(), attachments.size(), lesson.isAssignmentEnabled()));
+        if (reveal) {
+            dto.setVideoUrl(lesson.getVideoUrl());
+            dto.setEmbedUrl(lesson.getEmbedUrl());
+            dto.setAttachments(attachments);
+            dto.setAssignmentInstructions(lesson.getAssignmentInstructions());
+        }
         return dto;
+    }
+
+    /** D-32: the manager view of a lesson that was just written (create / update / archive responses). */
+    @Transactional(readOnly = true)
+    public LessonDto toManagerView(Lesson lesson) {
+        return toLessonDto(lesson, attachmentsOf(List.of(lesson)).getOrDefault(lesson.getId(), List.of()), true);
     }
 
     private void rejectOrderedProductAssociation(String productId) {

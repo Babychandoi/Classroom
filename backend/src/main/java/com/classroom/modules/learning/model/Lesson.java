@@ -93,6 +93,42 @@ public class Lesson {
         return (mediaAssetId != null && !mediaAssetId.isBlank()) || (storedVideoRef != null && storedVideoProvider != null);
     }
 
+    // D-32: assignment component. Persisted as has_assignment / assignment_instructions; the JSON "hasAssignment" is bound through a
+    // transient Boolean so "absent" (keep) can be told from false.
+    @Column(name = "has_assignment", nullable = false)
+    private boolean assignmentEnabled = false;
+
+    @Column(name = "assignment_instructions", columnDefinition = "MEDIUMTEXT")
+    private String assignmentInstructions;
+
+    @Transient
+    private Boolean hasAssignmentInput;
+
+    @JsonIgnore
+    public boolean isAssignmentEnabled() { return assignmentEnabled; }
+    @JsonIgnore
+    public void setAssignmentEnabled(boolean v) { this.assignmentEnabled = v; }
+    public String getAssignmentInstructions() { return assignmentInstructions; }
+    public void setAssignmentInstructions(String v) { this.assignmentInstructions = v; }
+    @JsonIgnore
+    public Boolean getHasAssignmentInput() { return hasAssignmentInput; }
+    /** Request side of "hasAssignment": null = keep. */
+    public void setHasAssignment(Boolean v) { this.hasAssignmentInput = v; }
+    public boolean getHasAssignment() { return assignmentEnabled; }
+
+    /** D-32: the derived summary type - assignment, else video (upload or link), else documents, else text. */
+    public static String deriveType(boolean hasAssignment, boolean hasVideo, int attachments) {
+        if (hasAssignment) return "ASSIGNMENT";
+        if (hasVideo) return "VIDEO";
+        if (attachments > 0) return "DOCUMENT";
+        return "TEXT";
+    }
+
+    /** Recomputes {@link #type} from the components; call on every write. */
+    public void recomputeType(int attachments) {
+        this.type = deriveType(assignmentEnabled, hasVideo(), attachments);
+    }
+
     public Lesson() {
         this.id = UUID.randomUUID().toString();
     }
@@ -103,6 +139,8 @@ public class Lesson {
         this.courseId = courseId;
         this.title = title;
         this.type = (type != null) ? type : "VIDEO";
+        // D-32: the legacy "type" argument of programmatic callers (seeds, tests): ASSIGNMENT enables the assignment component, nothing else is implied.
+        this.assignmentEnabled = "ASSIGNMENT".equalsIgnoreCase(type);
         this.position = position;
     }
 
@@ -138,6 +176,8 @@ public class Lesson {
         this.title = title;
     }
 
+    /** D-32: a derived summary (see {@link #deriveType}); a request cannot set it (the service recomputes it on every write). */
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     public String getType() {
         return type;
     }

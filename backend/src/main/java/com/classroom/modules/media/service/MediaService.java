@@ -543,7 +543,11 @@ public class MediaService {
         // Check if referenced by DocumentAsset
         List<DocumentAsset> docs = documentAssetRepository.findByMediaAssetId(assetId);
         // Check if referenced by Lesson
-        List<Lesson> lessons = lessonRepository.findByMediaAssetId(assetId);
+        // D-32: a lesson references a file either as its uploaded video or as an attached document; both are "the lesson's content".
+        List<Lesson> lessons = new java.util.ArrayList<>(lessonRepository.findByMediaAssetId(assetId));
+        for (Lesson attachedTo : lessonRepository.findByAttachmentMediaAssetId(assetId)) {
+            if (lessons.stream().noneMatch(l -> l.getId().equals(attachedTo.getId()))) lessons.add(attachedTo);
+        }
 
         // Fail closed for pre-existing or legacy shared references: authorization by
         // any one reference must not grant bytes protected by another reference.
@@ -812,9 +816,19 @@ public class MediaService {
                 .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy tệp đính kèm"));
     }
 
+    /** D-32: the assets with these ids (one query); unknown ids are simply absent. */
+    @Transactional(readOnly = true)
+    public Map<String, MediaAsset> getAssetsById(java.util.Collection<String> assetIds) {
+        Map<String, MediaAsset> result = new HashMap<>();
+        if (assetIds == null || assetIds.isEmpty()) return result;
+        mediaAssetRepository.findAllById(assetIds).forEach(a -> result.put(a.getId(), a));
+        return result;
+    }
+
     @Transactional(readOnly = true)
     public boolean isReferencedByLesson(String assetId) {
-        return !lessonRepository.findByMediaAssetId(assetId).isEmpty();
+        return !lessonRepository.findByMediaAssetId(assetId).isEmpty()
+                || !lessonRepository.findByAttachmentMediaAssetId(assetId).isEmpty(); // D-32
     }
 
     @Transactional(readOnly = true)

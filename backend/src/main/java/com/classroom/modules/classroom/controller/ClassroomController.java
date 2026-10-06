@@ -38,14 +38,15 @@ public class ClassroomController {
             @RequestParam(required = false) Integer size,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String sort,
-            @RequestParam(required = false) String category) {
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false, defaultValue = "false") boolean discover) {
         String currentUserId = (principal != null) ? principal.getId() : null;
         // D-27: optional q (title / description search, <= 100 chars) and sort=newest|popular (default newest, as before).
         // R16-08: the listing is always paged. Without page/size the first ClassroomService.DEFAULT_PAGE_SIZE
         // (50) classes are returned; size is clamped to ClassroomService.MAX_PAGE_SIZE (100); a client
         // fetches further pages with page=1,2,... (a page shorter than the requested size is the last).
         List<ClassroomDto> classes = classroomService.getAllClassrooms(currentUserId,
-                page != null ? page : 0, size != null ? size : ClassroomService.DEFAULT_PAGE_SIZE, q, sort, category);
+                page != null ? page : 0, size != null ? size : ClassroomService.DEFAULT_PAGE_SIZE, q, sort, category, discover);
         return ResponseEntity.ok(ApiResponse.ok(classes));
     }
 

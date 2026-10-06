@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { Course } from '../types';
 import {
   advisoryMissing, blockingMissing, buildChecklist, emptyForm, formatPriceInput, highestOpenStep, isStepLocked, parsePrice, sameSelling,
-  step2Error,
+  step2Error, step3Error,
 } from '../pages/studio/courseWizardModel';
 
 const section = (archived = false, lessonArchived = false) => ({
   id: 's', courseId: 'c', title: 'S', position: 1, archived,
-  lessons: [{ id: 'l', sectionId: 's', courseId: 'c', title: 'L', type: 'TEXT' as const, position: 1, durationMinutes: 0, completed: false, archived: lessonArchived }],
+  lessons: [{ id: 'l', sectionId: 's', courseId: 'c', title: 'L', contentText: 'Nội dung', position: 1, durationMinutes: 0, completed: false, archived: lessonArchived }],
 });
 const course = (sections: any[] = [section()]) => ({ id: 'c', classId: 'k', title: 'T', accessMode: 'FREE', status: 'DRAFT', sections }) as unknown as Course;
 const titled = { ...emptyForm(), title: 'Toán' };
@@ -33,6 +33,16 @@ describe('course wizard model', () => {
     expect(isStepLocked(4, { form: titled, course: course([section(false, true)]) })).toBe(true);
     expect(isStepLocked(4, { form: titled, course: course() })).toBe(false);
     expect(highestOpenStep({ form: titled, course: course() })).toBe(4);
+  });
+
+  it('a lesson counts as content only when it holds at least one component', () => {
+    const empty = { id: 'l', sectionId: 's', courseId: 'c', title: 'L', position: 1, durationMinutes: 0, completed: false };
+    const withLessons = (lessons: any[]) => course([{ id: 's', courseId: 'c', title: 'S', position: 1, lessons }]);
+    expect(isStepLocked(4, { form: titled, course: withLessons([empty]) })).toBe(true);
+    expect(step3Error(withLessons([empty]))).toMatch(/có nội dung/);
+    for (const part of [{ contentText: 'x' }, { hasAssignment: true }, { attachments: [{ id: 'a', mediaAssetId: 'm', title: 't', position: 0 }] }, { videoProvider: 'YOUTUBE' }, { components: { video: true, videoProvider: 'UPLOAD', content: false, attachments: 0, assignment: false } }]) {
+      expect(isStepLocked(4, { form: titled, course: withLessons([{ ...empty, ...part }]) })).toBe(false);
+    }
   });
 
   it('a paid choice without price or with a bad duration closes the steps after it', () => {

@@ -417,6 +417,7 @@ const COURSE_FREE = {
   sections: [
     { title: 'Chương 1: Phương trình và hệ phương trình', lessons: [
       { key: 'l11', type: 'VIDEO', title: 'Bài 1.1 — Phương trình bậc hai và định lý Viète', minutes: 18, video: true,
+        docs: [{ file: 'l11-slide.pdf', title: 'Slide bài giảng (PDF)' }], // video + nội dung + tài liệu
         transcript: 'Trong bài này, thầy nhắc lại công thức nghiệm của phương trình bậc hai và đi sâu vào định lý Viète: tổng và tích hai nghiệm. Thầy minh họa bằng ba ví dụ, từ cơ bản đến tình huống tham số và cách xét điều kiện để phương trình có hai nghiệm phân biệt.',
         cues: ['Chào các em, hôm nay chúng ta ôn phương trình bậc hai.', 'Công thức nghiệm: Δ = b² − 4ac.', 'Nếu Δ > 0, phương trình có hai nghiệm phân biệt.', 'Định lý Viète: x₁ + x₂ = −b/a và x₁·x₂ = c/a.', 'Ví dụ 1: x² − 5x + 6 = 0 có hai nghiệm 2 và 3.', 'Ví dụ 2: tìm m để phương trình có hai nghiệm phân biệt.', 'Nhớ kiểm tra hệ số a khác 0 trước khi dùng công thức.', 'Hẹn gặp lại các em ở bài tiếp theo!'] },
       { key: 'l12', type: 'TEXT', title: 'Bài 1.2 — Tóm tắt lý thuyết hệ phương trình', minutes: 10,
@@ -433,6 +434,8 @@ const COURSE_FREE = {
       { key: 'l22', type: 'TEXT', title: 'Bài 2.2 — Các kỹ thuật tách ghép thường dùng', minutes: 12,
         content: '## Bốn kỹ thuật tách ghép\n\n1. **Thêm bớt hằng số** sao cho dấu "=" xảy ra tại điểm mong muốn.\n2. **Ghép cặp đối xứng:** `a/b + b/a ≥ 2`.\n3. **Đặt ẩn phụ** đưa về dạng quen thuộc.\n4. **Dùng điều kiện ràng buộc** như `a + b + c = 3`.\n\n### Ví dụ\nCho x > 0, tìm GTNN của `A = x + 4/x`.\n\nÁp dụng AM-GM: `x + 4/x ≥ 2√4 = 4`, dấu bằng khi `x = 2`.' },
       { key: 'l23', type: 'VIDEO', title: 'Bài 2.3 — Bất đẳng thức Cauchy-Schwarz và ứng dụng', minutes: 20, video: true,
+        docs: [{ file: 'l23-bai-tap.pdf', title: 'Bộ bài tập luyện thêm (PDF)' }],
+        assignment: '## Bài tập nhỏ\n\nTìm giá trị nhỏ nhất của `1/a + 1/b` khi `a + b = 1`, nêu rõ điều kiện xảy ra dấu bằng.', // video + nội dung + tài liệu + bài tập
         transcript: 'Bài giảng trình bày bất đẳng thức Cauchy-Schwarz dạng thường và dạng Engel (Titu), kèm hai ví dụ tìm giá trị lớn nhất, nhỏ nhất của biểu thức có điều kiện ràng buộc.',
         cues: ['Bất đẳng thức Cauchy-Schwarz là công cụ rất mạnh.', '(a² + b²)(x² + y²) ≥ (ax + by)².', 'Dấu bằng khi a/x = b/y.', 'Dạng Engel: a²/x + b²/y ≥ (a + b)²/(x + y).', 'Ví dụ: tìm GTNN của 1/a + 1/b khi a + b = 1.'] },
       { key: 'l24', type: 'ASSIGNMENT', title: 'Bài 2.4 — Bài tập nộp: chứng minh bất đẳng thức', minutes: 30,
@@ -808,19 +811,30 @@ async function ensureCourse(spec, { publish, accessMode = 'FREE' }) {
     for (const l of sectionSpec.lessons) {
       let lesson = existingLessons.find((x) => x.title === l.title);
       if (!lesson) {
-        const body = { title: l.title, type: l.type, durationMinutes: l.minutes, position, contentText: plain(l.type === 'VIDEO' ? l.transcript : l.content) };
+        // D-32: một bài là một bó thành phần (video + nội dung + tài liệu + bài tập); `type` chỉ là nhãn của script, server tự suy ra.
+        const body = { title: l.title, durationMinutes: l.minutes, position, contentText: plain(l.type === 'VIDEO' ? l.transcript : l.content) };
         if (l.video) {
           body.mediaAssetId = await upload(owner, ctx.classId, { filename: `${l.key}.mp4`, mimeType: 'video/mp4', bytes: fs.readFileSync(path.join(FIXTURES, 'tiny.mp4')), purpose: 'LESSON', scopeCourseId: course.id });
           body.captionsVtt = makeVtt(l.cues);
-        } else if (l.pdf) {
-          body.mediaAssetId = await upload(owner, ctx.classId, { filename: `${l.key}.pdf`, mimeType: 'application/pdf', bytes: makePdf('Phieu bai tap: phuong trinh quy ve bac hai', COURSE_PDF_LINES), purpose: 'LESSON', scopeCourseId: course.id });
+        } else if (l.youtube) {
+          body.videoUrl = l.youtube;
+        }
+        const assignment = l.assignment || (l.type === 'ASSIGNMENT' ? l.content : null);
+        if (assignment) {
+          body.hasAssignment = true;
+          body.assignmentInstructions = plain(assignment);
+          if (l.type === 'ASSIGNMENT') body.contentText = undefined; // đề bài nằm ở hướng dẫn bài tập, không lặp trong nội dung
         }
         lesson = await owner.post(`/sections/${sec.id}/lessons`, body);
+        const docs = l.docs || (l.pdf ? [{ file: `${l.key}.pdf`, title: 'Phiếu bài tập (PDF)' }] : []);
+        for (const doc of docs) {
+          const assetId = await upload(owner, ctx.classId, { filename: doc.file, mimeType: 'application/pdf', bytes: makePdf('Phieu bai tap: phuong trinh quy ve bac hai', COURSE_PDF_LINES), purpose: 'LESSON', scopeCourseId: course.id });
+          await owner.post(`/lessons/${lesson.id}/attachments`, { mediaAssetId: assetId, title: doc.title });
+        }
       }
       else {
         const wanted = plain(l.type === 'VIDEO' ? l.transcript : l.content); // --resume: đồng bộ nội dung chữ nếu script đã đổi
-        // Gửi đủ title/type: PUT /lessons/{id} dùng thực thể Lesson có mặc định type=VIDEO nên thiếu type sẽ bị đổi thành VIDEO.
-        if ((lesson.contentText || '') !== wanted || lesson.type !== l.type) await owner.put(`/lessons/${lesson.id}`, { title: l.title, type: l.type, contentText: wanted, durationMinutes: l.minutes });
+        if (l.type !== 'ASSIGNMENT' && (lesson.contentText || '') !== wanted) await owner.put(`/lessons/${lesson.id}`, { title: l.title, contentText: wanted, durationMinutes: l.minutes });
       }
       lessonIds[l.key] = lesson.id;
       position++;

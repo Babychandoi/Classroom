@@ -129,16 +129,21 @@ class LessonVideoLinkHttpTest extends ClassContentHttpTestBase {
     }
 
     @Test
-    @DisplayName("one source only: link + uploaded file -> 400 both ways; non-VIDEO lessons refuse a link")
+    @DisplayName("one source only: link + uploaded video file -> 400 both ways; the requested type is ignored")
     void singleSourceAndType() throws Exception {
-        MediaAsset asset = uploadedImage(cls, owner, "LESSON_MEDIA");
+        MediaAsset asset = uploadedImage(cls, owner, "LESSON");
+        asset.setMimeType("video/mp4");
+        asset = mediaAssetRepository.save(asset);
         Map<String, Object> both = body("VIDEO", YT);
         both.put("mediaAssetId", asset.getId());
         Answer a = create(freeSection, both);
         assertEquals(400, a.status(), a.body());
         assertTrue(a.message().startsWith("Mỗi bài chỉ dùng một nguồn video"), a.message());
 
-        assertEquals(400, create(freeSection, body("TEXT", YT)).status());
+        // D-32: "type" is ignored, so a link is accepted whatever type the body claims; the stored type is derived
+        Answer textTyped = create(freeSection, body("TEXT", YT));
+        assertEquals(200, textTyped.status(), textTyped.body());
+        assertEquals("VIDEO", textTyped.data().path("type").asText());
 
         String id = create(freeSection, body("VIDEO", YT)).data().path("id").asText();
         Map<String, Object> attach = new LinkedHashMap<>();
@@ -155,9 +160,11 @@ class LessonVideoLinkHttpTest extends ClassContentHttpTestBase {
         assertNull(row.getStoredVideoRef());
         assertEquals("UPLOAD", row.getVideoProvider());
 
-        // and turning a link lesson into a TEXT lesson is refused
+        // asking for another type changes nothing
         String id2 = create(freeSection, body("VIDEO", YT)).data().path("id").asText();
-        assertEquals(400, put("/api/v1/lessons/" + id2, Map.of("type", "TEXT"), owner).status());
+        Answer retyped = put("/api/v1/lessons/" + id2, Map.of("type", "TEXT"), owner);
+        assertEquals(200, retyped.status(), retyped.body());
+        assertEquals("VIDEO", retyped.data().path("type").asText());
     }
 
     @Test

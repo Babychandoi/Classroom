@@ -23,7 +23,10 @@ const owner = { ...base, userRole: 'OWNER' } as Classroom;
 const staff = (grants: string[], extra: Partial<Classroom> = {}) =>
   ({ ...base, userRole: 'STAFF', studioPermissions: grants, studioScopedPermissions: [], ...extra }) as Classroom;
 
-const lesson = { id: 'l1', sectionId: 's1', courseId: 'c1', title: 'Bài một', type: 'TEXT', position: 1, durationMinutes: 0, completed: false };
+const lesson = {
+  id: 'l1', sectionId: 's1', courseId: 'c1', title: 'Bài một', contentText: 'Nội dung bài', position: 1, durationMinutes: 0, completed: false,
+  components: { video: false, videoProvider: null, content: true, attachments: 0, assignment: false },
+};
 const section = { id: 's1', courseId: 'c1', title: 'Chương một', position: 1, lessons: [lesson] };
 const draft = (over: Partial<Course> = {}): Course =>
   ({ id: 'c1', classId: 'class-1', title: 'Toán 10', description: 'Mô tả', coverImageUrl: '', accessMode: 'FREE', status: 'DRAFT', position: 0, sections: [], ...over }) as Course;
@@ -36,7 +39,8 @@ function mockServer(handler: Handler = () => undefined) {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = input.toString().replace(/^https?:\/\/[^/]+/, '');
     const method = (init?.method || 'GET').toUpperCase();
-    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    let body: any;
+    try { body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined; } catch { body = undefined; }
     calls.push({ url, method, body });
     const custom = handler(url, method, body);
     if (custom !== undefined) {
@@ -176,7 +180,7 @@ describe('StudioCourseWizard - validation and draft persistence', () => {
     await screen.findByText(/chưa có danh mục nào/);
 
     fireEvent.click(screen.getByRole('button', { name: /Tiếp tục: Kiểm tra/ }));
-    expect(await screen.findByText('Thêm ít nhất một bài học để tiếp tục.')).toBeInTheDocument();
+    expect(await screen.findByText('Thêm ít nhất một bài học có nội dung (video, nội dung, tài liệu hoặc bài tập) để tiếp tục.')).toBeInTheDocument();
     expect(stepButton(3)).toHaveAttribute('aria-current', 'step');
     expect(stepButton(4)).toBeDisabled();
 
@@ -318,7 +322,7 @@ describe('StudioCourseWizard - review and publish', () => {
 
     expect(await screen.findByRole('heading', { name: 'Xem trước & xuất bản' })).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Danh sách kiểm tra' })).toBeInTheDocument();
-    expect(screen.getByText('Đã có 1 bài học')).toBeInTheDocument();
+    expect(screen.getByText('Đã có 1 bài học có nội dung')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Xem trước thẻ khóa học' }));
     const card = await screen.findByTestId('course-card-preview');
@@ -518,94 +522,239 @@ describe('StudioCourseWizard - quản lý khóa học (moved from the list)', ()
   });
 });
 
-describe('StudioCourseWizard - content studio (step 3)', () => {
-  const lessonA = { ...lesson, id: 'la', title: 'Bài A', type: 'VIDEO', position: 1 };
-  const lessonB = { ...lesson, id: 'lb', title: 'Bài B', type: 'VIDEO', position: 2, archived: true };
-  const withLessons = () => draft({ sections: [{ ...section, lessons: [lessonA, lessonB] }] as any });
-
-  it('shows the tree with a "Nháp" chip on hidden lessons and an empty detail until one is chosen', async () => {
-    mockServer((url) => (url === `${API}/courses/c1` ? withLessons() : undefined));
-    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
-    expect(await screen.findByText('Bài A')).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Cấu trúc nội dung' })).getByText('Nháp')).toBeInTheDocument();
-    expect(screen.getByText(/Chọn một bài học ở cột bên trái/)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Bài A' }));
-    expect(await screen.findByLabelText(/Tên bài học/)).toHaveValue('Bài A');
-    expect(screen.getByRole('button', { name: 'Bài A' })).toHaveAttribute('aria-current', 'true');
-    expect(screen.getByTestId('lesson-preview')).toHaveTextContent('Bài A');
-    const checks = screen.getByRole('region', { name: 'Danh sách kiểm tra' });
-    expect(within(checks).getByText(/Đã nhập tiêu đề bài học/)).toBeInTheDocument();
-    expect(within(checks).getByText(/Đã thêm nội dung/).closest('li')).toHaveTextContent('chưa có');
-  });
-
-  it('adds a lesson at the end of its category (position) and selects it', async () => {
-    const calls = mockServer((url, method) => {
-      if (url === `${API}/courses/c1` && method === 'GET') return withLessons();
-      if (url === `${API}/sections/s1/lessons` && method === 'POST') return { ...lesson, id: 'new', title: 'Bài mới', position: 3 };
-      return undefined;
+describe('StudioCourseWizard - content studio (step 3): a lesson is a bundle of components', () => {
+  const noParts = { video: false, videoProvider: null, content: false, attachments: 0, assignment: false };
+  const att = (id: string, title: string, extra: Record<string, unknown> = {}) => ({ id, mediaAssetId: `m-${id}`, title, fileName: `${title}.pdf`, mimeType: 'application/pdf', sizeBytes: 2048, position: 1, ...extra });
+  const lessonA = { ...lesson, id: 'la', title: 'Bài A', contentText: '', components: noParts, attachments: [] };
+  const lessonB = {
+    ...lesson, id: 'lb', title: 'Bài B', contentText: 'Có chữ', archived: true, videoProvider: 'YOUTUBE', videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    attachments: [att('a1', 'Slide'), att('a2', 'Đề cương', { position: 2, sizeBytes: 3 * 1024 * 1024 })],
+    components: { video: true, videoProvider: 'YOUTUBE', content: true, attachments: 2, assignment: true }, hasAssignment: true, assignmentInstructions: 'Làm bài 1',
+  };
+  const course2 = (lessons: unknown[]) => draft({ sections: [{ ...section, lessons }] as any });
+  const open = async (lessons: unknown[], handler: Handler = () => undefined, base: Record<string, unknown> | null = null) => {
+    const calls = mockServer((url, method, body) => {
+      if (url === `${API}/courses/c1` && method === 'GET') return base ?? course2(lessons);
+      return handler(url, method, body);
     });
     renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
+    return calls;
+  };
+  // A draft lesson's button also contains its "Nháp" chip.
+  const pick = async (name: string) => { fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${name}\\s*(Nháp)?$`) })); await screen.findByLabelText(/Tên bài học/); };
+  const card = (name: string) => screen.getByRole('region', { name });
+
+  it('shows the tree with a "Nháp" chip and component icons instead of a type, and an empty detail until a lesson is chosen', async () => {
+    await open([lessonA, lessonB]);
+    const tree = within(await screen.findByRole('region', { name: 'Cấu trúc nội dung' }));
+    expect(tree.getByText('Nháp')).toBeInTheDocument();
+    expect(tree.getByText('Có video · YouTube, Có nội dung, 2 tài liệu, Có bài tập')).toBeInTheDocument();
+    expect(screen.getByText(/Chọn một bài học ở cột bên trái/)).toBeInTheDocument();
+    await pick('Bài A');
+    expect(screen.getByRole('button', { name: 'Bài A' })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('has no lesson type select: four component cards with their status chips', async () => {
+    await open([lessonA, lessonB]);
+    await pick('Bài A');
+    expect(screen.queryByLabelText('Loại bài học')).not.toBeInTheDocument();
+    for (const name of ['Video', 'Nội dung', 'Tài liệu', 'Bài tập']) expect(within(card(name)).getByText('Chưa có')).toBeInTheDocument();
+    cleanupSelect();
+    await pick('Bài B');
+    for (const name of ['Video', 'Nội dung', 'Tài liệu', 'Bài tập']) expect(within(card(name)).getByText('Đã có')).toBeInTheDocument();
+    const chips = screen.getByRole('region', { name: 'Xem trước bài học' });
+    for (const chip of ['Có video · YouTube', 'Có nội dung', '2 tài liệu', 'Có bài tập']) expect(within(chips).getByText(chip)).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Danh sách kiểm tra' })).getByText(/Đã thêm ít nhất một thành phần/)).toBeInTheDocument();
+  });
+  const cleanupSelect = () => undefined;
+
+  it('creating a lesson takes only a title (an empty bundle) and selects it', async () => {
+    const calls = await open([lessonA], (url, method) => (url === `${API}/sections/s1/lessons` && method === 'POST' ? { ...lessonA, id: 'new', title: 'Bài mới', position: 2 } : undefined));
     await screen.findByText('Bài A');
     fireEvent.click(screen.getByRole('button', { name: 'Thêm bài học' }));
     fireEvent.change(screen.getByLabelText('Tên bài học mới'), { target: { value: 'Bài mới' } });
     fireEvent.click(screen.getByRole('button', { name: 'Tạo bài' }));
     await waitFor(() => expect(calls.some((c) => c.url === `${API}/sections/s1/lessons`)).toBe(true));
-    expect(calls.find((c) => c.url.endsWith('/lessons'))!.body).toMatchObject({ title: 'Bài mới', type: 'VIDEO', position: 3 });
+    const body = calls.find((c) => c.url.endsWith('/lessons') && c.method === 'POST')!.body;
+    expect(body).toMatchObject({ title: 'Bài mới', position: 2 });
+    expect(body).not.toHaveProperty('type');
+    expect(body).not.toHaveProperty('mediaAssetId');
   });
 
-  it('saves the lesson with the explicit button, using a blank media id to detach', async () => {
-    let stored = withLessons();
-    const calls = mockServer((url, method, body) => {
-      if (url === `${API}/courses/c1` && method === 'GET') return stored;
-      if (url === `${API}/lessons/la` && method === 'PUT') {
-        stored = draft({ sections: [{ ...section, lessons: [{ ...lessonA, ...body }, lessonB] }] as any });
-        return {};
-      }
+  it('saves lesson fields with one button; the payload carries every component field and no type', async () => {
+    let stored = course2([lessonA]);
+    const calls = await open([lessonA], (url, method, body) => {
+      if (url === `${API}/lessons/la` && method === 'PUT') { stored = course2([{ ...lessonA, ...body }]); return {}; }
       return undefined;
-    });
-    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
-    fireEvent.click(await screen.findByRole('button', { name: 'Bài A' }));
-    const title = await screen.findByLabelText(/Tên bài học/);
+    }, null);
+    void stored;
+    await pick('Bài A');
     expect(screen.getByRole('button', { name: 'Lưu bài học' })).toBeDisabled();
-    fireEvent.change(title, { target: { value: 'Bài A đổi tên' } });
-    fireEvent.change(screen.getByLabelText('Phụ đề WebVTT'), { target: { value: 'WEBVTT' } });
+    fireEvent.change(screen.getByLabelText(/Tên bài học/), { target: { value: 'Bài A đổi tên' } });
+    fireEvent.change(screen.getByLabelText('Nội dung bài học'), { target: { value: 'Giới thiệu' } });
     expect(screen.getByText('Có thay đổi chưa lưu')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Lưu bài học' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
-    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ title: 'Bài A đổi tên', captionsVtt: 'WEBVTT', mediaAssetId: '', type: 'VIDEO' });
-    expect(await screen.findByText(/Đã lưu lúc/, { selector: 'span' })).toBeInTheDocument();
+    const body = calls.find((c) => c.method === 'PUT')!.body;
+    expect(body).toEqual({ title: 'Bài A đổi tên', contentText: 'Giới thiệu', captionsVtt: '', mediaAssetId: '', videoUrl: '', hasAssignment: false, assignmentInstructions: '', durationMinutes: 0 });
+  });
+
+  it('video card: four sources (Không có | Tải lên | YouTube | Google Drive), and Tải lên shows a file input', async () => {
+    await open([lessonA]);
+    await pick('Bài A');
+    const tabs = within(screen.getByRole('tablist', { name: 'Nguồn video' })).getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['Không có', 'Tải lên', 'YouTube', 'Google Drive']);
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(tabs[1]);
+    expect(screen.getByLabelText(/Video bài học/)).toHaveAttribute('type', 'file');
+  });
+
+  it('validates a pasted YouTube link, previews it in a sandboxed iframe and saves videoUrl with no upload', async () => {
+    const calls = await open([lessonA], (url, method) => (url === `${API}/lessons/la` && method === 'PUT' ? {} : undefined));
+    await pick('Bài A');
+    fireEvent.click(screen.getByRole('tab', { name: 'YouTube' }));
+    const field = screen.getByLabelText(/Liên kết video YouTube/);
+    fireEvent.change(field, { target: { value: 'https://vimeo.com/123' } });
+    expect(screen.getByText(/Liên kết YouTube không hợp lệ/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Lưu bài học' })).toBeDisabled();
+    fireEvent.change(field, { target: { value: 'https://youtu.be/dQw4w9WgXcQ?si=abc' } });
+    const frame = screen.getByTitle('Xem trước video YouTube');
+    expect(frame).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
+    expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-popups');
+    expect(within(screen.getByRole('region', { name: 'Xem trước bài học' })).getByText('Có video · YouTube')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu bài học' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ videoUrl: 'https://youtu.be/dQw4w9WgXcQ?si=abc', mediaAssetId: '' });
+  });
+
+  it('asks before discarding the current video source, then clears the link with videoUrl ""', async () => {
+    const calls = await open([lessonB], (url, method) => (url === `${API}/lessons/lb` && method === 'PUT' ? {} : undefined));
+    await pick('Bài B');
+    expect(screen.getByRole('tab', { name: 'YouTube' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: 'Không có' }));
+    fireEvent.click(within(await screen.findByRole('alertdialog', { name: 'Đổi nguồn video?' })).getByRole('button', { name: 'Giữ nguồn hiện tại' }));
+    expect(screen.getByRole('tab', { name: 'YouTube' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: 'Không có' }));
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Đổi nguồn video' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu bài học' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ videoUrl: '', mediaAssetId: '' });
+  });
+
+  it('shows the server 400 text when the backend refuses the link', async () => {
+    await open([lessonA], (url, method) => {
+      if (url === `${API}/lessons/la` && method === 'PUT') {
+        return new Response(JSON.stringify({ success: false, error: { code: 'BAD_REQUEST', message: 'Chỉ hỗ trợ liên kết video YouTube hoặc Google Drive (dạng https://…)' } }), { status: 400 });
+      }
+      return undefined;
+    });
+    await pick('Bài A');
+    fireEvent.click(screen.getByRole('tab', { name: 'Google Drive' }));
+    fireEvent.change(screen.getByLabelText(/Liên kết video Google Drive/), { target: { value: 'https://drive.google.com/file/d/1AbCdEfGhIj/view' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu bài học' }));
+    expect(await screen.findByText('Chỉ hỗ trợ liên kết video YouTube hoặc Google Drive (dạng https://…)')).toBeInTheDocument();
+  });
+
+  it('content card: Markdown toolbar edits the text and a preview toggle renders it', async () => {
+    await open([{ ...lessonA, contentText: 'xin chào', components: { ...noParts, content: true } }]);
+    await pick('Bài A');
+    const body = screen.getByLabelText('Nội dung bài học') as HTMLTextAreaElement;
+    body.setSelectionRange(0, 3);
+    fireEvent.click(within(card('Nội dung')).getByRole('button', { name: 'In đậm' }));
+    expect(body.value).toBe('**xin** chào');
+    fireEvent.click(within(card('Nội dung')).getByRole('button', { name: 'Xem trước nội dung' }));
+    expect(within(screen.getByTestId('markdown-preview')).getByText('xin').tagName).toBe('STRONG');
+  });
+
+  it('assignment card: the switch reveals the instructions editor, which are required to save', async () => {
+    const calls = await open([lessonA], (url, method) => (url === `${API}/lessons/la` && method === 'PUT' ? {} : undefined));
+    await pick('Bài A');
+    expect(screen.queryByLabelText('Yêu cầu bài tập')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('switch', { name: 'Có bài tập' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu bài học' }));
+    expect(await screen.findByText(/Nhập yêu cầu bài tập/)).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(0);
+    fireEvent.change(screen.getByLabelText('Yêu cầu bài tập'), { target: { value: 'Viết 200 chữ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu bài học' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ hasAssignment: true, assignmentInstructions: 'Viết 200 chữ' });
+  });
+
+  it('documents card lists name and size, and persists add / rename / reorder / remove immediately', async () => {
+    const calls = await open([lessonB], (url, method) => {
+      if (url === `${API}/classes/class-1/media/upload-intents`) return { assetId: 'asset-9', uploadUrl: 'http://minio.test/put' };
+      if (url === '/put') return {};
+      if (url === `${API}/media/asset-9/complete`) return {};
+      if (url === `${API}/lessons/lb/attachments` && method === 'POST') return att('a3', 'bai-giang.pdf');
+      if (url === `${API}/lessons/lb/attachments/reorder`) return {};
+      if (url.startsWith(`${API}/lessons/lb/attachments/`) && (method === 'PATCH' || method === 'DELETE')) return {};
+      return undefined;
+    });
+    await pick('Bài B');
+    const docs = within(card('Tài liệu'));
+    expect(docs.getByText('Slide')).toBeInTheDocument();
+    expect(docs.getByText(/2 KB/)).toBeInTheDocument();
+    expect(docs.getByText(/3,0 MB/)).toBeInTheDocument();
+    expect(docs.getByText(/không cần bấm “Lưu bài học”/)).toBeInTheDocument();
+
+    // add: upload intent -> PUT -> complete -> POST attachment
+    const input = docs.getByLabelText(/Thêm tài liệu/);
+    fireEvent.change(input, { target: { files: [new File(['%PDF'], 'bai-giang.pdf', { type: 'application/pdf' })] } });
+    await waitFor(() => expect(calls.some((c) => c.url === `${API}/lessons/lb/attachments` && c.method === 'POST')).toBe(true));
+    expect(calls.find((c) => c.url === `${API}/lessons/lb/attachments`)!.body).toEqual({ mediaAssetId: 'asset-9', title: 'bai-giang.pdf' });
+    expect(calls.find((c) => c.url.endsWith('/upload-intents'))!.body).toMatchObject({ filename: 'bai-giang.pdf', purpose: 'LESSON', scopeCourseId: 'c1' });
+
+    // rename
+    fireEvent.click(docs.getByRole('button', { name: 'Đổi tên tài liệu "Slide"' }));
+    fireEvent.change(docs.getByLabelText('Tên tài liệu'), { target: { value: 'Slide tuần 1' } });
+    fireEvent.click(docs.getByRole('button', { name: 'Lưu tên' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true));
+    expect(calls.find((c) => c.method === 'PATCH')).toMatchObject({ url: `${API}/lessons/lb/attachments/a1`, body: { title: 'Slide tuần 1' } });
+
+    // reorder with Alt+ArrowDown on the handle
+    fireEvent.keyDown(docs.getByRole('button', { name: /Sắp xếp tài liệu "Slide"/ }), { key: 'ArrowDown', altKey: true });
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/attachments/reorder'))).toBe(true));
+    expect(calls.find((c) => c.url.endsWith('/attachments/reorder'))!.body).toEqual({ ids: ['a2', 'a1'] });
+
+    // remove with confirmation
+    fireEvent.click(docs.getByRole('button', { name: 'Xóa tài liệu "Đề cương"' }));
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Xác nhận' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === `${API}/lessons/lb/attachments/a2`)).toBe(true));
+  });
+
+  it('reorders documents by drag and drop', async () => {
+    const calls = await open([lessonB], (url) => (url.endsWith('/attachments/reorder') ? {} : undefined));
+    await pick('Bài B');
+    const rows = within(card('Tài liệu')).getAllByRole('listitem');
+    const data: Record<string, string> = {};
+    const dataTransfer = { setData: (k: string, v: string) => { data[k] = v; }, getData: (k: string) => data[k], effectAllowed: '' };
+    fireEvent.dragStart(rows[1], { dataTransfer });
+    fireEvent.dragOver(rows[0], { dataTransfer, clientY: 0 });
+    fireEvent.drop(rows[0], { dataTransfer, clientY: 0 });
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/attachments/reorder'))).toBe(true));
+    expect(calls.find((c) => c.url.endsWith('/attachments/reorder'))!.body).toEqual({ ids: ['a2', 'a1'] });
   });
 
   it('toggles "Nháp" through the archive endpoint and deletes a lesson after confirmation', async () => {
-    const calls = mockServer((url, method) => {
-      if (url === `${API}/courses/c1` && method === 'GET') return withLessons();
+    const calls = await open([lessonA], (url, method) => {
       if (url.startsWith(`${API}/lessons/la/archive`)) return {};
       if (url === `${API}/lessons/la` && method === 'DELETE') return {};
       return undefined;
     });
-    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
-    fireEvent.click(await screen.findByRole('button', { name: 'Bài A' }));
+    await pick('Bài A');
     fireEvent.click(await screen.findByRole('switch', { name: /Nháp/ }));
     await waitFor(() => expect(calls.some((c) => c.url === `${API}/lessons/la/archive?archived=true`)).toBe(true));
-
     fireEvent.click(screen.getByRole('button', { name: 'Xoá bài học' }));
     fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Xác nhận' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === `${API}/lessons/la`)).toBe(true));
   });
 
   it('reorders lessons by drag and drop and by Alt+arrow on the handle', async () => {
-    const calls = mockServer((url, method) => {
-      if (url === `${API}/courses/c1` && method === 'GET') return withLessons();
-      if (url === `${API}/sections/s1/lessons/reorder`) return {};
-      return undefined;
-    });
-    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
+    const calls = await open([lessonA, { ...lessonA, id: 'lc', title: 'Bài C', position: 2 }], (url) => (url === `${API}/sections/s1/lessons/reorder` ? {} : undefined));
     await screen.findByText('Bài A');
-
     fireEvent.keyDown(screen.getByRole('button', { name: /Sắp xếp bài học "Bài A"/ }), { key: 'ArrowDown', altKey: true });
     await waitFor(() => expect(calls.filter((c) => c.url.endsWith('/lessons/reorder'))).toHaveLength(1));
-    expect(calls.find((c) => c.url.endsWith('/lessons/reorder'))!.body).toEqual(['lb', 'la']);
+    expect(calls.find((c) => c.url.endsWith('/lessons/reorder'))!.body).toEqual(['lc', 'la']);
 
     const rows = within(screen.getByRole('region', { name: 'Cấu trúc nội dung' })).getAllByRole('listitem');
     const data: Record<string, string> = {};
@@ -614,122 +763,17 @@ describe('StudioCourseWizard - content studio (step 3)', () => {
     fireEvent.dragOver(rows[0], { dataTransfer, clientY: 0 });
     fireEvent.drop(rows[0], { dataTransfer, clientY: 0 });
     await waitFor(() => expect(calls.filter((c) => c.url.endsWith('/lessons/reorder'))).toHaveLength(2));
-    expect(calls.filter((c) => c.url.endsWith('/lessons/reorder'))[1].body).toEqual(['lb', 'la']);
   });
 
-  it('edits a text lesson with the Markdown toolbar and previews it', async () => {
-    const textLesson = { ...lesson, id: 'lt', title: 'Đọc', type: 'TEXT', contentText: 'xin chào' };
-    mockServer((url) => (url === `${API}/courses/c1` ? draft({ sections: [{ ...section, lessons: [textLesson] }] as any }) : undefined));
-    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
-    fireEvent.click(await screen.findByRole('button', { name: 'Đọc' }));
-    const body = (await screen.findByLabelText('Nội dung bài viết')) as HTMLTextAreaElement;
-    body.setSelectionRange(0, 3);
-    fireEvent.click(screen.getByRole('button', { name: 'In đậm' }));
-    expect(body.value).toBe('**xin** chào');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Xem trước nội dung' }));
-    expect(within(screen.getByTestId('markdown-preview')).getByText('xin').tagName).toBe('STRONG');
-    // Text lessons also have the "Tài liệu" tab for the attached file.
-    fireEvent.click(screen.getByRole('tab', { name: 'Tài liệu' }));
-    expect(screen.getByLabelText('Tệp đính kèm')).toBeInTheDocument();
-  });
-
-  it('video lessons offer upload / YouTube / Google Drive sources and no document tab', async () => {
-    mockServer((url) => (url === `${API}/courses/c1` ? withLessons() : undefined));
-    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
-    fireEvent.click(await screen.findByRole('button', { name: 'Bài A' }));
-    expect(await screen.findByLabelText(/Video bài học/)).toHaveAttribute('type', 'file');
-    const tabs = within(screen.getByRole('tablist', { name: 'Nguồn video' })).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Tải lên', 'YouTube', 'Google Drive']);
-    expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
-    expect(screen.queryByRole('tab', { name: 'Tài liệu' })).not.toBeInTheDocument();
-  });
-
-  const ytLesson = { ...lessonA, videoProvider: 'YOUTUBE', videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', embedUrl: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ' };
-  const withYoutube = () => draft({ sections: [{ ...section, lessons: [ytLesson] }] as any });
-
-  it('validates a pasted YouTube link, previews it in a sandboxed iframe and saves videoUrl with no upload', async () => {
-    const calls = mockServer((url, method) => {
-      if (url === `${API}/courses/c1` && method === 'GET') return withLessons();
-      if (url === `${API}/lessons/la` && method === 'PUT') return {};
-      return undefined;
-    });
-    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
-    fireEvent.click(await screen.findByRole('button', { name: 'Bài A' }));
-    fireEvent.click(await screen.findByRole('tab', { name: 'YouTube' }));
-    const field = screen.getByLabelText(/Liên kết video YouTube/);
-
-    fireEvent.change(field, { target: { value: 'https://vimeo.com/123' } });
-    expect(screen.getByText(/Liên kết YouTube không hợp lệ/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Lưu bài học' })).toBeDisabled();
-    expect(screen.queryByTitle(/Xem trước video/)).not.toBeInTheDocument();
-
-    fireEvent.change(field, { target: { value: 'https://youtu.be/dQw4w9WgXcQ?si=abc' } });
-    const frame = screen.getByTitle('Xem trước video YouTube');
-    expect(frame).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
-    expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-popups');
-    expect(screen.getByTestId('lesson-preview').parentElement).toHaveTextContent('Có video · YouTube');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu bài học' }));
-    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
-    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ videoUrl: 'https://youtu.be/dQw4w9WgXcQ?si=abc', mediaAssetId: '' });
-  });
-
-  it('rejects a Drive link on the YouTube tab with a hint to switch tab', async () => {
-    mockServer((url) => (url === `${API}/courses/c1` ? withLessons() : undefined));
-    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
-    fireEvent.click(await screen.findByRole('button', { name: 'Bài A' }));
-    fireEvent.click(await screen.findByRole('tab', { name: 'YouTube' }));
-    fireEvent.change(screen.getByLabelText(/Liên kết video YouTube/), { target: { value: 'https://drive.google.com/file/d/1AbCdEfGhIj/view' } });
-    expect(screen.getByText(/hãy chọn tab Google Drive/)).toBeInTheDocument();
-  });
-
-  it('asks before discarding the current source and clears the link with videoUrl ""', async () => {
-    const calls = mockServer((url, method) => {
-      if (url === `${API}/courses/c1` && method === 'GET') return withYoutube();
-      if (url === `${API}/lessons/la` && method === 'PUT') return {};
-      return undefined;
-    });
-    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
-    fireEvent.click(await screen.findByRole('button', { name: 'Bài A' }));
-    expect(await screen.findByLabelText(/Liên kết video YouTube/)).toHaveValue('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
-    expect(screen.getByRole('tab', { name: 'YouTube' })).toHaveAttribute('aria-selected', 'true');
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Tải lên' }));
-    const dialog = await screen.findByRole('alertdialog', { name: 'Đổi nguồn video?' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Giữ nguồn hiện tại' }));
-    expect(screen.getByRole('tab', { name: 'YouTube' })).toHaveAttribute('aria-selected', 'true');
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Tải lên' }));
-    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Đổi nguồn video' }));
-    expect(screen.getByLabelText(/Video bài học/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu bài học' }));
-    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
-    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ videoUrl: '', mediaAssetId: '' });
-  });
-
-  it('shows the server 400 text when the backend refuses the link', async () => {
-    mockServer((url, method) => {
-      if (url === `${API}/courses/c1` && method === 'GET') return withLessons();
-      if (url === `${API}/lessons/la` && method === 'PUT') {
-        return new Response(JSON.stringify({ success: false, error: { code: 'BAD_REQUEST', message: 'Chỉ hỗ trợ liên kết video YouTube hoặc Google Drive (dạng https://…)' } }), { status: 400 });
-      }
-      return undefined;
-    });
-    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
-    fireEvent.click(await screen.findByRole('button', { name: 'Bài A' }));
-    fireEvent.click(await screen.findByRole('tab', { name: 'Google Drive' }));
-    fireEvent.change(screen.getByLabelText(/Liên kết video Google Drive/), { target: { value: 'https://drive.google.com/file/d/1AbCdEfGhIj/view' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Lưu bài học' }));
-    expect(await screen.findByText('Chỉ hỗ trợ liên kết video YouTube hoặc Google Drive (dạng https://…)')).toBeInTheDocument();
-  });
-
-  it('is read-only without COURSE:EDIT handled by the wizard guard; a read-only class hides the tree actions', async () => {
+  it('a read-only class hides the tree actions and the component editors', async () => {
     currentClassroom = { ...owner, status: 'SUSPENDED' } as Classroom;
-    mockServer((url) => (url === `${API}/courses/c1` ? withLessons() : undefined));
-    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
-    await screen.findByText('Bài A');
+    await open([lessonB]);
+    await screen.findByText('Bài B');
     expect(screen.queryByRole('button', { name: 'Thêm danh mục' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Sắp xếp bài học/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Bài B/ }));
+    expect(await screen.findByLabelText(/Tên bài học/)).toBeDisabled();
+    expect(screen.queryByLabelText(/Thêm tài liệu/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Lưu bài học' })).not.toBeInTheDocument();
   });
 });

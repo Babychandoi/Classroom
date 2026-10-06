@@ -241,6 +241,15 @@ public class ClassroomService {
     /** D-28: plus an optional {@code category} filter (exact, one of ClassCategories.ALL; 400 otherwise). */
     @Transactional(readOnly = true)
     public List<ClassroomDto> getAllClassrooms(String currentUserId, int page, int size, String q, String sort, String category) {
+        return getAllClassrooms(currentUserId, page, size, q, sort, category, false);
+    }
+
+    /**
+     * D-33: {@code discover=true} (the home page) removes every PRIVATE class from the listing for everybody - owners and members included -
+     * inside the query, so the page window is filled with classes that are actually shown. Default false = the listing above.
+     */
+    @Transactional(readOnly = true)
+    public List<ClassroomDto> getAllClassrooms(String currentUserId, int page, int size, String q, String sort, String category, boolean discover) {
         String categoryFilter = category == null || category.isBlank() ? "" : ClassCategories.require(category);
         String needle = q == null ? "" : q.trim();
         if (needle.length() > MAX_QUERY_LENGTH) {
@@ -251,7 +260,7 @@ public class ClassroomService {
             throw new AppException(ErrorCode.BAD_REQUEST, "Cách sắp xếp chỉ có thể là newest hoặc popular");
         }
         if (needle.isEmpty() && SORT_NEWEST.equals(sortKey) && categoryFilter.isEmpty()) {
-            return listNewest(currentUserId, page, size);
+            return listNewest(currentUserId, page, size, discover);
         }
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
@@ -264,24 +273,29 @@ public class ClassroomService {
             Instant now = Instant.now();
             pageOfClasses = currentUserId == null
                     ? classroomRepository.searchPubliclyVisibleByPopularity(pattern, categoryFilter, now, unsorted)
+                    : discover
+                    ? classroomRepository.searchVisibleToUserByPopularityDiscover(currentUserId, pattern, categoryFilter, now, unsorted)
                     : classroomRepository.searchVisibleToUserByPopularity(currentUserId, pattern, categoryFilter, now, unsorted);
         } else {
             Pageable pageable = PageRequest.of(safePage, safeSize,
                     Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.ASC, "id")));
             pageOfClasses = currentUserId == null
                     ? classroomRepository.searchPubliclyVisible(pattern, categoryFilter, pageable)
+                    : discover
+                    ? classroomRepository.searchVisibleToUserDiscover(currentUserId, pattern, categoryFilter, pageable)
                     : classroomRepository.searchVisibleToUser(currentUserId, pattern, categoryFilter, pageable);
         }
         return toDtos(pageOfClasses, currentUserId);
     }
 
-    private List<ClassroomDto> listNewest(String currentUserId, int page, int size) {
+    private List<ClassroomDto> listNewest(String currentUserId, int page, int size, boolean discover) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
         Pageable pageable = PageRequest.of(safePage, safeSize,
                 Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.ASC, "id")));
         List<Classroom> pageOfClasses = currentUserId == null
                 ? classroomRepository.findPubliclyVisible(pageable)
+                : discover ? classroomRepository.findVisibleToUserDiscover(currentUserId, pageable)
                 : classroomRepository.findVisibleToUser(currentUserId, pageable);
         return toDtos(pageOfClasses, currentUserId);
     }

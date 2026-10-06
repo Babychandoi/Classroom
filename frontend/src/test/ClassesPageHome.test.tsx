@@ -183,7 +183,7 @@ describe('ClassesPage home', () => {
     expect(await screen.findByRole('heading', { name: 'Kết quả cho “toán”' })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Toán nâng cao' })).toBeInTheDocument());
     const searchCall = requested.find((u) => u.includes('q='));
-    expect(searchCall).toContain(`page=0&size=${CLASSES_PAGE_SIZE}&q=${encodeURIComponent('toán')}`);
+    expect(searchCall).toContain(`page=0&size=${CLASSES_PAGE_SIZE}&discover=true&q=${encodeURIComponent('toán')}`);
     expect(screen.queryByRole('region', { name: 'Phổ biến' })).not.toBeInTheDocument();
 
     // "Về trang chủ" clears the search and brings the rails back.

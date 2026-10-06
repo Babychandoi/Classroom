@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext, Link, useNavigate } from 'react-router-dom';
 import { Classroom, Course, Lesson } from '../../types';
+import { bundleOf, componentChips } from '../../api/lessonComponents';
 import { api } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { LoadingSpinner, ErrorBanner, EmptyState } from '../../components/UIStates';
@@ -377,8 +378,7 @@ const FeaturedCourse: React.FC<{
                     </div>
                     <ul>
                       {section.lessons.map((lesson) => {
-                        const provider = lesson.videoProvider === 'YOUTUBE' ? 'YouTube' : lesson.videoProvider === 'GOOGLE_DRIVE' ? 'Google Drive' : null;
-                        const meta = [provider, lesson.durationMinutes > 0 ? `${lesson.durationMinutes} phút` : null].filter(Boolean).join(' · ') || null;
+                        const meta = [...componentChips(bundleOf(lesson)), lesson.durationMinutes > 0 ? `${lesson.durationMinutes} phút` : null].filter(Boolean).join(' · ') || null;
                         const row = (
                           <>
                             {lesson.completed ? (

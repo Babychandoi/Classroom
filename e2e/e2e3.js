@@ -327,7 +327,10 @@ const cardOf = (page, title) => page.locator('article', { has: page.locator('h3'
       await owner.getByRole('button', { name: 'Thêm bài học', exact: true }).click();
       await owner.getByLabel('Tên bài học mới').fill('Bài G5');
       await owner.getByRole('button', { name: 'Tạo bài' }).click();
-      await owner.getByRole('button', { name: 'Bài G5' }).first().waitFor({ timeout: 8000 });
+      // Bài học cần ít nhất một thành phần mới tính là nội dung: thêm phần nội dung chữ rồi lưu.
+      await owner.getByLabel('Nội dung bài học').fill('Nội dung G5');
+      await owner.getByRole('button', { name: 'Lưu bài học' }).click();
+      await owner.getByText(/Đã lưu lúc/).first().waitFor({ timeout: 8000 });
       await owner.getByRole('button', { name: /Tiếp tục: Kiểm tra/ }).click();
       await owner.getByRole('heading', { name: 'Xem trước & xuất bản' }).waitFor({ timeout: 8000 });
       await owner.getByRole('button', { name: 'Xuất bản', exact: true }).click();

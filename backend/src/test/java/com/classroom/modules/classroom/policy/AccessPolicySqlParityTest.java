@@ -187,8 +187,21 @@ class AccessPolicySqlParityTest {
         Set<String> popular = viewerId == null
                 ? mine(classroomRepository.searchPubliclyVisibleByPopularity("%", "", Instant.now(), PageRequest.of(0, 5000)))
                 : mine(classroomRepository.searchVisibleToUserByPopularity(viewerId, "%", "", Instant.now(), PageRequest.of(0, 5000)));
+        // D-33: the "discover" twins = the very same rule minus every PRIVATE class (guests never see those, so only signed-in viewers differ).
+        Set<String> discoverPlain = viewerId == null ? null
+                : mine(classroomRepository.findVisibleToUserDiscover(viewerId, everything()));
+        Set<String> discoverSearch = viewerId == null ? null
+                : mine(classroomRepository.searchVisibleToUserDiscover(viewerId, "%parity%", "", everything()));
+        Set<String> discoverPopular = viewerId == null ? null
+                : mine(classroomRepository.searchVisibleToUserByPopularityDiscover(viewerId, "%", "", Instant.now(), PageRequest.of(0, 5000)));
         for (Classroom c : classes) {
             boolean policy = accessPolicy.isClassVisibleToUser(c, viewerId);
+            if (viewerId != null) {
+                boolean discoverable = policy && !c.isPrivate();
+                assertEquals(discoverable, discoverPlain.contains(c.getId()), kind + " / " + c.getTitle() + " discover plain");
+                assertEquals(discoverable, discoverSearch.contains(c.getId()), kind + " / " + c.getTitle() + " discover search");
+                assertEquals(discoverable, discoverPopular.contains(c.getId()), kind + " / " + c.getTitle() + " discover popular");
+            }
             assertEquals(policy, searched.contains(c.getId()), kind + " / " + c.getTitle() + ": policy=" + policy + " search=" + searched.contains(c.getId()));
             assertEquals(policy, popular.contains(c.getId()), kind + " / " + c.getTitle() + ": policy=" + policy + " popular=" + popular.contains(c.getId()));
             assertEquals(policy, sql.contains(c.getId()), kind + " / " + c.getTitle() + ": policy=" + policy + " sql=" + sql.contains(c.getId()));

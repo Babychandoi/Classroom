@@ -30,7 +30,8 @@ const classesUrl = (page: number, size: number, extra: Record<string, string | u
     .filter(([, value]) => value)
     .map(([key, value]) => `&${key}=${encodeURIComponent(value as string)}`)
     .join('');
-  return `/classes?page=${page}&size=${size}${params}`;
+  // discover=true: the server leaves every PRIVATE class out of the listing (before paging), so pages stay full.
+  return `/classes?page=${page}&size=${size}&discover=true${params}`;
 };
 
 /** A PRIVATE class is never listed on the home page (rails, search, catalog): it is only reached through its invite link. */

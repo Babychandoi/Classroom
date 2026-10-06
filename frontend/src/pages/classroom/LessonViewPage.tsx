@@ -5,6 +5,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { LoadingSpinner, ErrorBanner } from '../../components/UIStates';
 import { SafeMarkdown } from '../../components/SafeMarkdown';
+import { bundleOf, formatBytes } from '../../api/lessonComponents';
 import { Avatar, Badge, ProgressBar, Textarea, buttonClass, inputClass } from '../../components/ui';
 import {
   ArrowLeft, ArrowRight, Check, ChevronRight, Clock, Download, FileText, Lock, MessageSquare, PlayCircle, Send, Video,
@@ -13,12 +14,6 @@ import {
 type Submission = { id: string; attemptNumber: number; submissionText: string; score: number | null; feedback: string | null; submittedAt: string };
 type TabKey = 'content' | 'assignment' | 'qa' | 'docs';
 
-const TYPE_LABEL: Record<Lesson['type'], string> = {
-  VIDEO: 'Video',
-  TEXT: 'Bài đọc',
-  DOCUMENT: 'Tài liệu',
-  ASSIGNMENT: 'Bài tập',
-};
 
 const formatDateTime = (iso: string) => {
   const d = new Date(iso);
@@ -75,13 +70,12 @@ export const LessonViewPage: React.FC = () => {
   // URL that was last (re)issued so each newly-issued URL gets its own one-shot retry instead of
   // being permanently exhausted after the first refresh.
   const [videoUrl, setVideoUrl] = useState<string | undefined>(undefined);
-  const [documentUrl, setDocumentUrl] = useState<string | undefined>(undefined);
+  const [docError, setDocError] = useState<string | null>(null);
   const lastRefreshedUrlRef = useRef<string | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     setVideoUrl(lesson?.mediaDownloadUrl);
-    setDocumentUrl(lesson?.mediaDownloadUrl);
     lastRefreshedUrlRef.current = undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lesson?.id, lesson?.mediaDownloadUrl]);
@@ -115,18 +109,20 @@ export const LessonViewPage: React.FC = () => {
     });
   };
 
-  /** R9-06: the "Tải tài liệu" link fetches a fresh URL on click, the same pattern as DocumentsTab. */
-  const handleDocumentDownloadClick = async (event: React.MouseEvent<HTMLAnchorElement>) => {
-    event.preventDefault();
-    const fresh = (await fetchFreshMediaUrl()) || documentUrl;
-    if (!fresh) return;
-    setDocumentUrl(fresh);
-    const link = document.createElement('a');
-    link.href = fresh;
-    link.rel = 'noopener';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  /** Each document downloads through a fresh presigned URL (the same pattern as DocumentsTab), so an old page never serves an expired link. */
+  const downloadAttachment = async (mediaAssetId: string) => {
+    setDocError(null);
+    try {
+      const res = await api.get<{ downloadUrl: string }>(`/media/${mediaAssetId}/download-url`);
+      const link = document.createElement('a');
+      link.href = res.downloadUrl;
+      link.rel = 'noopener';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err: any) {
+      setDocError(err.message || 'Không thể tải tài liệu. Vui lòng thử lại.');
+    }
   };
 
   const fetchLesson = async () => {
@@ -139,13 +135,14 @@ export const LessonViewPage: React.FC = () => {
       const data = await api.get<Lesson>(`/lessons/${lessonId}`);
       setLesson(data);
       setTab('content');
+      setDocError(null);
 
       // The curriculum is loaded alongside (never blocks the lesson). Reuse it when moving within the same course.
       if (data.courseId && course?.id !== data.courseId) {
         api.get<Course>(`/courses/${data.courseId}`).then(setCourse).catch(() => setCourse(null));
       }
 
-      if (data.type === 'ASSIGNMENT') {
+      if (bundleOf(data).assignment) {
         setSubmissions(await api.get<Submission[]>(`/lessons/${lessonId}/submissions/mine`));
       } else {
         setSubmissions([]);
@@ -301,26 +298,29 @@ export const LessonViewPage: React.FC = () => {
     );
   }
 
+  const bundle = bundleOf(lesson);
+  const attachments = lesson.attachments ?? [];
   const hasSubmitted = submissions.length > 0;
   const lessonNumber = currentIndex >= 0 ? currentIndex + 1 : null;
   const eyebrow = [
     lessonNumber && totalCount ? `Bài ${lessonNumber}/${totalCount}` : null,
-    TYPE_LABEL[lesson.type],
     lesson.durationMinutes > 0 ? `${lesson.durationMinutes} phút` : null,
   ].filter(Boolean).join(' · ');
   // A single blue per viewport: while an assignment is still unsubmitted, its "Nộp bài" is the main action.
-  const completeVariant = lesson.completed ? 'done' : lesson.type === 'ASSIGNMENT' && !hasSubmitted ? 'secondary' : 'primary';
+  const completeVariant = lesson.completed ? 'done' : bundle.assignment && !hasSubmitted ? 'secondary' : 'primary';
   const completeNote = lesson.completed
     ? 'Bấm lần nữa để bỏ đánh dấu'
-    : lesson.type === 'ASSIGNMENT' && !hasSubmitted
+    : bundle.assignment && !hasSubmitted
       ? 'Nên nộp bài tập trước khi đánh dấu hoàn thành'
       : nextLesson
         ? `Tiếp theo: ${nextLesson.title}`
         : null;
 
+  // Tabs exist only for the components the lesson has (plus the content tab when nothing else would be shown), then Hỏi đáp.
   const tabs: { key: TabKey; label: React.ReactNode }[] = [
-    { key: 'content', label: 'Nội dung' },
-    ...(lesson.type === 'ASSIGNMENT'
+    ...(bundle.content || (attachments.length === 0 && !bundle.assignment) ? [{ key: 'content' as TabKey, label: 'Nội dung' }] : []),
+    ...(attachments.length > 0 ? [{ key: 'docs' as TabKey, label: <>Tài liệu<span className="ml-1.5 tabular text-slate-500">({attachments.length})</span></> }] : []),
+    ...(bundle.assignment
       ? [{
           key: 'assignment' as TabKey,
           label: (
@@ -332,32 +332,17 @@ export const LessonViewPage: React.FC = () => {
         }]
       : []),
     { key: 'qa', label: <>Hỏi đáp<span className="ml-1.5 tabular text-slate-500">{questions.length}</span></> },
-    { key: 'docs', label: 'Tài liệu' },
   ];
+  const activeTab: TabKey = tabs.some((t) => t.key === tab) ? tab : tabs[0].key;
 
   const onTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
     event.preventDefault();
-    const index = tabs.findIndex((t) => t.key === tab);
+    const index = tabs.findIndex((t) => t.key === activeTab);
     const next = tabs[(index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
     setTab(next.key);
     document.getElementById(`lesson-tab-${next.key}`)?.focus();
   };
-
-  const documentRow = documentUrl ? (
-    // R8-01/R9-06: fetches a fresh presigned URL on click (same pattern as
-    // DocumentsTab#handleDownload) instead of relying on the URL issued when the
-    // lesson first loaded, which may have since expired if the page was left open.
-    // The object was issued with response-content-disposition=attachment, so the
-    // browser downloads it directly from the object store with native Range/resume
-    // support, instead of this app buffering the whole file into memory as a Blob first.
-    <a href={documentUrl} rel="noopener" onClick={handleDocumentDownloadClick} className={buttonClass('secondary', 'md')}>
-      <Download className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-      <span>Tải tài liệu</span>
-    </a>
-  ) : (
-    <span className="text-meta text-slate-500">Đang chuẩn bị liên kết tải...</span>
-  );
 
   return (
     <div className="space-y-5">
@@ -390,7 +375,7 @@ export const LessonViewPage: React.FC = () => {
         )}
 
         <article className="min-w-0 space-y-6 lg:order-2" aria-labelledby="lesson-title">
-          {lesson.type === 'VIDEO' && (
+          {bundle.video && (
             <section aria-label="Video bài học" className="overflow-hidden rounded-2xl bg-slate-900 shadow-lift sm:rounded-card">
               {lesson.embedUrl ? (
                 <div>
@@ -445,21 +430,6 @@ export const LessonViewPage: React.FC = () => {
             </section>
           )}
 
-          {lesson.type === 'DOCUMENT' && (
-            <section className="flex flex-col items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-hairline sm:flex-row sm:items-center sm:rounded-card sm:p-6">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-btn bg-red-100 text-red-800" aria-hidden="true">
-                  <FileText className="h-5 w-5" strokeWidth={1.6} />
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-ui font-semibold text-slate-900">{lesson.title}</p>
-                  <p className="text-caption text-slate-500">Tài liệu học tập đính kèm cho bài học</p>
-                </div>
-              </div>
-              {documentRow}
-            </section>
-          )}
-
           {/* Title + the one primary action of the page. */}
           <section className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
             <div className="min-w-0 flex-1 sm:min-w-[280px]">
@@ -499,13 +469,13 @@ export const LessonViewPage: React.FC = () => {
                   id={`lesson-tab-${t.key}`}
                   type="button"
                   role="tab"
-                  aria-selected={tab === t.key}
+                  aria-selected={activeTab === t.key}
                   aria-controls={`lesson-panel-${t.key}`}
-                  tabIndex={tab === t.key ? 0 : -1}
+                  tabIndex={activeTab === t.key ? 0 : -1}
                   onClick={() => setTab(t.key)}
                   onKeyDown={onTabKeyDown}
                   className={`-mb-px inline-flex min-h-[44px] flex-shrink-0 items-center whitespace-nowrap border-b-2 px-0.5 pb-3 pt-2 text-ui transition-colors duration-micro ${
-                    tab === t.key ? 'border-blue-600 font-semibold text-blue-600' : 'border-transparent font-medium text-slate-600 hover:text-slate-900'
+                    activeTab === t.key ? 'border-blue-600 font-semibold text-blue-600' : 'border-transparent font-medium text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   {t.label}
@@ -513,29 +483,33 @@ export const LessonViewPage: React.FC = () => {
               ))}
             </div>
 
-            <div id={`lesson-panel-${tab}`} role="tabpanel" aria-labelledby={`lesson-tab-${tab}`} className="mt-6">
-              {tab === 'content' && (
+            <div id={`lesson-panel-${activeTab}`} role="tabpanel" aria-labelledby={`lesson-tab-${activeTab}`} className="mt-6">
+              {activeTab === 'content' && (
                 <section className="rounded-2xl border border-slate-200 bg-white px-5 py-6 shadow-hairline sm:rounded-card sm:px-10 sm:py-9">
                   <div className="mx-auto max-w-[680px]">
                     {lesson.contentText ? (
                       <>
-                        {lesson.type === 'VIDEO' && <h2 className="mb-3 text-[19px] font-semibold leading-[27px] tracking-[-0.2px] text-slate-900">Bản chép lời và mô tả video</h2>}
-                        {lesson.type === 'VIDEO'
-                          ? <div className="whitespace-pre-line text-body text-slate-600 sm:text-[16px] sm:leading-[27px]">{lesson.contentText}</div>
-                          : <SafeMarkdown source={lesson.contentText} size="body" />}
+                        {bundle.video && <h2 className="mb-3 text-[19px] font-semibold leading-[27px] tracking-[-0.2px] text-slate-900">Bản chép lời và mô tả video</h2>}
+                        <SafeMarkdown source={lesson.contentText} size="body" />
                       </>
                     ) : (
                       <p className="text-ui text-slate-500">
                         Bài học này chưa có nội dung văn bản.
-                        {lesson.type === 'VIDEO' ? ' Hãy xem video phía trên, có thắc mắc thì hỏi ngay ở tab Hỏi đáp.' : ' Có thắc mắc thì hỏi ngay ở tab Hỏi đáp.'}
+                        {bundle.video ? ' Hãy xem video phía trên, có thắc mắc thì hỏi ngay ở tab Hỏi đáp.' : ' Có thắc mắc thì hỏi ngay ở tab Hỏi đáp.'}
                       </p>
                     )}
                   </div>
                 </section>
               )}
 
-              {tab === 'assignment' && lesson.type === 'ASSIGNMENT' && (
+              {activeTab === 'assignment' && bundle.assignment && (
                 <section className="space-y-5">
+                  {lesson.assignmentInstructions && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-hairline sm:rounded-card sm:p-7">
+                      <h2 className="mb-3 text-h3 font-semibold text-slate-900">Yêu cầu bài tập</h2>
+                      <SafeMarkdown source={lesson.assignmentInstructions} size="body" />
+                    </div>
+                  )}
                   <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-hairline sm:rounded-card sm:p-7">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <h2 className="text-h3 font-semibold text-slate-900">Bài nộp của bạn</h2>
@@ -597,7 +571,7 @@ export const LessonViewPage: React.FC = () => {
                 </section>
               )}
 
-              {tab === 'qa' && (
+              {activeTab === 'qa' && (
                 <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-hairline sm:rounded-card sm:p-7">
                   <div className="flex items-center gap-3">
                     <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-tint text-blue-600" aria-hidden="true">
@@ -687,24 +661,29 @@ export const LessonViewPage: React.FC = () => {
                 </section>
               )}
 
-              {tab === 'docs' && (
+              {activeTab === 'docs' && (
                 <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-hairline sm:rounded-card sm:p-7">
-                  {lesson.type === 'DOCUMENT' && lesson.mediaAssetId ? (
-                    <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-btn bg-red-100 text-red-800" aria-hidden="true">
-                          <FileText className="h-[17px] w-[17px]" strokeWidth={1.6} />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-ui font-semibold text-slate-900">{lesson.title}</span>
-                          <span className="block text-caption text-slate-500">Tài liệu của bài học</span>
-                        </span>
-                      </div>
-                      {documentRow}
-                    </div>
-                  ) : (
-                    <p className="text-ui text-slate-500">Bài học này chưa có tài liệu đính kèm.</p>
-                  )}
+                  <h2 className="mb-3 text-body font-semibold text-slate-900">Tài liệu của bài học ({attachments.length})</h2>
+                  {docError && <p role="alert" className="mb-3 text-meta font-medium text-red-600">{docError}</p>}
+                  <ul className="divide-y divide-slate-100 rounded-2xl border border-slate-200">
+                    {attachments.map((att) => (
+                      <li key={att.id} className="flex flex-col items-start justify-between gap-3 px-4 py-3 sm:flex-row sm:items-center">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-btn bg-red-100 text-red-800" aria-hidden="true">
+                            <FileText className="h-[17px] w-[17px]" strokeWidth={1.6} />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-ui font-semibold text-slate-900">{att.title}</span>
+                            {formatBytes(att.sizeBytes) && <span className="block text-caption text-slate-500 tabular">{formatBytes(att.sizeBytes)}</span>}
+                          </span>
+                        </div>
+                        <button type="button" onClick={() => void downloadAttachment(att.mediaAssetId)} aria-label={`Tải tài liệu ${att.title}`} className={buttonClass('secondary', 'md')}>
+                          <Download className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                          <span>Tải tài liệu</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                   <div className="mt-4 border-t border-slate-100 pt-4">
                     <Link to={`/classes/${slug}/documents`} className="text-ui font-medium text-blue-600 hover:text-blue-700">
                       Xem tài liệu chung của lớp
@@ -727,12 +706,12 @@ export const LessonViewPage: React.FC = () => {
                       className="grid min-h-[52px] grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 px-5 py-2 transition-colors duration-micro hover:bg-slate-50 sm:px-7"
                     >
                       <span className="inline-flex h-8 w-8 items-center justify-center rounded-thumb bg-slate-100 text-slate-600" aria-hidden="true">
-                        {next.type === 'VIDEO' ? <PlayCircle className="h-4 w-4" strokeWidth={1.75} /> : <FileText className="h-4 w-4" strokeWidth={1.75} />}
+                        {bundleOf(next).video ? <PlayCircle className="h-4 w-4" strokeWidth={1.75} /> : <FileText className="h-4 w-4" strokeWidth={1.75} />}
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate text-ui font-semibold text-slate-900">{next.title}</span>
                         <span className="block text-caption text-slate-500 tabular">
-                          Bài {allLessons.indexOf(next) + 1} · {TYPE_LABEL[next.type]}{next.durationMinutes > 0 ? ` · ${next.durationMinutes} phút` : ''}
+                          Bài {allLessons.indexOf(next) + 1}{next.durationMinutes > 0 ? ` · ${next.durationMinutes} phút` : ''}
                         </span>
                       </span>
                       <ChevronRight className="h-4 w-4 text-slate-400" strokeWidth={1.75} aria-hidden="true" />
@@ -810,7 +789,7 @@ const CurriculumSidebar: React.FC<{
                           <span className="min-w-0">
                             <span className="block truncate text-meta font-semibold text-slate-900">{title}</span>
                             <span className="block text-caption font-medium text-blue-600">
-                              Đang học{l.type === 'ASSIGNMENT' ? ' · có bài tập' : ''}
+                              Đang học{bundleOf(l).assignment ? ' · có bài tập' : ''}
                             </span>
                           </span>
                         </div>

@@ -241,5 +241,7 @@ export const api = {
     request<T>(url, { ...init, method: 'POST', body: body ? JSON.stringify(body) : undefined }),
   put: <T>(url: string, body?: unknown, init?: RequestInit) =>
     request<T>(url, { ...init, method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
+  patch: <T>(url: string, body?: unknown, init?: RequestInit) =>
+    request<T>(url, { ...init, method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
   delete: <T>(url: string, init?: RequestInit) => request<T>(url, { ...init, method: 'DELETE' }),
 };

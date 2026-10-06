@@ -152,6 +152,8 @@ const persist = () => saveState({
     await owner.getByRole('button', { name: 'Thêm bài học', exact: true }).click();
     await owner.getByLabel('Tên bài học mới').fill(LESSON);
     await owner.getByRole('button', { name: 'Tạo bài' }).click();
+    // Một bài học là gói thành phần (không còn "loại"): chọn nguồn video "Tải lên" trong thẻ Video.
+    await owner.getByRole('tab', { name: 'Tải lên' }).click();
     await owner.getByLabel(/Video bài học/).waitFor({ timeout: 8000 });
     const [uploadResp] = await Promise.all([
       owner.waitForResponse((r) => r.request().method() === 'PUT' && new RegExp(`:${MINIO_PORT}/`).test(r.url()), { timeout: 20000 }),
@@ -310,6 +312,52 @@ const persist = () => saveState({
     if (await stu.locator('video').count()) throw new Error('a <video> is rendered next to the embed');
     await shot(stu, 'J3-lesson-youtube');
     return src;
+  });
+  const BUNDLE_LESSON = `Bai tron bo ${RUN}`;
+  await step('J3', 'owner builds a bundle lesson: content + a PDF document + an assignment (no lesson type)', owner, async () => {
+    await openWizardStep(3);
+    await owner.getByRole('button', { name: 'Thêm bài học', exact: true }).click();
+    await owner.getByLabel('Tên bài học mới').fill(BUNDLE_LESSON);
+    await owner.getByRole('button', { name: 'Tạo bài' }).click();
+    await owner.getByLabel('Nội dung bài học').waitFor({ timeout: 8000 });
+    if (await owner.getByLabel('Loại bài học').count()) throw new Error('a lesson type select is still offered');
+    await owner.getByLabel('Nội dung bài học').fill('Phần **nội dung** của bài trọn bộ');
+    await owner.getByRole('switch', { name: 'Có bài tập' }).click();
+    await owner.getByLabel('Yêu cầu bài tập').fill('Hãy viết ba câu về bài học.');
+    const [put] = await Promise.all([
+      owner.waitForResponse((r) => r.request().method() === 'PUT' && /\/lessons\/[^/]+$/.test(r.url()), { timeout: 10000 }),
+      owner.getByRole('button', { name: 'Lưu bài học' }).click(),
+    ]);
+    if (put.status() !== 200) throw new Error(`PUT lesson -> ${put.status()} ${await put.text()}`);
+    state.bundleLessonId = new URL(put.url()).pathname.split('/').pop();
+    // Documents are persisted as soon as they are added (upload -> POST /attachments).
+    const [att] = await Promise.all([
+      owner.waitForResponse((r) => r.request().method() === 'POST' && /\/lessons\/[^/]+\/attachments$/.test(r.url()), { timeout: 20000 }),
+      owner.getByLabel(/Thêm tài liệu/).setInputFiles(path.join(FIXTURES, 'tiny.pdf')),
+    ]);
+    if (att.status() !== 200) throw new Error(`POST attachment -> ${att.status()} ${await att.text()}`);
+    const chips = owner.getByRole('region', { name: 'Xem trước bài học' });
+    await chips.getByText('1 tài liệu').waitFor({ timeout: 8000 });
+    await chips.getByText('Có bài tập').waitFor({ timeout: 4000 });
+    await chips.getByText('Có nội dung').waitFor({ timeout: 4000 });
+  });
+  await step('J3', 'learner sees tabs only for the components: Nội dung · Tài liệu (1) · Bài tập · Hỏi đáp; document downloads', stu, async () => {
+    await stu.goto(`${C()}/learn/lessons/${state.bundleLessonId}`);
+    const tabs = stu.getByRole('tablist', { name: 'Nội dung bài học' });
+    await tabs.waitFor({ timeout: 10000 });
+    const names = (await tabs.getByRole('tab').allInnerTexts()).map((t) => t.replace(/\s+/g, ''));
+    if (names.length !== 4 || !/^Nộidung$/.test(names[0]) || !/^Tàiliệu\(1\)$/.test(names[1]) || !/^Bàitập/.test(names[2]) || !/^Hỏiđáp/.test(names[3])) throw new Error(`tabs ${names.join(' | ')}`);
+    if (await stu.locator('video, iframe[title^="Video bài học"]').count()) throw new Error('a video is shown for a lesson without one');
+    await tabs.getByRole('tab', { name: /Tài liệu/ }).click();
+    const [dl] = await Promise.all([
+      stu.waitForEvent('download', { timeout: 15000 }),
+      stu.getByRole('button', { name: /^Tải tài liệu/ }).first().click(),
+    ]);
+    const head = fs.readFileSync(await dl.path()).subarray(0, 5).toString('latin1');
+    if (head !== '%PDF-') throw new Error(`attachment is not the PDF: ${head}`);
+    await tabs.getByRole('tab', { name: /Bài tập/ }).click();
+    await stu.getByText('Hãy viết ba câu về bài học.').waitFor({ timeout: 5000 });
+    await stu.getByRole('button', { name: 'Nộp bài' }).waitFor({ timeout: 3000 });
   });
   await step('J3', 'documents tab: download works', stu, async () => {
     await stu.goto(`${C()}/documents`);

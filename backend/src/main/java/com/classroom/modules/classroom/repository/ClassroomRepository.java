@@ -87,6 +87,33 @@ public interface ClassroomRepository extends JpaRepository<Classroom, String> {
                                                     @Param("category") String category,
                                                     @Param("now") java.time.Instant now, Pageable pageable);
 
+    // D-33 "discover" twins: the signed-in listings above with every PRIVATE class removed IN SQL (so paging counts only what is shown), for
+    // the home page; owners and members included. The rest of the visibility rule is untouched. Guests never see PRIVATE anyway.
+
+    @Query("SELECT c FROM Classroom c WHERE UPPER(c.visibility) <> 'PRIVATE' AND ((UPPER(c.status) = 'ACTIVE') OR c.ownerId = :userId"
+            + " OR (UPPER(c.status) <> 'SUSPENDED' AND (EXISTS (SELECT 1 FROM StaffAssignment s WHERE s.classId = c.id AND s.userId = :userId AND UPPER(s.status) = 'ACTIVE')"
+            + " OR EXISTS (SELECT 1 FROM ClassMember m WHERE m.classId = c.id AND m.userId = :userId AND UPPER(m.state) IN ('ACTIVE', 'EXPIRED')))))")
+    List<Classroom> findVisibleToUserDiscover(@Param("userId") String userId, Pageable pageable);
+
+    @Query("SELECT c FROM Classroom c WHERE UPPER(c.visibility) <> 'PRIVATE' AND ((UPPER(c.status) = 'ACTIVE') OR c.ownerId = :userId"
+            + " OR (UPPER(c.status) <> 'SUSPENDED' AND (EXISTS (SELECT 1 FROM StaffAssignment s WHERE s.classId = c.id AND s.userId = :userId AND UPPER(s.status) = 'ACTIVE')"
+            + " OR EXISTS (SELECT 1 FROM ClassMember m WHERE m.classId = c.id AND m.userId = :userId AND UPPER(m.state) IN ('ACTIVE', 'EXPIRED')))))"
+            + " AND (:pattern = '%' OR LOWER(c.title) LIKE :pattern OR LOWER(c.description) LIKE :pattern)"
+            + " AND (:category = '' OR c.category = :category)")
+    List<Classroom> searchVisibleToUserDiscover(@Param("userId") String userId, @Param("pattern") String pattern,
+                                                @Param("category") String category, Pageable pageable);
+
+    @Query(nativeQuery = true, value = "SELECT c.* FROM classrooms c WHERE UPPER(c.visibility) <> 'PRIVATE' AND ((UPPER(c.status) = 'ACTIVE') OR c.owner_id = :userId"
+            + " OR (UPPER(c.status) <> 'SUSPENDED' AND (EXISTS (SELECT 1 FROM staff_assignments s WHERE s.class_id = c.id AND s.user_id = :userId AND UPPER(s.status) = 'ACTIVE')"
+            + " OR EXISTS (SELECT 1 FROM class_members m2 WHERE m2.class_id = c.id AND m2.user_id = :userId AND UPPER(m2.state) IN ('ACTIVE', 'EXPIRED')))))"
+            + " AND (:pattern = '%' OR LOWER(c.title) LIKE :pattern OR LOWER(c.description) LIKE :pattern)"
+            + " AND (:category = '' OR c.category = :category)"
+            + " ORDER BY (SELECT COUNT(*) FROM class_members m WHERE m.class_id = c.id AND m.state = 'ACTIVE'"
+            + " AND (m.access_expires_at IS NULL OR m.access_expires_at > :now)) DESC, c.created_at DESC, c.id ASC")
+    List<Classroom> searchVisibleToUserByPopularityDiscover(@Param("userId") String userId, @Param("pattern") String pattern,
+                                                            @Param("category") String category,
+                                                            @Param("now") java.time.Instant now, Pageable pageable);
+
     /**
      * D-30: "my classes" - what the caller owns, staffs (ACTIVE assignment) or belongs to (membership ACTIVE / EXPIRED), plus classes where
      * their join request is PENDING - but only while that class is still visible to everybody (ACTIVE and not PRIVATE, so a pending request

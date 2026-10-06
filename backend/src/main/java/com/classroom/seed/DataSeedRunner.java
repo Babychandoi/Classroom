@@ -213,9 +213,17 @@ public class DataSeedRunner implements CommandLineRunner {
             freeCourse = courseRepository.save(freeCourse);
 
             Section sec1 = sectionRepository.save(new Section(freeCourse.getId(), "Chương 1: Khởi động & Nhập môn", 1));
-            lessonRepository.save(new Lesson(sec1.getId(), freeCourse.getId(), "Bài 1: Giới thiệu khóa học và lộ trình", "VIDEO", 1));
+            // D-32: a lesson is a bundle of components; "type" is the derived summary (Lesson#recomputeType). Documents need real uploaded
+            // files, so the demo seed combines an external video, written content and an assignment (the showcase script adds documents).
+            Lesson l1 = new Lesson(sec1.getId(), freeCourse.getId(), "Bài 1: Giới thiệu khóa học và lộ trình", "VIDEO", 1);
+            l1.setStoredVideoProvider("YOUTUBE");
+            l1.setStoredVideoRef("dQw4w9WgXcQ");
+            l1.setContentText("Tóm tắt bài giảng: mục tiêu khóa học, lộ trình 4 tuần và cách làm bài tập.");
+            l1.recomputeType(0);
+            lessonRepository.save(l1);
             Lesson l2 = new Lesson(sec1.getId(), freeCourse.getId(), "Bài 2: Các tiên đề và công thức cốt lõi", "TEXT", 2);
             l2.setContentText("### Nội dung cốt lõi\n\nTrong bài học này chúng ta nắm vững 5 định lý cơ bản và cách chứng minh ngắn gọn nhất.");
+            l2.recomputeType(0);
             lessonRepository.save(l2);
 
             paidCourse = new Course(classroom.getId(), "Toán Tư Duy Chuyên Sâu Pro", "PURCHASE_REQUIRED");
@@ -228,9 +236,14 @@ public class DataSeedRunner implements CommandLineRunner {
             Section sec2 = sectionRepository.save(new Section(paidCourse.getId(), "Chương 1: Kỹ thuật biến đổi đại số nâng cao", 1));
             Lesson l3 = new Lesson(sec2.getId(), paidCourse.getId(), "Bài 1: Phương pháp giải nhanh hệ phương trình", "VIDEO", 1);
             l3.setDurationMinutes(45);
+            l3.setStoredVideoProvider("YOUTUBE");
+            l3.setStoredVideoRef("dQw4w9WgXcQ");
+            l3.recomputeType(0);
             lessonRepository.save(l3);
             Lesson l4 = new Lesson(sec2.getId(), paidCourse.getId(), "Bài 2: Chuyên đề Bất đẳng thức Cauchy-Schwarz", "ASSIGNMENT", 2);
-            l4.setContentText("Hãy hoàn thành 10 câu hỏi bất đẳng thức trong tài liệu đính kèm.");
+            l4.setAssignmentEnabled(true);
+            l4.setAssignmentInstructions("Hãy hoàn thành 10 câu hỏi bất đẳng thức và nộp lời giải đầy đủ từng bước.");
+            l4.recomputeType(0);
             lessonRepository.save(l4);
         } else {
             freeCourse = existingCourses.get(0);
