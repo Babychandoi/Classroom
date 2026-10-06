@@ -561,3 +561,30 @@ Quy trình khởi động HTTPS, CA nội bộ, LAN/firewall, một backend mặ
 V43 thêm bảng snapshot của đề công bố. Lúc khởi động, backend chuẩn bị đề cũ theo batch 100 ID, có khóa giao dịch/idempotency; cần chờ readiness trước khi mở giờ thi. Đề cũ không có câu hỏi không được bắt đầu. Không chỉnh migration đã áp dụng hoặc sửa trực tiếp nội dung công bố để thay đề của lượt thi; xem API.md và D-25.
 
 `python infra/scripts/disable-test-accounts.py` chỉ xem trước tài khoản/class fixture trên đúng project chính. `--apply` lưu trạng thái trước trong `.artifacts/server`, ghi audit, vô hiệu hóa tài khoản, thu hồi refresh và lưu trữ lớp của chính fixture. Không xóa hồ sơ học/thi/thanh toán. Chạy sau E2E/load đã được phép và trước backup kết thúc đợt; không dùng lại bộ seed đã bị vô hiệu hóa. Nếu restore backup cũ hơn, phải rà soát trạng thái fixture cùng ledger đóng tài khoản trước khi mở dịch vụ.
+
+## 9. Chuyển server (Migration bundle) — một lệnh cài lại toàn bộ
+
+Bộ script: `infra/scripts/make-migration-bundle.sh` (server cũ), `infra/scripts/install.sh` (server mới), `infra/scripts/server-up.sh` (điều khiển sau khi cài). Hướng dẫn ngắn cho người nhận: `infra/scripts/README-MIGRATION.md` (cũng nằm trong bundle).
+
+### 9.1 Bundle gồm gì
+`classroom-bundle-<yyyyMMdd-HHmmss>.tar.gz[.enc]` + `.sha256`, bên trong: `source.tar.gz` (commit HEAD + thay đổi cục bộ chưa commit, trừ file bị `.gitignore`; `--head-only` = chỉ `git archive HEAD`), `data/` (đầu ra của `backup.sh --include-neo4j-dump`: MySQL, MongoDB, Neo4j, MinIO mirror + `backup.json`), `env.bundle` (**`infra/.env` thật, chứa bí mật**, mode 600), `images.tar.gz` (`docker save` của hai image `quay.io/minio/minio` và `quay.io/minio/mc` ghim trong `compose.yaml` — quay.io có thể từ chối pull; mọi image khác được kéo trên server mới), `install.sh`, `README-MIGRATION.md`, `MANIFEST.txt` (commit, Flyway, digest + kiến trúc image, số dòng từng bảng, `backup.json`), `bundle.conf`, `SHA256SUMS`.
+
+### 9.2 Quy trình
+1. Server cũ: `infra/scripts/make-migration-bundle.sh [--encrypt]` → `~/Classroom-migration/`. Chạy lại bao nhiêu lần cũng được (mỗi lần một bản sao lưu mới; neo4j dừng ~20 giây). Muốn bản cuối cùng nhất quán: tạm dừng ghi (hoặc dừng backend) rồi tạo bundle, chuyển, cài, kiểm tra, mới đổi DNS.
+2. Chuyển bằng `scp`/`rsync` qua SSH: bundle, `.sha256`, `install.sh`.
+3. Server mới: `./install.sh classroom-bundle-<...>.tar.gz --dir /opt/classroom [--port N] [--origin https://domain] [--bind 0.0.0.0] [--no-demo] [--yes]`. Thứ tự: preflight (Docker + Compose v2, RAM Docker ≥ 6 GB, ≥ 10 GB trống, cổng trống) → kiểm tra checksum bundle + `SHA256SUMS` + `backup.json` → giải nén → `.env` (áp dụng cờ ghi đè, giữ bí mật) → nạp image → `up -d` mysql/mongodb/neo4j/minio/minio-init, chờ healthy → `restore.sh` (kèm Neo4j và `--mirror-remove`) **trước** khi backend chạy → `up -d --build backend frontend` → chờ readiness → smoke test.
+4. Cài lại/chạy lại: an toàn. Nếu project đã có volume, cần `--yes` (hoặc gõ lại tên project); script tạo `backups/pre-install` rồi mới ghi đè; không bao giờ xóa volume. `--no-restore` chỉ build/khởi động lại, không đụng dữ liệu. Container của project khác dùng cùng `container_name` (dù đang dừng) bị từ chối.
+
+### 9.3 Kiểm tra sau khi chuyển (installer tự làm các mục đầu)
+Flyway bằng phiên bản trong bundle và log backend "No migration necessary"; số dòng 10 bảng chính bằng `MANIFEST.txt`; `/api/v1/health/readiness` UP; frontend 200 và proxy `/api` qua cổng công khai; đăng nhập `owner@classroom.local` (dữ liệu demo), lớp `lop-demo-day-du` trả về, leaderboard/blog/khóa học HTTP 200. Thủ công: số document MongoDB (`learning_events`), số node/quan hệ Neo4j so với server cũ, mở ảnh/video trong lớp (presigned URL MinIO).
+
+### 9.4 Rollback
+Server cũ không bị bundle thay đổi (chỉ neo4j dừng vài giây khi sao lưu). Chưa đổi DNS/traffic thì chỉ cần bỏ server mới: `docker compose -p <project> -f compose.yaml [-f compose.demo.yaml] --env-file .env down -v` trong `<dir>/infra`, `rm -rf <dir>`. Đã chuyển traffic: dữ liệu ghi mới trên server mới phải sao lưu (`server-up.sh backup`) và khôi phục ngược lại bằng `restore.sh`.
+
+### 9.5 Bảo mật
+- Bundle = mật khẩu thật + dữ liệu cá nhân. `--encrypt` (AES-256-CBC, PBKDF2 200 000 vòng; passphrase từ `BUNDLE_PASSPHRASE`/prompt, không nằm trên dòng lệnh; `install.sh` đọc từ `BUNDLE_PASSPHRASE`, `--passphrase-file` hoặc prompt). `MANIFEST.txt` đi kèm để ngoài và không mã hóa (commit, số dòng) nhưng không có bí mật. Xóa bundle sau khi chuyển.
+- Dữ liệu demo giữ tài khoản mật khẩu `Password123!` và thanh toán sandbox: không mở ra Internet. `--no-demo` chỉ tắt overlay; tài khoản trong dữ liệu vẫn còn → đổi/khóa (mục 6, `secure-server-accounts.*`) và xoay bí mật trước khi công khai.
+- Mở ra ngoài: reverse proxy HTTPS, `--origin`, `--bind`, và `--minio-endpoint` (MinIO luôn bind 127.0.0.1; presigned URL phải trỏ được từ trình duyệt).
+
+### 9.6 Khác biệt Linux / macOS / Windows
+`install.sh` / `make-migration-bundle.sh` / `server-up.sh` chạy trên Linux và macOS (bash 3.2+). Windows: chạy trong **WSL2** (Docker Desktop tích hợp WSL); `install.ps1` **chưa có**. Image MinIO/mc trong bundle theo kiến trúc server cũ (`MANIFEST.txt`): sang CPU khác thì installer thử `docker pull`, thất bại thì dùng `--minio-image`/`--mc-image`. Server mới cần Internet (Docker Hub, Maven Central, npm). Khi có thể, nên đổi `compose.yaml` sang image pull được rồi bỏ bước nạp tar.

@@ -54,3 +54,7 @@ pgdata/
 connecty-ui-ux-design-system/
 Connecty UIUX Design System-handoff*.zip
 Thiết kế form ngắn/
+
+# Migration bundles (infra/scripts/make-migration-bundle.sh): contain real secrets + personal data - never commit
+Classroom-migration/
+classroom-bundle-*

@@ -184,6 +184,8 @@ docker compose -f infra/compose.yaml up -d --build
 
 > **Sao lưu / khôi phục dữ liệu:** dùng `infra/scripts/backup.*` và `infra/scripts/restore.*`; quy trình đầy đủ, kể cả diễn tập khôi phục trên stack tạm, nằm ở [`docs/RUNBOOK.md` mục 5](docs/RUNBOOK.md).
 
+> **Chuyển sang server mới (một lệnh):** `infra/scripts/make-migration-bundle.sh` tạo bundle (mã nguồn + dữ liệu + env + image) ở server cũ, `./install.sh <bundle>` dựng lại toàn bộ và khôi phục dữ liệu ở server mới; xem [`docs/RUNBOOK.md` mục 9](docs/RUNBOOK.md) và `infra/scripts/README-MIGRATION.md`.
+
 ---
 
 ## 6. Cấu trúc Thư mục
