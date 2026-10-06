@@ -3,6 +3,11 @@
 # Classroom stack and restore the data (MySQL, MongoDB, Neo4j, MinIO) into it.
 #
 #   ./install.sh [BUNDLE.tar.gz[.enc]] [options]
+#   ./install.sh [--demo] [options]            (from a git clone, no bundle: fresh empty stack)
+#
+# CLONE MODE: with no bundle (none given, none next to this script) and this script sitting in a cloned
+# repo, a fresh EMPTY stack is installed in place: infra/.env is created from .env.example with random
+# secrets, no demo unless --demo, then `docker compose up -d --build`.
 #
 # BUNDLE defaults to the newest classroom-bundle-*.tar.gz* next to this script (or, when this script
 # sits inside an already extracted bundle, that folder).
@@ -15,6 +20,7 @@
 #                        APP_COOKIE_SECURE=true when https)
 #   --bind ADDR          HOST_BIND_ADDRESS: 127.0.0.1 (default) or 0.0.0.0 to expose frontend+backend
 #   --minio-endpoint URL browser-facing MinIO URL used in presigned links (MINIO_EXTERNAL_ENDPOINT)
+#   --demo               clone mode only: apply compose.demo.yaml (fixed-password demo accounts; local use only)
 #   --no-demo            do NOT apply infra/compose.demo.yaml (see the warning printed at the end)
 #   --no-restore         start a fresh EMPTY stack, restore nothing
 #   --overlay FILE       extra compose file (repeatable; relative to the install dir or absolute)
@@ -42,7 +48,7 @@ die()  { printf 'LOI: %s\n' "$*" >&2; exit 1; }
 
 # ---------------------------------------------------------------- arguments
 BUNDLE=""; DIR="./classroom"; PROJECT=""; PORT=""; ORIGIN=""; BIND=""; MINIO_ENDPOINT=""
-NO_DEMO=false; NO_RESTORE=false; YES=false; ASK_PASS=false; PASS_FILE=""; KEEP_EXTRACTED=false
+NO_DEMO=false; WANT_DEMO=false; CLONE_MODE=false; NO_RESTORE=false; YES=false; ASK_PASS=false; PASS_FILE=""; KEEP_EXTRACTED=false
 MINIO_IMAGE_OVERRIDE=""; MC_IMAGE_OVERRIDE=""
 EXTRA_OVERLAYS=(); SETS=()
 
@@ -54,6 +60,7 @@ while [ $# -gt 0 ]; do
     --origin)          ORIGIN="${2:?--origin needs a value}"; shift 2 ;;
     --bind)            BIND="${2:?--bind needs a value}"; shift 2 ;;
     --minio-endpoint)  MINIO_ENDPOINT="${2:?--minio-endpoint needs a value}"; shift 2 ;;
+    --demo)            WANT_DEMO=true; shift ;;
     --no-demo)         NO_DEMO=true; shift ;;
     --no-restore)      NO_RESTORE=true; shift ;;
     --overlay)         EXTRA_OVERLAYS+=("${2:?--overlay needs a value}"); shift 2 ;;
@@ -64,7 +71,7 @@ while [ $# -gt 0 ]; do
     --passphrase)      ASK_PASS=true; shift ;;
     --passphrase-file) PASS_FILE="${2:?--passphrase-file needs a value}"; shift 2 ;;
     --keep-extracted)  KEEP_EXTRACTED=true; shift ;;
-    -h|--help)         sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)         sed -n '2,38p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*)                die "Tuy chon khong hop le: $1 (xem --help)" ;;
     *)                 if [ -z "$BUNDLE" ]; then BUNDLE="$1"; shift; else die "Tham so thua: $1"; fi ;;
   esac
@@ -119,6 +126,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if [ -z "$BUNDLE" ] && ! { [ -f "$SELF_DIR/source.tar.gz" ] && [ -d "$SELF_DIR/data" ]; }; then
+  if ! ls "$SELF_DIR"/classroom-bundle-*.tar.gz* >/dev/null 2>&1 && [ -f "$SELF_DIR/../compose.yaml" ]; then
+    CLONE_MODE=true
+    NO_RESTORE=true
+  fi
+fi
+
 # ================================================================= 1. preflight
 step "Kiem tra moi truong (preflight)"
 for c in docker tar gzip openssl curl; do command -v "$c" >/dev/null 2>&1 || die "Thieu lenh '$c'. Hay cai dat truoc."; done
@@ -127,67 +141,79 @@ docker compose version >/dev/null 2>&1 || die "Can Docker Compose v2 ('docker co
 mem="$(docker info --format '{{.MemTotal}}')"
 [ "${mem:-0}" -ge 5700000000 ] || die "Docker chi co $((mem / 1024 / 1024)) MB RAM; can >= 6 GB (Docker Desktop: Settings > Resources)."
 info "Docker $(docker version --format '{{.Server.Version}}'), Compose $(docker compose version --short), RAM $((mem / 1024 / 1024 / 1024)) GB, $(host_arch)"
-mkdir -p "$DIR"
-DIR_ABS="$(cd "$DIR" && pwd)"
+if [ "$CLONE_MODE" = true ]; then
+  DIR_ABS="$(cd "$SELF_DIR/../.." && pwd)"
+  [ "$DIR" = "./classroom" ] || warn "Che do clone cai ngay trong repo ($DIR_ABS); bo qua --dir."
+else
+  mkdir -p "$DIR"
+  DIR_ABS="$(cd "$DIR" && pwd)"
+fi
 free_kb="$(df -Pk "$DIR_ABS" | awk 'NR==2 {print $4}')"
 [ "$free_kb" -ge $((10 * 1024 * 1024)) ] || die "Can >= 10 GB trong $DIR_ABS (con $((free_kb / 1024 / 1024)) GB)."
 info "Dia trong: $((free_kb / 1024 / 1024)) GB tai $DIR_ABS"
 
 # ================================================================= 2. locate + verify bundle
 step "Tim va kiem tra bundle"
-WORK="$DIR_ABS/.bundle"
-if [ -z "$BUNDLE" ] && [ -f "$SELF_DIR/source.tar.gz" ] && [ -d "$SELF_DIR/data" ]; then
-  BUNDLE_DIR="$SELF_DIR"
-  info "Dung bundle da giai nen: $BUNDLE_DIR"
+CONF=""; BUNDLE_DIR=""; BUNDLE_DEMO=""
+if [ "$CLONE_MODE" = true ]; then
+  info "Khong co bundle: che do CLONE (stack moi, rong) tai $DIR_ABS"
+  if [ "$WANT_DEMO" = true ]; then USE_DEMO=true; PROJECT="${PROJECT:-classroom-demo}"; else USE_DEMO=false; PROJECT="${PROJECT:-online-classroom}"; fi
+  printf '%s' "$PROJECT" | grep -Eq '^[a-z0-9][a-z0-9_-]*$' || die "Ten project khong hop le: $PROJECT"
 else
-  if [ -z "$BUNDLE" ]; then
-    BUNDLE="$(ls -1t "$SELF_DIR"/classroom-bundle-*.tar.gz* 2>/dev/null | grep -v '\.sha256$' | head -n 1 || true)"
-    [ -n "$BUNDLE" ] || die "Khong thay classroom-bundle-*.tar.gz[.enc] canh install.sh. Truyen duong dan: ./install.sh <bundle>"
-  fi
-  [ -f "$BUNDLE" ] || die "Khong thay file bundle: $BUNDLE"
-  BUNDLE="$(cd "$(dirname "$BUNDLE")" && pwd)/$(basename "$BUNDLE")"
-  info "Bundle: $BUNDLE ($(du -h "$BUNDLE" | cut -f1))"
-  SHA_FILE="${BUNDLE%.tar.gz*}.sha256"
-  if [ -f "$SHA_FILE" ]; then
-    want="$(cut -d' ' -f1 "$SHA_FILE")"
-    got="$(sha256_file "$BUNDLE")"
-    [ "$want" = "$got" ] || die "SHA-256 cua bundle KHONG khop (file hong hoac bi sua khi chuyen). Chep lai file."
-    info "SHA-256 bundle khop: ${got:0:16}..."
+  WORK="$DIR_ABS/.bundle"
+  if [ -z "$BUNDLE" ] && [ -f "$SELF_DIR/source.tar.gz" ] && [ -d "$SELF_DIR/data" ]; then
+    BUNDLE_DIR="$SELF_DIR"
+    info "Dung bundle da giai nen: $BUNDLE_DIR"
   else
-    warn "Khong co file .sha256 canh bundle - bo qua kiem tra checksum ngoai."
-  fi
-  rm -rf "$WORK"; mkdir -p "$WORK"; chmod 700 "$WORK"
-  if [ "$(head -c 8 "$BUNDLE")" = "Salted__" ]; then
-    if [ -n "$PASS_FILE" ]; then BUNDLE_PASSPHRASE="$(head -n 1 "$PASS_FILE")"; export BUNDLE_PASSPHRASE; fi
-    if [ -z "${BUNDLE_PASSPHRASE:-}" ]; then
-      [ -t 0 ] || die "Bundle da ma hoa: dat BUNDLE_PASSPHRASE, hoac --passphrase-file, hoac chay trong terminal."
-      read -r -s -p "Passphrase cua bundle: " BUNDLE_PASSPHRASE; echo; export BUNDLE_PASSPHRASE
+    if [ -z "$BUNDLE" ]; then
+      BUNDLE="$(ls -1t "$SELF_DIR"/classroom-bundle-*.tar.gz* 2>/dev/null | grep -v '\.sha256$' | head -n 1 || true)"
+      [ -n "$BUNDLE" ] || die "Khong thay classroom-bundle-*.tar.gz[.enc] canh install.sh. Truyen duong dan: ./install.sh <bundle>"
     fi
-    info "Giai ma + giai nen bundle (AES-256)..."
-    openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in "$BUNDLE" -pass env:BUNDLE_PASSPHRASE 2>/dev/null | tar -xz -C "$WORK" \
-      || die "Giai ma that bai: sai passphrase hoac file hong."
-  else
-    [ "$ASK_PASS" = false ] || warn "--passphrase duoc dua nhung bundle khong ma hoa."
-    info "Giai nen bundle..."
-    tar -xzf "$BUNDLE" -C "$WORK"
+    [ -f "$BUNDLE" ] || die "Khong thay file bundle: $BUNDLE"
+    BUNDLE="$(cd "$(dirname "$BUNDLE")" && pwd)/$(basename "$BUNDLE")"
+    info "Bundle: $BUNDLE ($(du -h "$BUNDLE" | cut -f1))"
+    SHA_FILE="${BUNDLE%.tar.gz*}.sha256"
+    if [ -f "$SHA_FILE" ]; then
+      want="$(cut -d' ' -f1 "$SHA_FILE")"
+      got="$(sha256_file "$BUNDLE")"
+      [ "$want" = "$got" ] || die "SHA-256 cua bundle KHONG khop (file hong hoac bi sua khi chuyen). Chep lai file."
+      info "SHA-256 bundle khop: ${got:0:16}..."
+    else
+      warn "Khong co file .sha256 canh bundle - bo qua kiem tra checksum ngoai."
+    fi
+    rm -rf "$WORK"; mkdir -p "$WORK"; chmod 700 "$WORK"
+    if [ "$(head -c 8 "$BUNDLE")" = "Salted__" ]; then
+      if [ -n "$PASS_FILE" ]; then BUNDLE_PASSPHRASE="$(head -n 1 "$PASS_FILE")"; export BUNDLE_PASSPHRASE; fi
+      if [ -z "${BUNDLE_PASSPHRASE:-}" ]; then
+        [ -t 0 ] || die "Bundle da ma hoa: dat BUNDLE_PASSPHRASE, hoac --passphrase-file, hoac chay trong terminal."
+        read -r -s -p "Passphrase cua bundle: " BUNDLE_PASSPHRASE; echo; export BUNDLE_PASSPHRASE
+      fi
+      info "Giai ma + giai nen bundle (AES-256)..."
+      openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in "$BUNDLE" -pass env:BUNDLE_PASSPHRASE 2>/dev/null | tar -xz -C "$WORK" \
+        || die "Giai ma that bai: sai passphrase hoac file hong."
+    else
+      [ "$ASK_PASS" = false ] || warn "--passphrase duoc dua nhung bundle khong ma hoa."
+      info "Giai nen bundle..."
+      tar -xzf "$BUNDLE" -C "$WORK"
+    fi
+    BUNDLE_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d -name 'classroom-bundle-*' | head -n 1)"
+    [ -n "$BUNDLE_DIR" ] || die "Bundle khong dung dinh dang (khong co thu muc classroom-bundle-*)."
   fi
-  BUNDLE_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d -name 'classroom-bundle-*' | head -n 1)"
-  [ -n "$BUNDLE_DIR" ] || die "Bundle khong dung dinh dang (khong co thu muc classroom-bundle-*)."
+  [ -f "$BUNDLE_DIR/bundle.conf" ] && [ -f "$BUNDLE_DIR/source.tar.gz" ] && [ -f "$BUNDLE_DIR/env.bundle" ] || die "Bundle thieu file (bundle.conf/source.tar.gz/env.bundle)."
+  ( cd "$BUNDLE_DIR" && while read -r h f; do
+      [ -f "$f" ] || { echo "thieu $f" >&2; exit 1; }
+      [ "$(sha256_file "$f")" = "$h" ] || { echo "sai checksum $f" >&2; exit 1; }
+    done < SHA256SUMS ) || die "Noi dung bundle khong khop SHA256SUMS."
+  info "Cac file ben trong bundle khop SHA256SUMS."
+  CONF="$BUNDLE_DIR/bundle.conf"
+  BUNDLE_PROJECT="$(conf_value "$CONF" PROJECT)"
+  BUNDLE_DEMO="$(conf_value "$CONF" DEMO)"
+  PROJECT="${PROJECT:-${BUNDLE_PROJECT:-classroom-demo}}"
+  printf '%s' "$PROJECT" | grep -Eq '^[a-z0-9][a-z0-9_-]*$' || die "Ten project khong hop le: $PROJECT"
+  info "Commit $(conf_value "$CONF" GIT_COMMIT | cut -c1-10), Flyway V$(conf_value "$CONF" FLYWAY_VERSION), project '$PROJECT'"
+  USE_DEMO=true
+  { [ "$NO_DEMO" = true ] || [ "$BUNDLE_DEMO" != "1" ]; } && USE_DEMO=false
 fi
-[ -f "$BUNDLE_DIR/bundle.conf" ] && [ -f "$BUNDLE_DIR/source.tar.gz" ] && [ -f "$BUNDLE_DIR/env.bundle" ] || die "Bundle thieu file (bundle.conf/source.tar.gz/env.bundle)."
-( cd "$BUNDLE_DIR" && while read -r h f; do
-    [ -f "$f" ] || { echo "thieu $f" >&2; exit 1; }
-    [ "$(sha256_file "$f")" = "$h" ] || { echo "sai checksum $f" >&2; exit 1; }
-  done < SHA256SUMS ) || die "Noi dung bundle khong khop SHA256SUMS."
-info "Cac file ben trong bundle khop SHA256SUMS."
-CONF="$BUNDLE_DIR/bundle.conf"
-BUNDLE_PROJECT="$(conf_value "$CONF" PROJECT)"
-BUNDLE_DEMO="$(conf_value "$CONF" DEMO)"
-PROJECT="${PROJECT:-${BUNDLE_PROJECT:-classroom-demo}}"
-printf '%s' "$PROJECT" | grep -Eq '^[a-z0-9][a-z0-9_-]*$' || die "Ten project khong hop le: $PROJECT"
-info "Commit $(conf_value "$CONF" GIT_COMMIT | cut -c1-10), Flyway V$(conf_value "$CONF" FLYWAY_VERSION), project '$PROJECT'"
-USE_DEMO=true
-{ [ "$NO_DEMO" = true ] || [ "$BUNDLE_DEMO" != "1" ]; } && USE_DEMO=false
 
 # ================================================================= 3. existing install?
 step "Phat hien cai dat hien co"
@@ -211,13 +237,23 @@ else
 fi
 
 # ================================================================= 4. source + env
-step "Giai nen ma nguon vao $DIR_ABS"
-tar -xzf "$BUNDLE_DIR/source.tar.gz" -C "$DIR_ABS"
+if [ "$CLONE_MODE" = true ]; then step "Dung ma nguon san co trong $DIR_ABS"; else step "Giai nen ma nguon vao $DIR_ABS"; fi
+[ "$CLONE_MODE" = true ] || tar -xzf "$BUNDLE_DIR/source.tar.gz" -C "$DIR_ABS"
 INFRA="$DIR_ABS/infra"
 [ -f "$INFRA/compose.yaml" ] || die "Ma nguon khong co infra/compose.yaml"
 chmod +x "$INFRA"/scripts/*.sh 2>/dev/null || true
 ENV_FILE="$INFRA/.env"
-if [ -f "$ENV_FILE" ]; then
+if [ "$CLONE_MODE" = true ]; then
+  if [ -f "$ENV_FILE" ]; then
+    info "Giu nguyen $ENV_FILE co san (khong sinh lai bi mat)."
+  else
+    [ -f "$DIR_ABS/.env.example" ] || die "Khong thay $DIR_ABS/.env.example"
+    ( umask 077; cp "$DIR_ABS/.env.example" "$ENV_FILE" )
+    for k in MYSQL_ROOT_PASSWORD MYSQL_PASSWORD MONGO_INITDB_ROOT_PASSWORD NEO4J_PASSWORD MINIO_ROOT_PASSWORD; do set_env "$k" "$(openssl rand -hex 16)"; done
+    for k in JWT_SECRET MOCK_PAYMENT_WEBHOOK_SECRET; do set_env "$k" "$(openssl rand -hex 32)"; done
+    info "Da tao $ENV_FILE tu .env.example voi bi mat NGAU NHIEN (chmod 600)."
+  fi
+elif [ -f "$ENV_FILE" ]; then
   info "Giu nguyen $ENV_FILE co san (khong ghi de bi mat). Bundle env luu o $INFRA/.env.from-bundle (chmod 600)."
   ( umask 077; cp "$BUNDLE_DIR/env.bundle" "$INFRA/.env.from-bundle" )
 else
@@ -290,14 +326,16 @@ fi
 step "Kiem tra du lieu sao luu (backup.json: size + sha256 tung thanh phan)"
 RESTORE_DATA=true
 [ "$NO_RESTORE" = false ] || RESTORE_DATA=false
-if [ "$RESTORE_DATA" = true ]; then
+if [ "$CLONE_MODE" = true ]; then
+  info "Che do clone: khong co du lieu de kiem tra."
+elif [ "$RESTORE_DATA" = true ]; then
   bash "$INFRA/scripts/restore.sh" "$BUNDLE_DIR/data" --verify-only | sed 's/^/    /'
 else
   info "--no-restore: bo qua."
 fi
 
 # ================================================================= 6. images
-step "Nap image khong pull duoc (MinIO/mc)"
+step "Image MinIO/mc (tu build; chi nap tu bundle neu bundle cu)"
 HOSTARCH="$(host_arch)"
 LOADED=false
 image_arch_ok() { [ "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$1" 2>/dev/null || true)" = "$HOSTARCH" ]; }
@@ -319,14 +357,21 @@ ensure_image() {
   if docker pull "$img" >/dev/null 2>&1 && image_arch_ok "$img"; then info "da pull: $img"; return 0; fi
   die "Khong co image $img cho $HOSTARCH (bundle: $(conf_value "$CONF" IMAGES_ARCH); registry quay.io tu choi). Chay lai voi --minio-image <image> va --mc-image <image> (vi du bds-minio/minio, minio/mc ban pull duoc), xem README-MIGRATION.md."
 }
-if [ -f "$BUNDLE_DIR/images.list" ]; then
+for pair in "minio:$MINIO_IMAGE_OVERRIDE" "mc:$MC_IMAGE_OVERRIDE"; do
+  ovr="${pair#*:}"; [ -n "$ovr" ] || continue
+  target="$(sed -n "s|^[[:space:]]*image:[[:space:]]*\(classroom/${pair%%:*}:[^[:space:]]*\).*|\1|p" "$INFRA/compose.yaml" | head -n 1)"
+  [ -n "$target" ] || die "Khong thay image classroom/${pair%%:*} trong compose.yaml"
+  docker pull "$ovr" >/dev/null || die "Khong pull duoc $ovr"
+  docker tag "$ovr" "$target"; info "dung $ovr lam $target"
+done
+if [ "$CLONE_MODE" = false ] && [ -f "$BUNDLE_DIR/images.list" ]; then
   while IFS= read -r img; do [ -z "$img" ] || ensure_image "$img"; done < "$BUNDLE_DIR/images.list"
 else
-  info "Bundle khong co images.list - bo qua."
+  info "Khong co images.list: MinIO/mc se duoc build tu infra/minio o buoc tiep theo (vai phut lan dau, can Docker Hub + proxy.golang.org)."
 fi
 
 # ================================================================= 7. data services
-step "Khoi dong dich vu du lieu (mysql, mongodb, neo4j, minio, minio-init)"
+step "Khoi dong dich vu du lieu (mysql, mongodb, neo4j, minio, minio-init; build MinIO neu chua co)"
 dc up -d mysql mongodb neo4j minio minio-init
 wait_service() { # service seconds
   local cid waited=0 health state

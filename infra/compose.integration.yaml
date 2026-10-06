@@ -44,7 +44,10 @@ services:
       start_period: 25s
 
   minio-integration:
-    image: quay.io/minio/minio:RELEASE.2024-05-10T01-41-38Z
+    image: classroom/minio:RELEASE.2024-05-10T01-41-38Z
+    build:
+      context: ./minio
+      target: minio
     command: server /data
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
@@ -57,7 +60,10 @@ services:
       retries: 20
 
   minio-integration-init:
-    image: quay.io/minio/mc:RELEASE.2024-05-09T17-04-24Z
+    image: classroom/mc:RELEASE.2024-05-09T17-04-24Z
+    build:
+      context: ./minio
+      target: mc
     depends_on:
       minio-integration:
         condition: service_healthy

@@ -10,7 +10,7 @@ export MSYS_NO_PATHCONV=1
 export MSYS2_ARG_CONV_EXCL='*'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_MC_IMAGE="quay.io/minio/mc:RELEASE.2024-05-09T17-04-24Z"
+DEFAULT_MC_IMAGE="classroom/mc:RELEASE.2024-05-09T17-04-24Z"
 MANIFEST_NAME="backup.json"
 
 step() { printf '==> %s\n' "$*"; }
@@ -173,12 +173,24 @@ neo4j_admin() {
   docker run --rm -v "$source:/data" -v "$spec" "$image" neo4j-admin "$@"
 }
 
+# MinIO publishes no pullable images: the default mc image is built from infra/minio/Dockerfile on first use.
+ensure_mc_image() { # image
+  docker image inspect "$1" >/dev/null 2>&1 && return 0
+  if [ "$1" = "$DEFAULT_MC_IMAGE" ] && [ -f "$SCRIPT_DIR/../minio/Dockerfile" ]; then
+    info "Building mc image $1 from infra/minio (first use, a few minutes)..."
+    docker build --target mc -t "$1" "$(host_path "$SCRIPT_DIR/../minio")" >/dev/null || die "Could not build the mc image."
+    return 0
+  fi
+  docker pull "$1" >/dev/null || die "mc image $1 is not available locally and cannot be pulled."
+}
+
 # One-off mc container on the MinIO container's network. Credentials travel through the process
 # environment (-e NAME copies it), never on the docker command line.
 #   run_mc MINIO_CID MC_IMAGE HOST_DIR|"" READONLY(0|1) MC_ARGS...
 run_mc() {
   local cid="$1" image="$2" dir="$3" ro="$4" user pass network spec
   shift 4
+  ensure_mc_image "$image"
   require_running "$cid" "MinIO"
   user="$(container_env "$cid" MINIO_ROOT_USER)"
   pass="$(container_env "$cid" MINIO_ROOT_PASSWORD)"

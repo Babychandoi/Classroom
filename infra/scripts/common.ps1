@@ -9,7 +9,7 @@
 #  - Database/MinIO credentials are read from the target containers' own environment (the values
 #    compose passed to them), so they always match the target and never travel on a command line.
 
-$script:DefaultMcImage = "quay.io/minio/mc:RELEASE.2024-05-09T17-04-24Z"
+$script:DefaultMcImage = "classroom/mc:RELEASE.2024-05-09T17-04-24Z"
 $script:HelperScriptSource = Join-Path $PSScriptRoot "container\dbtool.sh"
 $script:ManifestName = "backup.json"
 
@@ -280,8 +280,24 @@ function Invoke-Neo4jAdmin {
 # ---------------------------------------------------------------------------
 # MinIO via a one-off mc container on the target project's network
 # ---------------------------------------------------------------------------
+function Confirm-McImage {
+    param([string]$Image)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { & docker image inspect $Image 2>&1 | Out-Null } finally { $ErrorActionPreference = $previous }
+    if ($LASTEXITCODE -eq 0) { return }
+    $dockerfileDir = Join-Path (Split-Path -Parent $PSScriptRoot) "minio"
+    if ($Image -eq $script:DefaultMcImage -and (Test-Path -LiteralPath (Join-Path $dockerfileDir "Dockerfile"))) {
+        Write-Host "    Building mc image $Image from infra/minio (first use, a few minutes)..."
+        Invoke-Native "docker" @("build", "--target", "mc", "-t", $Image, $dockerfileDir)
+        return
+    }
+    Invoke-Native "docker" @("pull", $Image)
+}
+
 function Invoke-Mc {
     param([string]$MinioContainerId, [string]$McImage, [string]$HostDir, [string[]]$McArgs, [switch]$ReadOnlyMount)
+    Confirm-McImage $McImage
     $info = Get-ContainerInfo $MinioContainerId
     Assert-ContainerRunning $info "MinIO"
     $user = Get-ContainerEnvValue $info "MINIO_ROOT_USER"

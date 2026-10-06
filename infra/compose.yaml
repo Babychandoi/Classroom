@@ -70,7 +70,12 @@ services:
       start_period: 25s
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2024-05-10T01-41-38Z
+    # MinIO publishes no pullable images any more: built from source at the pinned tag (infra/minio/Dockerfile).
+    image: classroom/minio:RELEASE.2024-05-10T01-41-38Z
+    build:
+      context: ./minio
+      dockerfile: Dockerfile
+      target: minio
     container_name: classroom-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -92,7 +97,11 @@ services:
       start_period: 15s
 
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2024-05-09T17-04-24Z
+    image: classroom/mc:RELEASE.2024-05-09T17-04-24Z
+    build:
+      context: ./minio
+      dockerfile: Dockerfile
+      target: mc
     container_name: classroom-minio-init
     depends_on:
       minio:

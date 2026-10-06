@@ -58,8 +58,8 @@ Tất cả các container giao tiếp qua mạng bridge riêng `online-classroom
 | `mysql` | `mysql:8.4.3` | 3306 | 3307 | Nguồn dữ liệu chuẩn (Source of Truth) cho nghiệp vụ và quyền |
 | `mongodb` | `mongo:7.0.14` | 27017 | 27017 | Lưu trữ sự kiện học tập dạng NoSQL document projection |
 | `neo4j` | `neo4j:5.20-community` | 7474, 7687 | 7474, 7687 | Lưu trữ đồ thị xã hội học tập & tương tác |
-| `minio` | `quay.io/minio/minio` | 9000, 9001 | 9000, 9001 | Lưu trữ tài liệu, video và media S3-compatible |
-| `minio-init`| `quay.io/minio/mc` | - | - | Tự động tạo bucket `classroom-media` khi khởi động |
+| `minio` | build từ `infra/minio` (target `minio`, MinIO ghim bản `RELEASE.2024-05-10T01-41-38Z`) | 9000, 9001 | 9000, 9001 | Lưu trữ tài liệu, video và media S3-compatible |
+| `minio-init`| build từ `infra/minio` (target `mc`) | - | - | Tự động tạo bucket `classroom-media` khi khởi động |
 | `backend` | build từ `backend/` | 8080 | 8080 | Cung cấp REST API Spring Boot (Java 21) |
 | `frontend`| build từ `frontend/`| 80 | 3000 | Nginx phục vụ React SPA và Reverse Proxy `/api/` |
 

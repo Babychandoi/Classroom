@@ -155,28 +155,33 @@ chmod 600 "$B/env.bundle"
 echo "  !!! env.bundle CHUA MAT KHAU/KHOA BI MAT THAT (JWT_SECRET, DB, MinIO). Bundle phai duoc coi la tai lieu mat." >&2
 
 # ------------------------------------------------------------------ 5. images
-step "[5/8] Luu cac image khong pull duoc (quay.io)"
+step "[5/8] Image (MinIO/mc duoc build tu infra/minio, khong can dong goi)"
 IMAGES=()
 while IFS= read -r img; do IMAGES+=("$img"); done < <(sed -n 's/^[[:space:]]*image:[[:space:]]*\(quay\.io\/[^[:space:]]*\).*$/\1/p' "$INFRA_DIR/compose.yaml" | sort -u)
-[ ${#IMAGES[@]} -gt 0 ] || die "Khong tim thay image quay.io trong compose.yaml"
-IMG_INFO=""
-ARCHS=""
-for img in "${IMAGES[@]}"; do
-  docker image inspect "$img" >/dev/null 2>&1 || die "Image $img khong co tren may nay (docker pull/build truoc)."
-  arch="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$img")"
-  id="$(docker image inspect --format '{{.Id}}' "$img")"
-  IMG_INFO+="  $img  $id  $arch"$'\n'
-  ARCHS+="$arch "
-  info "$img ($arch)"
-done
-printf '%s\n' "${IMAGES[@]}" > "$B/images.list"
-docker save "${IMAGES[@]}" | gzip -6 > "$B/images.tar.gz"
-IMAGES_ARCH="$(printf '%s\n' $ARCHS | sort -u | tr '\n' ' ' | sed 's/ $//')"
-info "-> images.tar.gz ($(file_size "$B/images.tar.gz") bytes), kien truc: $IMAGES_ARCH"
+IMG_INFO="  (khong co - moi image deu build/pull duoc tren server moi)"$'\n'
+IMAGES_ARCH=""
+if [ ${#IMAGES[@]} -gt 0 ]; then
+  # legacy compose files that still pin quay.io images: ship them (docker save) as before
+  IMG_INFO=""
+  ARCHS=""
+  for img in "${IMAGES[@]}"; do
+    docker image inspect "$img" >/dev/null 2>&1 || die "Image $img khong co tren may nay (docker pull/build truoc)."
+    arch="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$img")"
+    IMG_INFO+="  $img  $(docker image inspect --format '{{.Id}}' "$img")  $arch"$'\n'
+    ARCHS+="$arch "
+  done
+  printf '%s\n' "${IMAGES[@]}" > "$B/images.list"
+  docker save "${IMAGES[@]}" | gzip -6 > "$B/images.tar.gz"
+  IMAGES_ARCH="$(printf '%s\n' $ARCHS | sort -u | tr '\n' ' ' | sed 's/ $//')"
+  info "-> images.tar.gz ($(file_size "$B/images.tar.gz") bytes), kien truc: $IMAGES_ARCH"
+else
+  info "compose.yaml khong ghim image quay.io: bo qua images.tar.gz."
+fi
 
 # ------------------------------------------------------------------ 6. installer + docs
 step "[6/8] Installer + README"
 cp "$SCRIPT_DIR/install.sh" "$B/install.sh"; chmod 755 "$B/install.sh"
+[ ! -f "$SCRIPT_DIR/install.ps1" ] || cp "$SCRIPT_DIR/install.ps1" "$B/install.ps1"
 [ ! -f "$SCRIPT_DIR/README-MIGRATION.md" ] || cp "$SCRIPT_DIR/README-MIGRATION.md" "$B/README-MIGRATION.md"
 cat > "$B/bundle.conf" <<EOF
 BUNDLE_VERSION=1
@@ -190,7 +195,7 @@ IMAGES_ARCH=$IMAGES_ARCH
 CREATED_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 $COUNTS
 EOF
-( cd "$B" && for f in source.tar.gz env.bundle images.tar.gz images.list bundle.conf; do printf '%s  %s\n' "$(sha256_file "$f")" "$f"; done > SHA256SUMS )
+( cd "$B" && for f in source.tar.gz env.bundle images.tar.gz images.list bundle.conf; do [ -f "$f" ] || continue; printf '%s  %s\n' "$(sha256_file "$f")" "$f"; done > SHA256SUMS )
 
 # ------------------------------------------------------------------ 7. manifest
 step "[7/8] MANIFEST.txt"
@@ -236,6 +241,7 @@ fi
 chmod 600 "$OUT_FILE"
 printf '%s  %s\n' "$(sha256_file "$OUT_FILE")" "$(basename "$OUT_FILE")" > "${OUT_FILE%.tar.gz*}.sha256"
 cp "$SCRIPT_DIR/install.sh" "$OUT_BASE/install.sh"; chmod 755 "$OUT_BASE/install.sh"
+[ ! -f "$SCRIPT_DIR/install.ps1" ] || cp "$SCRIPT_DIR/install.ps1" "$OUT_BASE/install.ps1"
 [ ! -f "$SCRIPT_DIR/README-MIGRATION.md" ] || cp "$SCRIPT_DIR/README-MIGRATION.md" "$OUT_BASE/README-MIGRATION.md"
 cp "$B/MANIFEST.txt" "$OUT_BASE/$NAME.MANIFEST.txt"
 
@@ -253,4 +259,5 @@ echo "     Chi chuyen qua scp/rsync (SSH). Xoa sau khi chuyen xong."
 echo ""
 echo " Tren server MOI (chep 3 file: bundle, .sha256, install.sh):"
 echo "     ./install.sh $(basename "$OUT_FILE")"
+echo "     (Windows) powershell -NoProfile -ExecutionPolicy Bypass -File .\\install.ps1 $(basename "$OUT_FILE") -Dir C:\\classroom"
 echo "=================================================================="
