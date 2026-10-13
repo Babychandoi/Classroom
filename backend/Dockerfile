@@ -28,7 +28,7 @@ CMD ["mvn", "test", "-B"]
 # ------------------------------------------------------------------------------
 FROM eclipse-temurin:21-jre-alpine AS runner
 
-RUN apk add --no-cache curl wget bash
+RUN apk add --no-cache curl wget bash ffmpeg
 
 WORKDIR /app
 

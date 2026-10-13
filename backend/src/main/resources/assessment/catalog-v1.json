@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "levels": [
+    { "code": "TH", "name": "Tiểu học", "sortOrder": 1, "gradeFrom": 1, "gradeTo": 5 },
+    { "code": "THCS", "name": "Trung học cơ sở", "sortOrder": 2, "gradeFrom": 6, "gradeTo": 9 },
+    { "code": "THPT", "name": "Trung học phổ thông", "sortOrder": 3, "gradeFrom": 10, "gradeTo": 12 }
+  ],
+  "subjects": [
+    { "code": "TIENG_VIET", "name": "Tiếng Việt", "kind": "SUBJECT", "gradeFrom": 1, "gradeTo": 5, "suggestedTypes": "Q05 Q06 Q07 Q10 Q12 Q13 Q21 Q22" },
+    { "code": "NGU_VAN", "name": "Ngữ văn", "kind": "SUBJECT", "gradeFrom": 6, "gradeTo": 12, "suggestedTypes": "Q10 Q12 Q13 Q22 Q28" },
+    { "code": "NGOAI_NGU_1", "name": "Ngoại ngữ 1", "kind": "SUBJECT", "gradeFrom": 1, "gradeTo": 12, "languageRequired": true, "defaultLanguageCode": "en", "suggestedTypes": "Q01 Q02 Q05 Q07 Q09 Q10 Q12 Q13 Q21 Q22" },
+    { "code": "NGOAI_NGU_2", "name": "Ngoại ngữ 2", "kind": "SUBJECT", "gradeFrom": 6, "gradeTo": 12, "languageRequired": true, "suggestedTypes": "Q01 Q05 Q07 Q09 Q13 Q21 Q22" },
+    { "code": "TIENG_DAN_TOC", "name": "Tiếng dân tộc thiểu số", "kind": "SUBJECT", "gradeFrom": 1, "gradeTo": 12, "suggestedTypes": "Q05 Q07 Q10 Q13 Q21 Q22" },
+    { "code": "TOAN", "name": "Toán", "kind": "SUBJECT", "gradeFrom": 1, "gradeTo": 12, "suggestedTypes": "Q01 Q07 Q11 Q18 Q19 Q20 Q23" },
+    { "code": "DAO_DUC", "name": "Đạo đức", "kind": "SUBJECT", "gradeFrom": 1, "gradeTo": 5, "suggestedTypes": "Q01 Q03 Q06 Q12 Q28" },
+    { "code": "GDCD", "name": "Giáo dục công dân", "kind": "SUBJECT", "gradeFrom": 6, "gradeTo": 9, "suggestedTypes": "Q01 Q04 Q05 Q12 Q13" },
+    { "code": "GD_KTPL", "name": "Giáo dục kinh tế và pháp luật", "kind": "SUBJECT", "gradeFrom": 10, "gradeTo": 12, "suggestedTypes": "Q01 Q04 Q11 Q12 Q13" },
+    { "code": "TN_XH", "name": "Tự nhiên và Xã hội", "kind": "SUBJECT", "gradeFrom": 1, "gradeTo": 3, "suggestedTypes": "Q01 Q05 Q14 Q15 Q16" },
+    { "code": "KHOA_HOC", "name": "Khoa học", "kind": "SUBJECT", "gradeFrom": 4, "gradeTo": 5, "suggestedTypes": "Q01 Q07 Q14 Q17 Q27" },
+    { "code": "KHTN", "name": "Khoa học tự nhiên", "kind": "SUBJECT", "gradeFrom": 6, "gradeTo": 9, "integrated": true, "suggestedTypes": "Q01 Q04 Q11 Q15 Q17 Q19 Q27",
+      "components": [
+        { "code": "KHTN_VAT_LI", "name": "Vật lí (KHTN)" },
+        { "code": "KHTN_HOA_HOC", "name": "Hóa học (KHTN)" },
+        { "code": "KHTN_SINH_HOC", "name": "Sinh học (KHTN)" }
+      ] },
+    { "code": "VAT_LI", "name": "Vật lí", "kind": "SUBJECT", "gradeFrom": 10, "gradeTo": 12, "suggestedTypes": "Q04 Q11 Q18 Q19 Q20 Q27" },
+    { "code": "HOA_HOC", "name": "Hóa học", "kind": "SUBJECT", "gradeFrom": 10, "gradeTo": 12, "suggestedTypes": "Q04 Q07 Q11 Q15 Q19 Q27" },
+    { "code": "SINH_HOC", "name": "Sinh học", "kind": "SUBJECT", "gradeFrom": 10, "gradeTo": 12, "suggestedTypes": "Q01 Q04 Q14 Q15 Q16 Q17 Q27" },
+    { "code": "LS_DL", "name": "Lịch sử và Địa lí", "kind": "SUBJECT", "gradeFrom": 4, "gradeTo": 9, "integrated": true, "suggestedTypes": "Q01 Q05 Q06 Q13 Q14 Q18",
+      "components": [
+        { "code": "LS_DL_LICH_SU", "name": "Phân môn Lịch sử" },
+        { "code": "LS_DL_DIA_LI", "name": "Phân môn Địa lí" }
+      ] },
+    { "code": "LICH_SU", "name": "Lịch sử", "kind": "SUBJECT", "gradeFrom": 10, "gradeTo": 12, "suggestedTypes": "Q01 Q04 Q06 Q12 Q13 Q28" },
+    { "code": "DIA_LI", "name": "Địa lí", "kind": "SUBJECT", "gradeFrom": 10, "gradeTo": 12, "suggestedTypes": "Q01 Q11 Q13 Q14 Q17 Q18" },
+    { "code": "TIN_CN", "name": "Tin học và Công nghệ", "kind": "SUBJECT", "gradeFrom": 3, "gradeTo": 5, "integrated": true, "suggestedTypes": "Q01 Q06 Q16 Q24 Q26 Q28",
+      "components": [
+        { "code": "TIN_CN_TIN_HOC", "name": "Phân môn Tin học" },
+        { "code": "TIN_CN_CONG_NGHE", "name": "Phân môn Công nghệ" }
+      ] },
+    { "code": "TIN_HOC", "name": "Tin học", "kind": "SUBJECT", "gradeFrom": 6, "gradeTo": 12, "suggestedTypes": "Q01 Q06 Q10 Q17 Q24 Q26" },
+    { "code": "CONG_NGHE", "name": "Công nghệ", "kind": "SUBJECT", "gradeFrom": 6, "gradeTo": 12, "suggestedTypes": "Q01 Q05 Q06 Q15 Q24 Q27 Q28" },
+    { "code": "AM_NHAC", "name": "Âm nhạc", "kind": "SUBJECT", "gradeFrom": 1, "gradeTo": 12, "groupLabel": "Nghệ thuật", "suggestedTypes": "Q01 Q05 Q21 Q22 Q24 Q25 Q28" },
+    { "code": "MI_THUAT", "name": "Mĩ thuật", "kind": "SUBJECT", "gradeFrom": 1, "gradeTo": 12, "groupLabel": "Nghệ thuật", "suggestedTypes": "Q01 Q14 Q23 Q24 Q25 Q28" },
+    { "code": "GDTC", "name": "Giáo dục thể chất", "kind": "SUBJECT", "gradeFrom": 1, "gradeTo": 12, "suggestedTypes": "Q01 Q06 Q25 Q28" },
+    { "code": "GDQP_AN", "name": "Giáo dục quốc phòng và an ninh", "kind": "SUBJECT", "gradeFrom": 10, "gradeTo": 12, "suggestedTypes": "Q01 Q04 Q06 Q12 Q25 Q28" },
+    { "code": "HD_TRAI_NGHIEM", "name": "Hoạt động trải nghiệm", "kind": "ACTIVITY", "gradeFrom": 1, "gradeTo": 5, "suggestedTypes": "Q12 Q22 Q24 Q25 Q28" },
+    { "code": "HD_TN_HUONG_NGHIEP", "name": "Hoạt động trải nghiệm, hướng nghiệp", "kind": "ACTIVITY", "gradeFrom": 6, "gradeTo": 12, "suggestedTypes": "Q12 Q22 Q24 Q25 Q28" },
+    { "code": "GD_DIA_PHUONG", "name": "Nội dung giáo dục địa phương", "kind": "ACTIVITY", "gradeFrom": 1, "gradeTo": 12, "suggestedTypes": "Q01 Q12 Q13 Q14 Q24 Q28" },
+    { "code": "CHUYEN_DE_THPT", "name": "Chuyên đề học tập", "kind": "TOPIC_CLUSTER", "gradeFrom": 10, "gradeTo": 12, "suggestedTypes": "Q10 Q12 Q13 Q24 Q28" }
+  ],
+  "languages": [
+    { "code": "en", "name": "Tiếng Anh", "voices": ["en-GB", "en-US", "en-AU"] },
+    { "code": "fr", "name": "Tiếng Pháp", "voices": ["fr-FR"] },
+    { "code": "ja", "name": "Tiếng Nhật", "voices": ["ja-JP"] },
+    { "code": "zh", "name": "Tiếng Trung", "voices": ["zh-CN"] },
+    { "code": "ko", "name": "Tiếng Hàn", "voices": ["ko-KR"] },
+    { "code": "de", "name": "Tiếng Đức", "voices": ["de-DE"] },
+    { "code": "ru", "name": "Tiếng Nga", "voices": ["ru-RU"] }
+  ],
+  "rubrics": [
+    { "id": "rubric-speaking-basic", "title": "Speaking cơ bản (lớp 6–9)",
+      "levels": ["Chưa đạt", "Đạt một phần", "Đạt", "Tốt"],
+      "criteria": [
+        { "id": "task", "title": "Đáp ứng yêu cầu", "weight": 30 },
+        { "id": "pronunciation", "title": "Phát âm", "weight": 25 },
+        { "id": "fluency", "title": "Trôi chảy", "weight": 20 },
+        { "id": "language", "title": "Từ vựng & ngữ pháp", "weight": 25 }
+      ] },
+    { "id": "rubric-writing-email", "title": "Viết email ngắn",
+      "levels": ["Chưa đạt", "Đạt một phần", "Đạt", "Tốt"],
+      "criteria": [
+        { "id": "content", "title": "Nội dung & đủ ý", "weight": 40 },
+        { "id": "layout", "title": "Bố cục email", "weight": 20 },
+        { "id": "vocabulary", "title": "Từ vựng", "weight": 20 },
+        { "id": "grammar", "title": "Ngữ pháp & chính tả", "weight": 20 }
+      ] },
+    { "id": "rubric-project-group", "title": "Dự án nhóm",
+      "levels": ["Chưa đạt", "Đạt"],
+      "criteria": [
+        { "id": "product", "title": "Sản phẩm", "weight": 50 },
+        { "id": "presentation", "title": "Trình bày", "weight": 30 },
+        { "id": "teamwork", "title": "Hợp tác", "weight": 20 }
+      ] }
+  ]
+}

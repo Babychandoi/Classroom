@@ -184,7 +184,9 @@ export const StudioCourseWizard: React.FC = () => {
     if (!course) return;
     try {
       const detail = await api.get<Course>(`/courses/${course.id}`);
-      setCourse({ ...detail, sections: detail.sections ?? [] });
+      const refreshed = { ...detail, sections: detail.sections ?? [] };
+      courseRef.current = refreshed;
+      setCourse(refreshed);
     } catch (err: any) {
       setError(err.message || 'Không thể tải lại nội dung khóa học');
     }
@@ -209,7 +211,7 @@ export const StudioCourseWizard: React.FC = () => {
     setError(null);
     setTouched(true);
     try {
-      let c = course;
+      let c = courseRef.current ?? course;
       let p = product;
       const createdNow = !c;
       if (!c || basicDirty) {
@@ -278,7 +280,7 @@ export const StudioCourseWizard: React.FC = () => {
     setNote(null);
     if (!readOnly && studioRef.current && !(await studioRef.current.flush())) return;
     if (target > current) {
-      const invalid = stepError(current, data);
+      const invalid = stepError(current, { ...data, course: courseRef.current ?? data.course });
       if (invalid) { setTouched(true); setError(invalid); return; }
       if (!readOnly) {
         const result = await persist();

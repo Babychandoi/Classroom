@@ -3,10 +3,13 @@ $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 Push-Location $repo
 try {
+    $existingDemo=@(& docker ps -q --filter 'label=com.docker.compose.project=classroom-demo' --filter 'label=com.docker.compose.service=backend')
+    if($existingDemo.Count -gt 0){throw 'The current server runs classroom-demo. Update it with infra/scripts/deploy-current-stack.ps1, which preserves the active database credentials and volumes.'}
     if ($Address -notmatch '^[a-zA-Z0-9.-]+$') { throw 'Address must be an IP or hostname without scheme/path.' }
     if ($SingleBackend -and $TwoBackends) { throw 'Choose one backend topology.' }
     $env:SERVER_ADDRESS = $Address
-    $composeArguments = @('compose','--env-file','infra/.env','-f','infra/compose.yaml','-f','infra/compose.server.yaml')
+    & (Join-Path $PSScriptRoot 'setup-assessment-sandbox.ps1')
+    $composeArguments = @('compose','--env-file','infra/.env','-f','infra/compose.yaml','-f','infra/compose.server.yaml','-f','infra/compose.assessment.yaml')
     # One JVM is the default on this PC; two nodes remain available for distributed checks.
     if ($TwoBackends) { $composeArguments += @('-f','infra/compose.multinode.yaml','-f','infra/compose.multinode-server.yaml') }
     & docker @composeArguments config --quiet
@@ -19,11 +22,11 @@ try {
     # Build once. Building again through frontend's dependencies can produce a new
     # image manifest and restart a backend that has just become ready.
     if (-not $SkipBuild) {
-        & docker @composeArguments build @backendServices frontend
+        & docker @composeArguments build @backendServices frontend assessment-sandbox
         if ($LASTEXITCODE -ne 0) { throw 'Server image build failed.' }
     }
     $upArguments = @('up','-d','--wait','--wait-timeout','300','--no-build')
-    & docker @composeArguments @upArguments @backendServices
+    & docker @composeArguments @upArguments @backendServices assessment-sandbox
     if ($LASTEXITCODE -ne 0) { throw 'Backend readiness failed.' }
     & docker @composeArguments @upArguments --no-deps frontend
     if ($LASTEXITCODE -ne 0) { throw 'Server readiness failed.' }

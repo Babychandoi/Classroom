@@ -43,7 +43,7 @@ const { step, events, summarize, instrument } = createRunner(path.join(SHOTS_ROO
         requests.push(`${r.method()} ${r.url().replace(BASE, '').replace(/\?.*/, '').slice(0, 120)}`);
         const u = new URL(r.url());
         // MinIO (cổng 9000) là host ngoài hợp lệ cho media/tài liệu có chữ ký sẵn; mọi host khác là bất thường.
-        if (u.origin !== origin && !/^(data|blob):$/.test(u.protocol) && u.port !== (process.env.E2E_MINIO_PORT || '9000')) external.add(u.origin);
+        if (u.origin !== origin && !/^(data|blob):$/.test(u.protocol) && u.port !== (process.env.E2E_MINIO_PORT || '9000') && u.origin !== process.env.E2E_MEDIA_ORIGIN) external.add(u.origin);
       };
       page.on('request', onRequest);
       try {

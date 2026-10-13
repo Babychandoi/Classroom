@@ -26,6 +26,8 @@ const PERMISSION_OPTIONS: { module: string; actions: string[] }[] = [
   { module: 'FEED', actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'PUBLISH'] },
   { module: 'COURSE', actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'PUBLISH', 'PREVIEW', 'GRADE'] },
   { module: 'EXAM', actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'PUBLISH', 'GRADE', 'PREVIEW'] },
+  // D-34: "Bài tập & đề" (PUBLISH = giao bài cho lớp).
+  { module: 'ASSESSMENT', actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'PUBLISH', 'GRADE'] },
   { module: 'SEGMENT', actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE'] },
   { module: 'MEMBER', actions: ['VIEW', 'EDIT'] },
   { module: 'STORE', actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'PUBLISH'] },
@@ -43,6 +45,7 @@ const MODULE_LABELS: Record<string, string> = {
   FEED: 'Bảng tin',
   COURSE: 'Khóa học',
   EXAM: 'Thi',
+  ASSESSMENT: 'Bài tập & đề',
   SEGMENT: 'Nhóm học viên',
   MEMBER: 'Thành viên',
   STORE: 'Shop & đơn hàng',

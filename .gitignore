@@ -40,6 +40,10 @@ Thumbs.db
 .artifacts/
 .nyc_output/
 
+# Python maintenance-script bytecode
+__pycache__/
+*.py[cod]
+
 # Agent / Antigravity
 .agents/
 

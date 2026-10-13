@@ -28,6 +28,7 @@ import {
   Eye,
   PenSquare,
   CalendarDays,
+  ClipboardList,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -121,6 +122,8 @@ export const StudioLayout: React.FC = () => {
     {
       label: 'Nội dung',
       items: [
+        // D-34: assessments ("Bài tập & đề") - list / bank / templates, builder and results.
+        { label: 'Bài tập & đề', icon: ClipboardList, path: `/studio/classes/${id}/assessments`, grants: ['ASSESSMENT:VIEW', 'ASSESSMENT:CREATE', 'ASSESSMENT:EDIT', 'ASSESSMENT:PUBLISH', 'ASSESSMENT:GRADE'] },
         { label: 'Khóa học', icon: BookOpen, path: `/studio/classes/${id}/courses`, grants: ['COURSE:VIEW', 'COURSE:CREATE', 'COURSE:EDIT'] },
         { label: 'Thi', icon: Award, path: `/studio/classes/${id}/exams`, grants: ['EXAM:VIEW', 'EXAM:CREATE', 'EXAM:EDIT', 'EXAM:PUBLISH'] },
         // R11-02: this nav entry covers both exam grading (EXAM:GRADE) and assignment grading
@@ -203,11 +206,11 @@ export const StudioLayout: React.FC = () => {
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50 md:grid md:grid-cols-[248px_minmax(0,1fr)]">
-      {/* Studio ("Xưởng") sidebar - white, hairline right border (Dashboard.dc.html) */}
-      <aside className="flex flex-col border-b border-slate-200 bg-white md:sticky md:top-16 md:h-[calc(100vh-4rem)] md:border-b-0 md:border-r">
-        <div className="px-4 pb-3 pt-4">
-          <div className="flex items-center justify-between gap-3 px-1 md:mb-2">
-            <span className="inline-flex h-5 items-center rounded-full bg-slate-100 px-2 text-micro font-bold tracking-[0.4px] text-slate-600">
+      {/* D-35 Studio ("Xưởng") sidebar of the prototype: eyebrow, class chip, tags, grouped nav, "Xem như học viên" footer. */}
+      <aside className="flex flex-col border-b border-line bg-white md:sticky md:top-16 md:h-[calc(100vh-4rem)] md:border-b-0 md:border-r">
+        <div className="px-3 pb-3 pt-4">
+          <div className="flex items-center justify-between gap-3 px-1.5 md:mb-2.5">
+            <span className="whitespace-nowrap text-[10.5px] font-bold leading-[14px] tracking-[1.2px] text-slate-500">
               XƯỞNG
             </span>
             <button
@@ -227,26 +230,26 @@ export const StudioLayout: React.FC = () => {
             </button>
           </div>
           {/* Class card: class avatar (rounded square - never round) + title + the viewer's role */}
-          <div className="mt-3 flex items-center gap-2.5 rounded-community border border-slate-200 bg-slate-50 px-3 py-2 md:mt-0">
+          <div className="mt-3 flex items-center gap-2.5 rounded-community border border-line bg-slate-50 px-3 py-2.5 md:mt-0">
             {/* The class's own square avatar when it has one (never a crop of the 16:9 cover), else the letter tile. */}
             {classroom.avatarUrl ? (
               <img
                 src={classroom.avatarUrl as string}
                 alt=""
                 data-testid="studio-class-avatar"
-                className="h-8 w-8 flex-shrink-0 rounded-[10px] object-cover"
+                className="h-[34px] w-[34px] flex-shrink-0 rounded-xl object-cover"
                 style={{ objectPosition: classroom.avatarPosition || '50% 50%' }}
               />
             ) : (
-              <ClassAvatar title={classroom.title} seed={classroom.id} size={32} />
+              <ClassAvatar title={classroom.title} seed={classroom.id} size={34} />
             )}
             <div className="min-w-0 flex-1">
-              <p className="truncate text-meta font-semibold text-slate-900">{classroom.title}</p>
-              <p className="text-micro leading-[15px] text-slate-500">{roleLabel}</p>
+              <p className="truncate text-[13.5px] font-semibold leading-[18px] text-slate-900">{classroom.title}</p>
+              <p className="truncate text-caption text-slate-500">{roleLabel}</p>
             </div>
           </div>
           {/* D-19: visibility + fee of the class at a glance, on every Studio page */}
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 px-1">
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 px-0.5 pt-0.5">
             {isSuspended(classroom) && <SuspendedChip />}
             <ClassBadges classroom={classroom} showPublic />
           </div>
@@ -256,9 +259,9 @@ export const StudioLayout: React.FC = () => {
           <div className="md:flex md:h-full md:flex-col">
           <nav ref={navScrollRef} aria-label="Điều hướng Studio" className="px-3 pb-3 md:flex-1 md:overflow-y-auto">
             {visibleGroups.map((group, groupIndex) => (
-              <div key={group.label ?? 'root'} className={groupIndex > 0 ? 'mt-2.5' : ''}>
+              <div key={group.label ?? 'root'} className={groupIndex > 0 ? 'mt-1' : ''}>
                 {group.label && (
-                  <p className="mb-0.5 px-3 text-micro font-semibold uppercase tracking-[0.6px] text-slate-500">{group.label}</p>
+                  <p className="px-2.5 pb-1.5 pt-3.5 text-micro font-semibold uppercase tracking-[0.8px] text-slate-500">{group.label}</p>
                 )}
                 <ul>
                   {group.items.map((item) => {
@@ -268,10 +271,10 @@ export const StudioLayout: React.FC = () => {
                         <NavLink
                           to={item.path}
                           className={({ isActive }) =>
-                            `flex h-10 items-center gap-[11px] md:h-9 rounded-btn px-3 text-ui transition-colors duration-micro ${
+                            `flex h-10 items-center gap-3 md:h-[38px] rounded-[10px] px-2.5 text-[13.5px] leading-[18px] transition-colors duration-micro ${
                               isActive
-                                ? 'bg-tint font-semibold text-blue-600'
-                                : 'font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                                ? 'bg-blue-50 font-semibold text-blue-700'
+                                : 'font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900'
                             }`
                           }
                         >
@@ -279,7 +282,7 @@ export const StudioLayout: React.FC = () => {
                           <span className="truncate">{item.label}</span>
                           {!!item.badge && item.badge > 0 && (
                             <span
-                              className="ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-amber-100 px-1.5 text-micro font-bold text-amber-800 tabular"
+                              className="ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-submit px-1.5 text-micro font-bold text-slate-900 tabular"
                               aria-label={`${item.badge} yêu cầu chờ duyệt`}
                               title={`${item.badge} yêu cầu chờ duyệt`}
                             >
@@ -295,12 +298,12 @@ export const StudioLayout: React.FC = () => {
             ))}
           </nav>
 
-          <div className="border-t border-slate-100 px-4 py-3">
+          <div className="border-t border-line px-3 py-2.5">
             <Link
               to={`/classes/${classroom.slug}`}
-              className="inline-flex items-center gap-2 text-meta font-medium text-slate-600 transition-colors duration-micro hover:text-slate-900"
+              className="flex min-h-[38px] items-center gap-3 rounded-[10px] px-2.5 text-[13.5px] font-medium text-slate-700 transition-colors duration-micro hover:bg-slate-100 hover:text-slate-900"
             >
-              <Eye className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+              <Eye className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
               <span>Xem như học viên</span>
             </Link>
           </div>
@@ -317,7 +320,7 @@ export const StudioLayout: React.FC = () => {
         )}
         {!isAuthorized ? (
           <div className="mx-auto max-w-[560px] py-12">
-            <div className="rounded-card border border-slate-200 bg-white p-8 text-center shadow-hairline">
+            <div className="rounded-card border border-line-card bg-white p-8 text-center">
               <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-community bg-red-50 text-red-700">
                 <ShieldAlert className="h-6 w-6" strokeWidth={1.75} aria-hidden="true" />
               </div>

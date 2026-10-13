@@ -1,0 +1,29 @@
+services:
+  backend:
+    environment:
+      ASSESSMENT_SANDBOX_URL: http://assessment-sandbox:8081
+      ASSESSMENT_SANDBOX_TOKEN: ${ASSESSMENT_SANDBOX_TOKEN:?Run setup-assessment-sandbox.ps1 first}
+  assessment-sandbox:
+    build:
+      context: ./assessment-sandbox
+    image: classroom/assessment-sandbox:1
+    restart: unless-stopped
+    environment:
+      ASSESSMENT_SANDBOX_TOKEN: ${ASSESSMENT_SANDBOX_TOKEN:?Run setup-assessment-sandbox.ps1 first}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - classroom-net
+    read_only: true
+    tmpfs:
+      - /tmp:size=1m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 32
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8081/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5

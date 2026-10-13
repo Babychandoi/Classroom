@@ -58,6 +58,9 @@ public class MediaController {
     public ResponseEntity<ApiResponse<MediaAsset>> completeUpload(
             @PathVariable String id,
             @CurrentUser UserPrincipal principal) {
+        if ("ASSESSMENT_RESPONSE".equals(mediaService.getAsset(id).getUploadPurpose())) {
+            throw new AppException(ErrorCode.FORBIDDEN, "Tệp bài làm phải được xác nhận từ lượt làm bài");
+        }
         MediaAsset asset = mediaService.completeUpload(id, principal.getId());
         return ResponseEntity.ok(ApiResponse.ok(asset));
     }
@@ -77,6 +80,10 @@ public class MediaController {
         String scopeCourseId = resolveScopeCourseId(classId, request.getScopeCourseId());
 
         switch (purpose) {
+            case "ASSESSMENT" -> requireAny(userId, classId,
+                    new String[][]{{"ASSESSMENT", "CREATE", null}, {"ASSESSMENT", "EDIT", null}}, null);
+            case "ASSESSMENT_RESPONSE" -> throw new AppException(ErrorCode.FORBIDDEN,
+                    "Tệp bài làm phải được tải từ lượt làm bài đang mở");
             case "ABOUT" -> {
                 accessPolicy.enforceManage(userId, classId, "ABOUT", "EDIT", null);
                 if (!java.util.Set.of("image/jpeg", "image/png", "image/webp", "image/gif").contains(request.getMimeType())

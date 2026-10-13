@@ -42,9 +42,10 @@ const PERSONAL_LINKS = [
 const MENU_ROW = 'flex h-12 w-full items-center gap-3 rounded-btn px-2 text-left text-ui font-medium text-slate-900 transition-colors duration-micro hover:bg-slate-100';
 const MENU_ICON = 'inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-900';
 
-// Sticky top bar of the design (glass, 64px, 1200 container): brand mark + "Lớp Học Trực Tuyến", one nav link,
-// then the demo switcher (VITE_ENABLE_DEMO_LOGIN) and the account avatar that opens the account menu.
-export const Navbar: React.FC = () => {
+// D-35 Topbar of the prototype (glass, 64px, full width): brand mark + "Lớp Học Trực Tuyến" (hidden from lg up when the
+// app sidebar already shows the wordmark), the page title, one nav link, then the demo switcher (VITE_ENABLE_DEMO_LOGIN)
+// and the account avatar that opens the account menu. Every accessible name is unchanged (tests and e2e rely on them).
+export const Navbar: React.FC<{ title?: string; withSidebar?: boolean }> = ({ title, withSidebar = false }) => {
   const { user, isLoading, logout, quickLogin } = useAuth();
   const navigate = useNavigate();
   const [showDemoMenu, setShowDemoMenu] = useState(false);
@@ -69,21 +70,31 @@ export const Navbar: React.FC = () => {
   };
 
   return (
-    <header className="glass-bar sticky top-0 z-50 border-b border-slate-200">
-      <div className="mx-auto flex h-16 w-full max-w-container items-center gap-4 px-4 sm:gap-8 sm:px-8">
+    <header className="glass-topbar sticky top-0 z-50 border-b border-line">
+      <div className="flex h-16 w-full items-center gap-3 px-4 sm:gap-6 sm:px-6">
         {/* R17-05: the brand stays on one line (it used to wrap to 3 lines and spill out of the
             h-16 bar at phone width) and truncates rather than pushing the account controls out. */}
-        <Link to="/classes" className="flex min-w-0 items-center gap-2.5 text-slate-900" aria-label="Lớp Học Trực Tuyến - về trang chủ">
-          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[10px] bg-gradient-to-tr from-blue-600 to-sky-400 text-white">
+        <Link
+          to="/classes"
+          className={`flex min-w-0 items-center gap-2.5 text-slate-900 ${withSidebar ? 'lg:hidden' : ''}`}
+          aria-label="Lớp Học Trực Tuyến - về trang chủ"
+        >
+          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[10px] bg-slate-900 text-white">
             <GraduationCap className="h-5 w-5" strokeWidth={1.9} aria-hidden="true" />
           </span>
-          <span className="truncate whitespace-nowrap text-base font-bold leading-6 tracking-[-0.4px] text-slate-900 sm:text-[19px]">
+          <span className="truncate whitespace-nowrap text-base font-bold leading-6 tracking-[-0.4px] text-slate-900 sm:text-[17px]">
             Lớp Học Trực Tuyến
           </span>
         </Link>
 
+        {title && (
+          <span className={`min-w-0 truncate whitespace-nowrap text-ui font-semibold text-slate-500 ${withSidebar ? 'hidden lg:block' : 'hidden md:block'}`}>
+            {title}
+          </span>
+        )}
+
         {/* The brand already links to the class list, so the duplicate text link is desktop-only. */}
-        <nav aria-label="Điều hướng chính" className="hidden items-center gap-7 sm:flex">
+        <nav aria-label="Lối tắt" className={`hidden items-center gap-7 sm:flex ${withSidebar ? 'lg:hidden' : ''}`}>
           <Link
             to="/classes"
             className="hidden whitespace-nowrap text-ui font-medium text-slate-600 transition-colors duration-micro hover:text-slate-900 sm:inline-block"
@@ -103,7 +114,7 @@ export const Navbar: React.FC = () => {
                 onClick={() => setShowDemoMenu(!showDemoMenu)}
                 aria-expanded={showDemoMenu}
                 aria-haspopup="true"
-                className="press inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-slate-200 bg-white px-2.5 text-meta font-medium text-slate-600 transition-colors duration-micro hover:bg-slate-100 hover:text-slate-900"
+                className="press inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-meta font-medium text-slate-600 transition-colors duration-micro hover:bg-slate-100 hover:text-slate-900"
                 title="Chuyển đổi nhanh giữa các tài khoản demo kiểm thử"
               >
                 <UserCheck className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
@@ -114,7 +125,7 @@ export const Navbar: React.FC = () => {
               </button>
 
               {showDemoMenu && (
-                <div className="absolute right-0 z-50 mt-2 w-72 rounded-card border border-slate-200 bg-white p-2 shadow-modal">
+                <div className="ap-drop absolute right-0 z-50 mt-2 w-72 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-dropdown">
                   <p className="px-2.5 pb-1.5 pt-1 text-micro font-bold uppercase tracking-[0.4px] text-slate-500">
                     Chuyển vai trò thử nghiệm
                   </p>
@@ -165,7 +176,7 @@ export const Navbar: React.FC = () => {
                 <div
                   role="menu"
                   aria-label="Menu tài khoản"
-                  className="absolute right-0 z-50 mt-2 w-[min(360px,calc(100vw-32px))] overflow-hidden rounded-card border border-slate-200 bg-white shadow-modal"
+                  className="ap-drop absolute right-0 z-50 mt-2 w-[min(360px,calc(100vw-32px))] overflow-hidden rounded-card border border-slate-200 bg-white shadow-dropdown"
                 >
                   <div className="m-3 rounded-2xl border border-slate-200 p-3.5 shadow-hairline">
                     <div className="flex items-center gap-3">

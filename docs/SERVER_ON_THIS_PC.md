@@ -1,5 +1,11 @@
 # Chạy web trên máy Windows hiện tại
 
+> **13/10/2026:** stack hiện tại là `classroom-demo`, Classroom ở **http://localhost:13000**, backend loopback 8080; cấu hình gốc `D:\classroom-server\infra`. Cổng 3000 thuộc BĐS. Cập nhật bằng `infra/scripts/deploy-current-stack.ps1` để giữ database/volume/environment thực tế. HTTPS/task/account và `start-server.ps1` phía dưới là kết quả 02/10, chưa kiểm chứng lại trong lượt Question Builder; xem [RUNBOOK](RUNBOOK.md).
+
+**Xác minh public 13/10:** https://poiplegal.online đang phục vụ release `20261013-063537` qua Cloudflare Tunnel vào frontend/backend trên PC này. Trang và health proxy trả 200; bundle `/assets/index-CGR_4Rwv.js` giống nội dung server 13000, backend/frontend/broker healthy. Bằng chứng: `.artifacts/assessment-public-release-verification.json`. Đây là kiểm tra public HTTPS/build/health; chưa chạy lại toàn bộ luồng đăng nhập/người dùng hoặc gate tải trên domain.
+
+**Sau xoay secret trước commit/push:** manifest hiện tại là `20261013-121220`, nội dung image/bundle giữ nguyên bản đã kiểm thử. Năm credential datastore đã đổi sang ngẫu nhiên 64 ký tự, mật khẩu mẫu cũ bị từ chối; JWT/webhook giữ nguyên. `.env` trong `D:\classroom-server\infra` và `infra/.env` đã đồng bộ/protect ACL, recovery/artifact không commit. Xem quy trình một project và rollback hiện tại trong [RUNBOOK](RUNBOOK.md).
+
 Ngày kiểm tra: 02/10/2026. Đây là web responsive cho máy tính/điện thoại; không có app Android/iOS riêng.
 
 ## Địa chỉ và tài khoản

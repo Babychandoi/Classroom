@@ -20,6 +20,8 @@ public class PrivacyService {
     private com.classroom.modules.audit.service.AuditService audit;
     @org.springframework.beans.factory.annotation.Autowired
     private com.classroom.modules.outbox.service.OutboxService outbox;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.classroom.modules.assessment.service.AssessmentPrivacyExport assessmentExport;
     public PrivacyService(JdbcTemplate jdbc, UserRepository users, PasswordEncoder passwords) { this.jdbc = jdbc; this.users = users; this.passwords = passwords; }
     private void verify(String userId, String password) {
         var user = users.findById(userId).orElseThrow(() -> new AppException(ErrorCode.UNAUTHORIZED, "Phiên đăng nhập không hợp lệ"));
@@ -53,6 +55,7 @@ public class PrivacyService {
             more |= rows.size() > 1000;
             result.put(entry.getKey(), rows.size() > 1000 ? rows.subList(0, 1000) : rows);
         }
+        more |= assessmentExport.append(result, userId, offset);
         result.put("hasMore", more); result.put("nextOffset", more ? offset + 1000 : null);
         return result;
     }

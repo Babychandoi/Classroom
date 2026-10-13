@@ -156,7 +156,7 @@ const persist = () => saveState({
     await owner.getByRole('tab', { name: 'Tải lên' }).click();
     await owner.getByLabel(/Video bài học/).waitFor({ timeout: 8000 });
     const [uploadResp] = await Promise.all([
-      owner.waitForResponse((r) => r.request().method() === 'PUT' && new RegExp(`:${MINIO_PORT}/`).test(r.url()), { timeout: 20000 }),
+      owner.waitForResponse((r) => r.request().method() === 'PUT' && (new RegExp(`:${MINIO_PORT}/`).test(r.url()) || new URL(r.url()).origin === process.env.E2E_MEDIA_ORIGIN), { timeout: 20000 }),
       owner.getByLabel(/Video bài học/).setInputFiles(path.join(FIXTURES, 'tiny.mp4')),
     ]);
     state.uploadHost = new URL(uploadResp.url()).origin;
@@ -171,7 +171,7 @@ const persist = () => saveState({
     await owner.reload();
     await owner.getByRole('button', { name: LESSON, exact: true }).waitFor({ timeout: 10000 });
     await owner.getByRole('button', { name: LESSON, exact: true }).click();
-    await owner.getByText('Có video').waitFor({ timeout: 8000 });
+    await owner.getByText('Có video', {exact:true}).first().waitFor({ timeout: 8000 });
   });
   await step('J2', 'publish course from wizard step 4', owner, async () => {
     await owner.getByRole('button', { name: /Tiếp tục: Kiểm tra/ }).click();
@@ -298,7 +298,7 @@ const persist = () => saveState({
     if (put.status() !== 200) throw new Error(`PUT lesson -> ${put.status()} ${await put.text()}`);
     state.ytLessonId = new URL(put.url()).pathname.split('/').pop();
     await owner.getByText(/Đã lưu lúc/).first().waitFor({ timeout: 8000 });
-    await owner.getByText('Có video · YouTube').waitFor({ timeout: 5000 });
+    await owner.getByText('Có video · YouTube', {exact:true}).first().waitFor({ timeout: 5000 });
   });
   await step('J3', 'learner page embeds the YouTube video (youtube-nocookie iframe, sandboxed, titled) with a new-tab fallback', stu, async () => {
     await stu.goto(`${C()}/learn/lessons/${state.ytLessonId}`);

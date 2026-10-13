@@ -2,6 +2,88 @@
 @tailwind components;
 @tailwind utilities;
 
+/* D-35 UI shell: the prototype's design tokens (Connecty base + the Aptis/Question Builder extension). Tailwind mirrors
+   the colours in tailwind.config.js; these variables serve inline styles and the few rules below. */
+:root {
+  --ink-900: #0F172A;
+  --ink-700: #334155;
+  --ink-600: #475569;
+  --ink-500: #64748B;
+  --ink-400: #94A3B8;
+  --ink-300: #CBD5E1;
+  --ink-200: #E2E8F0;
+  --white: #FFFFFF;
+
+  --canvas: #EDF1F6;
+  --surface: #FFFFFF;
+  --surface-muted: #F1F5F9;
+  --surface-subtle: #F8FAFC;
+  --surface-image: #EEF1F5;
+  --track: #EEF2F7;
+
+  --line: #EEF1F5;
+  --line-card: #E5E9F0;
+
+  --link: #1D4ED8;
+  --info-bg: #EFF6FF;
+  --online: #16A34A;
+  --unread: #DC2626;
+  --danger: #B91C1C;
+  --danger-bg: #FEF2F2;
+  --danger-border: #FECACA;
+
+  --scrim-light: rgba(15, 23, 42, .18);
+  --scrim: rgba(15, 23, 42, .45);
+  --scrim-strong: rgba(15, 23, 42, .55);
+
+  --tag-red-bg: #FEF2F2;    --tag-red-fg: #B91C1C;    --tag-red-dot: #DC2626;
+  --tag-orange-bg: #FFF7ED; --tag-orange-fg: #C2410C; --tag-orange-dot: #EA580C;
+  --tag-amber-bg: #FFFBEB;  --tag-amber-fg: #B45309;  --tag-amber-dot: #F59E0B;
+  --tag-green-bg: #ECFDF3;  --tag-green-fg: #15803D;  --tag-green-dot: #16A34A;
+  --tag-blue-bg: #EFF6FF;   --tag-blue-fg: #1D4ED8;   --tag-blue-dot: #2563EB;
+  --tag-violet-bg: #F5F3FF; --tag-violet-fg: #6D28D9; --tag-violet-dot: #7C3AED;
+  --tag-pink-bg: #FDF2F8;   --tag-pink-fg: #BE185D;   --tag-pink-dot: #DB2777;
+  --tag-ink-bg: #0F172A;    --tag-ink-fg: #FFFFFF;    --tag-ink-dot: #FFFFFF;
+  --tag-gray-bg: #F1F5F9;   --tag-gray-fg: #475569;   --tag-gray-dot: #64748B;
+
+  --skill-gv-fg: #6D28D9;        --skill-gv-bg: #F5F3FF;
+  --skill-listening-fg: #B45309; --skill-listening-bg: #FFFBEB;
+  --skill-reading-fg: #1D4ED8;   --skill-reading-bg: #EFF6FF;
+  --skill-speaking-fg: #15803D;  --skill-speaking-bg: #ECFDF3;
+  --skill-writing-fg: #BE185D;   --skill-writing-bg: #FDF2F8;
+  --skill-focus-fg: #0F172A;     --skill-focus-bg: #F1F5F9;
+
+  --ans-correct-bd: #4ADE80; --ans-correct-bg: #F0FDF4; --ans-correct-fg: #15803D;
+  --ans-wrong-bd: #F87171;   --ans-wrong-bg: #FEF2F2;   --ans-wrong-fg: #B91C1C;
+  --ans-blank-bd: #FCD34D;   --ans-blank-bg: #FFFBEB;   --ans-blank-fg: #92400E;
+
+  --timer-bg: #0F172A;
+  --timer-urgent: #E11D48;
+  --submit-accent: #F59E0B;
+  --rec-live: #DC2626;
+
+  --radius-card-lg: 20px;
+  --radius-panel: 24px;
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, .04);
+  --shadow-pop: 0 8px 24px rgba(15, 23, 42, .10);
+  --shadow-dropdown: 0 18px 44px rgba(15, 23, 42, .20);
+  --shadow-float: 0 30px 60px -30px rgba(15, 23, 42, .35);
+  --shadow-toast: 0 10px 30px rgba(15, 23, 42, .3);
+  --shadow-cta: 0 10px 30px -10px rgba(15, 23, 42, .5);
+
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-spring: cubic-bezier(.3, 1.2, .5, 1);
+  --dur-fast: .15s;
+  --dur-base: .35s;
+}
+
+@keyframes ap-in    { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes ap-slide { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes ap-drop  { from { opacity: 0; transform: translateY(-6px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes ap-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@keyframes ap-grow  { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes ap-up    { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
 @layer base {
   html, body {
     background: #F8FAFC;
@@ -65,10 +147,29 @@
   }
 }
 
+@layer utilities {
+  /* Prototype motion helpers: entrance, dropdown, live pulse, progress grow, sheet rise. */
+  .ap-in { animation: ap-in .45s var(--ease-out) both; }
+  .ap-slide { animation: ap-slide .35s var(--ease-out) both; }
+  .ap-drop { animation: ap-drop .2s var(--ease-out) both; }
+  .ap-pulse { animation: ap-pulse 1.2s ease-in-out infinite; }
+  .ap-grow { transform-origin: left; animation: ap-grow .8s var(--ease-out) both; }
+  .ap-up { animation: ap-up .22s ease both; }
+  /* Topbar glass of the prototype (64px, saturate + blur). */
+  .glass-topbar {
+    background: rgba(255, 255, 255, 0.82);
+    -webkit-backdrop-filter: saturate(1.6) blur(14px);
+    backdrop-filter: saturate(1.6) blur(14px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .card-hover, .card-hover:hover {
     transition: none;
     transform: none;
+  }
+  .ap-in, .ap-slide, .ap-drop, .ap-pulse, .ap-grow, .ap-up, .animate-ap-in, .animate-ap-drop {
+    animation: none !important;
   }
 }
 

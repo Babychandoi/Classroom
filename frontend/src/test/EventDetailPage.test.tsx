@@ -101,7 +101,7 @@ describe('EventDetailPage', () => {
     renderPage(makeEvent({ id: 'ev-1', meetingUrl: 'https://meet.example/room' }), {}, { ...baseClassroom, userRole: 'OWNER', isOwner: true });
     const meeting = await screen.findByRole('link', { name: /Vào phòng họp/ });
     expect(meeting).toHaveAttribute('href', 'https://meet.example/room');
-    expect(meeting.className).not.toContain('bg-blue-600');
+    expect(meeting.className).not.toContain('bg-slate-900'); // D-35: primary = ink-900
     expect(screen.getByRole('button', { name: 'Đăng ký tham dự' })).toBeInTheDocument();
   });
 

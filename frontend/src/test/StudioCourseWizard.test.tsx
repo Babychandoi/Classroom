@@ -108,7 +108,7 @@ describe('StudioCourseWizard - stepper', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Tiếp tục: Loại bán/ }));
     await waitFor(() => expect(stepButton(2)).toHaveAttribute('aria-current', 'step'));
-    expect(screen.getByRole('heading', { name: 'Chọn cách bán' })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Chọn cách bán' })).toHaveFocus());
     expect(screen.getByRole('button', { name: /Tiếp tục: Nội dung bài học/ })).toBeInTheDocument();
     // Step 1 shows the green check once it is done.
     expect(within(stepButton(1)).getByText('Đã hoàn thành')).toBeInTheDocument();
@@ -597,6 +597,25 @@ describe('StudioCourseWizard - content studio (step 3): a lesson is a bundle of 
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
     const body = calls.find((c) => c.method === 'PUT')!.body;
     expect(body).toEqual({ title: 'Bài A đổi tên', contentText: 'Giới thiệu', captionsVtt: '', mediaAssetId: '', videoUrl: '', hasAssignment: false, assignmentInstructions: '', durationMinutes: 0 });
+  });
+
+  it('flushes a first text lesson and advances to review on the same Continue click', async () => {
+    let stored = course2([lessonA]);
+    mockServer((url, method, body) => {
+      if (url === `${API}/courses/c1` && method === 'GET') return stored;
+      if (url === `${API}/lessons/la` && method === 'PUT') {
+        stored = course2([{ ...lessonA, ...body, components: { ...noParts, content: true } }]);
+        return {};
+      }
+      return undefined;
+    });
+    renderWizard('/studio/classes/class-1/courses/c1/edit?step=3');
+    await pick('Bài A');
+    fireEvent.change(screen.getByLabelText('Nội dung bài học'), { target: { value: 'Bài học có chữ' } });
+    fireEvent.click(screen.getByRole('button', { name: /Tiếp tục: Kiểm tra/ }));
+    expect(await screen.findByRole('heading', { name: 'Xem trước & xuất bản' })).toBeInTheDocument();
+    expect(screen.getByText('Đã có 1 bài học có nội dung')).toBeInTheDocument();
+    expect(screen.queryByText('Thêm ít nhất một bài học có nội dung (video, nội dung, tài liệu hoặc bài tập) để tiếp tục.')).not.toBeInTheDocument();
   });
 
   it('video card: four sources (Không có | Tải lên | YouTube | Google Drive), and Tải lên shows a file input', async () => {

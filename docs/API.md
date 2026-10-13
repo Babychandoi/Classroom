@@ -1,5 +1,27 @@
 # Đặc tả Hợp đồng API (REST API Specification)
 
+## Question Builder P0–P3 (13/10/2026)
+
+Các đường dẫn sau dùng base `/api/v1`, envelope và Bearer hiện có. Assessment chạy song song exam; ID đề/assignment/attempt không thay thế nhau.
+
+| Nhóm | Endpoint |
+|---|---|
+| Catalog/rubric | `GET /assessment-catalog`, `/assessment-catalog/subjects?grade=`; `GET/POST /classes/{classId}/rubrics` |
+| Authoring | `GET/POST /classes/{classId}/assessments`; `GET/PUT/DELETE /assessments/{id}`; `POST /assessments/{id}/validate`, `/duplicate`; `GET /assessments/{id}/preview`, `/media/{assetId}/url` |
+| Bank | `GET /classes/{classId}/question-bank?q=&type=&mode=&grade=&subjectCode=&page=&size=`; `GET /question-bank-items/{id}`; `GET /classes/{classId}/question-suggestions?outcome=&type=&grade=&subjectCode=` |
+| Giao bài | `POST /assessments/{id}/assign`; `GET /classes/{classId}/assessment-assignments`; `PATCH /assessment-assignments/{id}`; `GET /classes/{classId}/homework?filter=all` |
+| Làm bài | `POST /assessment-assignments/{id}/attempts`; `GET /assessment-attempts/{id}`; `PUT /assessment-attempts/{id}/answers`; `POST /assessment-attempts/{id}/submit`; `GET /assessment-assignments/{id}/my-attempts` |
+| Audio/voice | `POST /assessment-attempts/{id}/plays`; `POST /assessment-attempts/{id}/items/{itemId}/recording-intent`, `/recording-complete`; `GET /assessment-attempts/{id}/items/{itemId}/recording-url`; `DELETE /assessment-attempts/{id}/items/{itemId}/recording` |
+| Minh chứng/code | Cùng item prefix: `POST /evidence-intent`, `/evidence-complete`, `/run-code`; `GET /evidence/{assetId}/url` |
+| Kết quả/chấm | `GET /assessment-attempts/{id}/result`, `/grading`, `/review-audio/{assetKey}`; `GET /assessment-assignments/{id}/submissions`, `/stats`; `PUT /assessment-attempts/{id}/answers/{itemId}/grade`; `POST /assessment-attempts/{id}/finalize`, `/assessment-assignments/{id}/release` |
+| Import/matrix/export | `POST /classes/{classId}/assessment-import/preview` (`filename`, base64 `data`, tối đa 10 MB); `GET /classes/{classId}/assessment-import/template?format=`; `GET /assessments/{id}/export?format=json/xlsx/docx/csv/qti`; `POST /classes/{classId}/assessment-matrix/preview`, `/assessment-matrix` |
+
+Save body `{revision,document}`; autosave `{revision,answers}`. Revision cũ trả 409; snapshot giao bài giữ nội dung/đáp án/rubric/media và seed của attempt giữ biến số/trộn câu khi reload. Student DTO không chứa answerKey/transcript/hidden tests. `recordingTakes` trong attempt là số lượt ghi đã dùng, kể cả bản ghi đã xóa.
+
+ASSESSMENT CREATE/EDIT/GRADE kiểm tra trên từng tài nguyên/lớp; URL không có quyền trả 403 hoặc 404 theo mức che tài nguyên. Download media generic không được mở assessment; upload-complete generic không được xác nhận bài nộp. Chỉ các route attempt kiểm tra đúng owner/item/deadline/quota mới được chấp nhận. Server kiểm tra thời lượng recording bằng ffprobe. Review audio chỉ mở khi kết quả được xem hoặc người chấm có quyền.
+
+Stats có kết quả câu/nhóm/phần, tổng kỹ năng và kỹ năng từng học viên ở lượt mới nhất. `/privacy/me/export` bổ sung `assessmentAttempts`, `assessmentAnswers`, `assessmentUploads`; điểm/nhận xét vẫn ẩn trước công bố, không xuất grading snapshot/object key/signed URL. QTI hỗ trợ cơ bản và cảnh báo dạng không chuyển được; không mặc định đã nối LMS cụ thể. Xem [ASSESSMENT_IMPLEMENTATION.md](ASSESSMENT_IMPLEMENTATION.md).
+
 **Base URL:** `/api/v1`  
 **Authentication:** Header `Authorization: Bearer <token>`  
 **Định dạng phản hồi chuẩn:**

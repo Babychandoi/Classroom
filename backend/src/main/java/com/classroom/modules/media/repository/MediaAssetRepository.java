@@ -20,4 +20,6 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, String> 
     Optional<MediaAsset> findByObjectKey(String objectKey);
     List<MediaAsset> findByClassId(String classId);
     List<MediaAsset> findByStatusAndCreatedAtBefore(String status, Instant cutoff);
+    @Query(value="SELECT (SELECT COUNT(*) FROM assessment_media_refs WHERE media_asset_id=:id)+(SELECT COUNT(*) FROM assessment_attempt_uploads WHERE asset_id=:id)",nativeQuery=true)
+    long countAssessmentReferences(@Param("id") String id);
 }

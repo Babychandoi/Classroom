@@ -46,6 +46,7 @@ describe('ClassroomLayout — focus mode', () => {
   it.each([
     '/classes/demo-class/learn/lessons/l-1',
     '/classes/demo-class/exams/e-1/attempt',
+    '/classes/demo-class/homework/a-1/attempt',
   ])('hides the masthead and tab strip for a member on %s', async (path) => {
     await renderAt(path, member);
     expect(screen.queryByRole('navigation', { name: 'Các khu vực trong lớp học' })).not.toBeInTheDocument();
@@ -55,6 +56,8 @@ describe('ClassroomLayout — focus mode', () => {
   it.each([
     '/classes/demo-class/learn',
     '/classes/demo-class/exams/e-1/result',
+    '/classes/demo-class/homework',
+    '/classes/demo-class/homework/a-1/result',
   ])('keeps the full header on %s', async (path) => {
     await renderAt(path, member);
     expect(screen.getByRole('navigation', { name: 'Các khu vực trong lớp học' })).toBeInTheDocument();

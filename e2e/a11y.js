@@ -24,6 +24,11 @@ const { step, shot, summarize, instrument } = createRunner(path.join(SHOTS_ROOT,
 const report = [];
 
 async function scan(page, label) {
+  // Contrast is measured after finite entrance animations reach their final opacity.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await Promise.all(document.getAnimations().filter(a => a.effect?.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})));
+  });
   await page.evaluate(AXE_SOURCE);
   const violations = await page.evaluate(async () => {
     // eslint-disable-next-line no-undef

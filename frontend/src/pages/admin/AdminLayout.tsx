@@ -61,10 +61,11 @@ export const AdminLayout: React.FC = () => {
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50 md:grid md:grid-cols-[248px_minmax(0,1fr)]">
-      <aside className="flex flex-col border-b border-slate-200 bg-white md:sticky md:top-16 md:h-[calc(100vh-4rem)] md:border-b-0 md:border-r">
-        <div className="px-4 pb-3 pt-4">
-          <div className="flex items-center justify-between gap-3 px-1 md:mb-2">
-            <span className="inline-flex h-5 items-center whitespace-nowrap rounded-full bg-slate-100 px-2 text-micro font-bold tracking-[0.4px] text-slate-600">
+      {/* D-35: the platform-admin sidebar is the prototype's dark ink-900 variant. */}
+      <aside className="flex flex-col bg-slate-900 text-white md:sticky md:top-16 md:h-[calc(100vh-4rem)]">
+        <div className="px-3 pb-3 pt-4">
+          <div className="flex items-center justify-between gap-3 px-1.5 md:mb-2.5">
+            <span className="whitespace-nowrap text-[10.5px] font-bold leading-[14px] tracking-[1.2px] text-slate-300">
               QUẢN TRỊ NỀN TẢNG
             </span>
             <button
@@ -72,18 +73,18 @@ export const AdminLayout: React.FC = () => {
               onClick={() => setMenuOpen((open) => !open)}
               aria-expanded={menuOpen}
               aria-controls={navId}
-              className="inline-flex h-10 min-w-0 items-center gap-2 rounded-btn border border-slate-200 bg-white px-3 text-meta font-semibold text-slate-900 transition-colors duration-micro hover:bg-slate-100 md:hidden"
+              className="inline-flex h-10 min-w-0 items-center gap-2 rounded-btn border border-white/15 bg-white/5 px-3 text-meta font-semibold text-white transition-colors duration-micro hover:bg-white/10 md:hidden"
             >
               {menuOpen ? <X className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} /> : <Menu className="h-4 w-4 flex-shrink-0" strokeWidth={1.75} />}
               <span className="truncate">{`Menu${active ? ` · ${active.label}` : ''}`}</span>
             </button>
           </div>
           {/* Who is acting: a person (round avatar) with the platform role. */}
-          <div className="mt-3 flex items-center gap-2.5 rounded-community border border-slate-200 bg-slate-50 px-3 py-2 md:mt-0">
-            <Avatar name={user?.fullName} src={user?.avatarUrl} size={32} />
+          <div className="mt-3 flex items-center gap-2.5 rounded-community border border-white/10 bg-white/5 px-3 py-2.5 md:mt-0">
+            <Avatar name={user?.fullName} src={user?.avatarUrl} size={34} />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-meta font-semibold text-slate-900">{user?.fullName}</p>
-              <p className="text-micro leading-[15px] text-slate-500">Quản trị nền tảng</p>
+              <p className="truncate text-[13.5px] font-semibold leading-[18px] text-white">{user?.fullName}</p>
+              <p className="truncate text-caption text-slate-300">Quản trị nền tảng</p>
             </div>
           </div>
         </div>
@@ -92,9 +93,9 @@ export const AdminLayout: React.FC = () => {
           <div className="md:flex md:h-full md:flex-col">
             <nav aria-label="Điều hướng quản trị nền tảng" className="px-3 pb-3 md:flex-1 md:overflow-y-auto">
               {NAV_GROUPS.map((group, groupIndex) => (
-                <div key={group.label ?? 'root'} className={groupIndex > 0 ? 'mt-2.5' : ''}>
+                <div key={group.label ?? 'root'} className={groupIndex > 0 ? 'mt-1' : ''}>
                   {group.label && (
-                    <p className="mb-0.5 px-3 text-micro font-semibold uppercase tracking-[0.6px] text-slate-500">{group.label}</p>
+                    <p className="px-2.5 pb-1.5 pt-3.5 text-micro font-semibold uppercase tracking-[0.8px] text-slate-300">{group.label}</p>
                   )}
                   <ul>
                     {group.items.map((item) => {
@@ -104,10 +105,10 @@ export const AdminLayout: React.FC = () => {
                           <NavLink
                             to={item.path}
                             className={({ isActive }) =>
-                              `flex h-10 items-center gap-[11px] rounded-btn px-3 text-ui transition-colors duration-micro md:h-9 ${
+                              `flex h-10 items-center gap-3 rounded-[10px] px-2.5 text-[13.5px] leading-[18px] transition-colors duration-micro md:h-[38px] ${
                                 isActive
-                                  ? 'bg-tint font-semibold text-blue-600'
-                                  : 'font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                                  ? 'bg-white/10 font-semibold text-white'
+                                  : 'font-medium text-slate-300 hover:bg-white/5 hover:text-white'
                               }`
                             }
                           >
@@ -122,12 +123,12 @@ export const AdminLayout: React.FC = () => {
               ))}
             </nav>
 
-            <div className="border-t border-slate-100 px-4 py-3">
+            <div className="border-t border-white/10 px-3 py-2.5">
               <Link
                 to="/classes"
-                className="inline-flex items-center gap-2 text-meta font-medium text-slate-600 transition-colors duration-micro hover:text-slate-900"
+                className="flex min-h-[38px] items-center gap-3 rounded-[10px] px-2.5 text-[13.5px] font-medium text-slate-300 transition-colors duration-micro hover:bg-white/5 hover:text-white"
               >
-                <ArrowLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
                 <span>Về trang lớp học</span>
               </Link>
             </div>

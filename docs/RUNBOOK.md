@@ -1,5 +1,48 @@
 # Sổ tay Vận hành Hệ thống Lớp học Trực tuyến (Operations Runbook)
 
+## Stack thực tế ngày 13/10/2026
+
+PC hiện chạy Classroom bằng project `classroom-demo`, frontend **http://localhost:13000**, backend loopback 8080; cấu hình gốc `D:\classroom-server\infra`. Cổng 3000 thuộc dự án khác. Ví dụ project/cổng mặc định phía dưới dành cho stack riêng, không dùng tái tạo stack hiện tại.
+
+```powershell
+cd D:\ClassRoom
+powershell -NoProfile -ExecutionPolicy Bypass -File infra/scripts/deploy-current-stack.ps1
+```
+
+Script backup đúng project, giữ environment/mật khẩu đang chạy, build source hiện tại, thay backend/frontend/broker assessment và chờ healthy; giữ image/overlay rollback trong `.artifacts/deploy-*/`. Database/volume không tái tạo. `-SkipBackup` chỉ dùng khi đã có backup mới VerifyOnly; `-SkipBuild` dùng bật lại image hiện tại. `start-server.ps1` đã chặn gọi sai project khi demo đang chạy. `recreate-stacks.ps1` đã bị xóa trong source của người dùng.
+
+V50–V54 đã áp dụng; không sửa checksum cũ. Worker Python/JavaScript và broker nằm trong `compose.assessment.yaml`. Secret broker/overlay/backup không commit hoặc gửi nội dung. `.env` cũ ở gốc đã chuyển vào `.artifacts/legacy-root-env-20261013.env`.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File infra/scripts/backup.ps1 -ProjectName classroom-demo
+powershell -NoProfile -ExecutionPolicy Bypass -File infra/scripts/restore.ps1 -BackupDir infra/backups/<timestamp> -VerifyOnly
+```
+
+Dọn fixture có preview mặc định, chỉ project được chọn và tài khoản tên/email QA nhận diện rõ; demo bắt buộc giới hạn UTC:
+
+```powershell
+python infra/scripts/disable-test-accounts.py --project-name classroom-demo --since '2026-10-12 17:00:00'
+# Sau khi đối chiếu preview với đợt test của mình:
+python infra/scripts/disable-test-accounts.py --project-name classroom-demo --since '2026-10-12 17:00:00' --apply
+```
+
+Vô hiệu đăng nhập/refresh, lưu trữ lớp do fixture sở hữu, giữ bài làm/điểm/chứng từ và audit. Không đóng tài khoản seed/admin. Giới hạn thời gian ví dụ chỉ dành cho đợt nghiệm thu này; chọn lại cho đợt sau.
+
+Backup online gồm MySQL/MongoDB/MinIO. Neo4j offline dump cần `-IncludeNeo4jDump` và dừng riêng Neo4j trong khoảng bảo trì; ba kho không được báo là bốn. Không dùng `down -v` để dọn fixture của server giữ dữ liệu. Báo cáo tính năng: [ASSESSMENT_IMPLEMENTATION.md](ASSESSMENT_IMPLEMENTATION.md).
+
+### Xoay credential đúng stack hiện tại
+
+Ngày 13/10, quét trước publish phát hiện credential datastore live trùng mẫu công khai, dù dài 16+. Đã xoay năm secret MySQL/MongoDB/Neo4j/MinIO sang giá trị ngẫu nhiên 64 ký tự; JWT/webhook giữ nguyên. Script mới kiểm tra đúng project, lưu recovery có ACL riêng, giữ image/volume/port, kiểm tra auth mới và từ chối credential cũ; có rollback khi lỗi. Đã thử QA và chạy thật; script `rotate-secrets.ps1` cũ chặn topology khác trước mọi thay đổi.
+
+```powershell
+# Backup đủ bốn kho và xác minh trước khi apply; Neo4j dừng ngắn khi dump.
+powershell -NoProfile -ExecutionPolicy Bypass -File infra/scripts/backup.ps1 -ProjectName classroom-demo -IncludeNeo4jDump
+# Preview mặc định. Thêm --apply sau khi kiểm tra đúng project/backup.
+python infra/scripts/rotate-current-stack-secrets.py --project-name classroom-demo --env-file D:/classroom-server/infra/.env --sync-env-file infra/.env --compose-file infra/compose.yaml --compose-file infra/compose.assessment.yaml --backup-dir infra/backups/<timestamp>
+```
+
+Rotation khởi động lại datastore/backend, không xóa volume. Cấu hình recovery chứa secret, chỉ đọc tại máy; không gửi hoặc đưa lên GitHub. Credential đã xoay thì overlay deploy/rollback cũ trước rotation không còn dùng được. Sau rotation đã tạo lại manifest app/rollback bằng `deploy-current-stack.ps1 -SkipBuild -SkipBackup`: `.artifacts/deploy-20261013-121220/manifest.json`, cùng nội dung image đã kiểm thử. Backup bốn kho trước rotation `20261013-115607` và backup online sau `20261013-121231`; VerifyOnly xác minh riêng từng manifest.
+
 ## 1. Khởi động và Dừng dịch vụ
 
 ### 1.1 Khởi động toàn bộ cụm dịch vụ
@@ -185,7 +228,7 @@ docker compose -p classroom-drill -f infra/compose.yaml -f infra/compose.demo.ya
 Mọi thay đổi nghiệp vụ ghi một dòng vào `outbox_events` (MySQL) **trong cùng giao dịch**; `OutboxWorker` chiếu chúng sang MongoDB (`learning_events`, mọi sự kiện) và Neo4j (đồ thị thành viên lớp: `MEMBER_JOINED`, `MEMBER_REMOVED`). MySQL là nguồn sự thật; hai kho kia là kho chiếu **được phép trễ** — chúng ngừng thì tính năng cốt lõi vẫn chạy đúng hạn (thi, xếp hạng, media, token).
 
 **Thiết kế**
-- **Không chặn tác vụ nền cốt lõi (R20-04a).** Trước đây *mọi* `@Scheduled` (chốt lượt thi quá hạn, sweeper xếp hạng, dọn media, dọn token, outbox) dùng **một** luồng scheduler; khi MongoDB ngừng, mỗi sự kiện outbox chặn luồng đó ~30 s (timeout chọn máy chủ mặc định của driver) nên lượt thi quá hạn và việc tính lại xếp hạng không được xử lý suốt đợt ngừng. Nay: pool scheduler dùng chung `SCHEDULER_POOL_SIZE` (mặc định 10, luồng `classroom-sched-N`; một unit test bảo đảm pool ≥ số tác vụ `@Scheduled`), còn **mọi I/O chặn tới MongoDB/Neo4j nằm trên executor riêng có giới hạn** `outbox-worker-N` (`OUTBOX_WORKERS`, mặc định 4). Tác vụ `@Scheduled` của outbox chỉ tra MySQL (một lần tra chỉ mục khi rảnh) rồi giao việc; nó không bao giờ gọi MongoDB/Neo4j. Timeout máy khách ngắn: MongoDB chọn máy chủ 3 s / kết nối 2 s / đọc 10 s (`MONGO_SERVER_SELECTION_TIMEOUT_MS`, `MONGO_CONNECT_TIMEOUT_MS`, `MONGO_SOCKET_TIMEOUT_MS`; mặc định driver 30 s/10 s/không giới hạn); Neo4j kết nối 2 s, lấy kết nối từ pool 3 s, thử lại giao dịch 3 s, kiểm tra kết nối nhàn rỗi sau 5 s (`NEO4J_CONNECT_TIMEOUT`, `NEO4J_ACQUIRE_TIMEOUT`, `NEO4J_MAX_TX_RETRY_TIME`, `NEO4J_IDLE_TEST`; mặc định driver 30 s/60 s/30 s).
+- **Không chặn tác vụ nền cốt lõi (R20-04a).** Trước đây *mọi* `@Scheduled` (chốt lượt thi quá hạn, sweeper xếp hạng, dọn media, dọn token, outbox) dùng **một** luồng scheduler; khi MongoDB ngừng, mỗi sự kiện outbox chặn luồng đó ~30 s (timeout chọn máy chủ mặc định của driver) nên lượt thi quá hạn và việc tính lại xếp hạng không được xử lý suốt đợt ngừng. Nay: pool scheduler dùng chung `SCHEDULER_POOL_SIZE` (mặc định 12, luồng `classroom-sched-N`; một unit test bảo đảm pool ≥ số tác vụ `@Scheduled`), còn **mọi I/O chặn tới MongoDB/Neo4j nằm trên executor riêng có giới hạn** `outbox-worker-N` (`OUTBOX_WORKERS`, mặc định 4). Tác vụ `@Scheduled` của outbox chỉ tra MySQL (một lần tra chỉ mục khi rảnh) rồi giao việc; nó không bao giờ gọi MongoDB/Neo4j. Timeout máy khách ngắn: MongoDB chọn máy chủ 3 s / kết nối 2 s / đọc 10 s (`MONGO_SERVER_SELECTION_TIMEOUT_MS`, `MONGO_CONNECT_TIMEOUT_MS`, `MONGO_SOCKET_TIMEOUT_MS`; mặc định driver 30 s/10 s/không giới hạn); Neo4j kết nối 2 s, lấy kết nối từ pool 3 s, thử lại giao dịch 3 s, kiểm tra kết nối nhàn rỗi sau 5 s (`NEO4J_CONNECT_TIMEOUT`, `NEO4J_ACQUIRE_TIMEOUT`, `NEO4J_MAX_TX_RETRY_TIME`, `NEO4J_IDLE_TEST`; mặc định driver 30 s/60 s/30 s).
 - **Thứ tự theo aggregate được giữ nguyên.** Sự kiện của một aggregate (`aggregate_type` + `aggregate_id`, ví dụ mọi thành viên của một lớp) vẫn được chiếu tuần tự đúng `sequence_no` và chỉ khi mọi sự kiện sớm hơn đã `PROCESSED` (cổng thứ tự kiểm tra lại **trước mỗi sự kiện**). Mỗi aggregate tối đa **một** tác vụ tại một thời điểm trong JVM (single-flight); giữa nhiều bản backend, thao tác nhận việc `PENDING → PROCESSING` là nguyên tử.
 - **Thông lượng (R20-05).** Một lượt xử lý lấy *đầu* aggregate cùng tối đa 50 sự kiện `PENDING` liên tiếp phía sau (`OUTBOX_MAX_EVENTS_PER_AGGREGATE`), chiếu lần lượt và **dừng ở sự kiện đầu tiên không hoàn tất**. Trước đây mỗi aggregate chỉ được **một** sự kiện mỗi chu kỳ 2 s: 200 người vào một lớp trễ ~400 s, 2000 người ~67 phút. Chu kỳ thăm dò `OUTBOX_POLL_MS` mặc định 500 ms.
 - **Chỉ mục (V36).** `(status, sequence_no)`, `(status, processed_at)`, `(aggregate_type, aggregate_id, status, sequence_no)` khớp đúng các truy vấn của worker (dựng ONLINE: `ALGORITHM=INPLACE, LOCK=NONE`). Trước đó mỗi lần thăm dò rảnh quét toàn bảng: với 300 000 hàng `PROCESSED` tốn ~1009 ms MySQL (590 ms `SELECT` + hai `UPDATE` ~160 ms), nay 0,3 ms.
@@ -216,7 +259,7 @@ INFO  Outbox: Neo4j is reachable again after 127 s (7 failed probe(s)); resuming
 
 | Biến | Ý nghĩa |
 | --- | --- |
-| `SCHEDULER_POOL_SIZE` (10) | số luồng của scheduler dùng chung |
+| `SCHEDULER_POOL_SIZE` (12) | số luồng của scheduler dùng chung |
 | `OUTBOX_POLL_MS` (500) · `OUTBOX_WORKERS` (4) · `OUTBOX_MAX_EVENTS_PER_AGGREGATE` (50) | chu kỳ thăm dò · luồng chiếu · số sự kiện liên tiếp của một aggregate trong một lượt |
 | `OUTBOX_BREAKER_MAX_MS` (15000) | trần khoảng cách giữa hai lần thăm dò kho đang ngừng |
 | `OUTBOX_RETENTION_DAYS` (7) · `OUTBOX_RETENTION_ENABLED` (true) | thời gian giữ hàng `PROCESSED` |

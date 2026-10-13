@@ -1,5 +1,15 @@
 # Kiểm toán trợ năng — Round 23, cập nhật 02/10/2026
 
+## Bổ sung Question Builder — 13/10/2026
+
+Chrome hệ thống, desktop 1440px/mobile 390px: builder desktop, preview đủ Q01–Q28, builder mobile, import preview, báo cáo giáo viên, danh sách bài tập, kết quả học viên và trang audio/Speaking. `.artifacts/assessment-browser/axe-report.json`: **8 trạng thái, 0 violation** ở các rule WCAG 2/2.1 A+AA/2.2 AA được chạy. Đã sửa màu mã Qxx, role của nhóm nhãn kéo thả và tên ô chọn phân loại khi nhãn draft còn trống.
+
+Luồng Chrome thật xác nhận không tràn ngang, microphone ghi/upload/nghe lại và reload. Tình huống permission denied được mô phỏng bằng NotAllowedError để kiểm tra hướng dẫn/file fallback. Radio/tab và thao tác thay kéo thả có bàn phím; code canvas vẫn cần phương thức bài nộp ảnh thay thế theo cấu hình giáo viên.
+
+Ảnh nằm trong `.artifacts/assessment-browser/`; chưa kiểm tra iPhone/iPad/Android vật lý, VoiceOver/NVDA hoặc mọi bài do giáo viên tự tạo. Các kết quả Round 23 phía dưới giữ mốc 02/10, không được cộng thành số trang đã quét lại ở lượt này.
+
+Nền tảng hiện tại trên server 13000 được quét lại riêng: `e2e/shots/a11y-mv5wa71k/axe-report.json`, **35 trạng thái, 0 violation**; log `.artifacts/assessment-live-e2e-rechecks.log` có 35/35 bước, gồm đăng nhập. Số trạng thái khác số bước vì trang tạo lớp có thêm preview điện thoại. Quét đợi font và animation hữu hạn hoàn tất để đo giao diện đã hiển thị; không vô hiệu animation hay bỏ rule tương phản. Mobile navigation đạt 8/8; focus/dialog/wizard/guest đạt 32/32. Trên stack QA riêng cùng image, private/paid/invite/settings/refund tiếp tục qua kiểm tra bàn phím và axe serious/critical trong `private-paid-e2e.log` (30/30 bước cả script).
+
 Phạm vi kỹ thuật: web desktop/mobile, WCAG 2.0/2.1 A+AA và WCAG 2.2 AA qua axe-core trong Chrome thật. Đây là bằng chứng kiểm tra ứng dụng, không phải chứng nhận toàn bộ WCAG hoặc kiểm tra độ chính xác của mọi nội dung giáo viên tải lên.
 
 ## Kết quả chạy

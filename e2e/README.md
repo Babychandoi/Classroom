@@ -58,6 +58,7 @@ Biến môi trường:
 | `E2E_CHANNEL` | `chrome` | `chrome`, `msedge`, hoặc `chromium` (bản tải bằng `playwright install`) |
 | `HEADED` | (không đặt) | `HEADED=1` để hiện cửa sổ trình duyệt |
 | `E2E_MINIO_PORT` | `9000` | Cổng MinIO công khai (dùng để nhận diện upload/presigned URL và host hợp lệ) |
+| `E2E_MEDIA_ORIGIN` | (không đặt) | Origin media cụ thể của server trên PC nếu signed URL qua hostname HTTPS. Chỉ cho phép đúng origin được cấu hình; không thay host của signed URL |
 | `E2E_DEMO` | (không đặt) | `1` = `e2e5.js` coi việc stack thiếu lớp phủ demo là lỗi (mã thoát 2) thay vì bỏ qua |
 | `E2E_ALLOW_REMOTE` | (không đặt) | `1` để cho phép `BASE_URL` không phải máy cục bộ — xem cảnh báo trên |
 | `E2E_RUN`, `E2E_CLASS_SLUG`, `E2E_CLASS_ID` | lấy từ `shots/last-run.json` | Chạy các script phụ trên dữ liệu của một lần chạy `e2e.js` cụ thể |
@@ -92,3 +93,46 @@ e2e/
 ├── fixtures/         # tiny.mp4 (video 2 giây), tiny.pdf (PDF 1 trang), cover.png (ảnh bìa 480x180) dùng để upload
 └── shots/            # ảnh chụp + report.json + last-run.json (git-ignored, tự tạo)
 ```
+
+
+## Question Builder P0–P3 (13/10/2026)
+
+Chạy từ thư mục gốc repo trên stack đã healthy, trong đợt kiểm thử được phép tạo fixture. API tạo ba tài khoản/lớp riêng và lưu `.artifacts/assessment-qa-state.json` chứa mật khẩu ngẫu nhiên; không commit hay chia sẻ file này. Media/browser đọc cùng fixture nên chạy theo thứ tự:
+
+```powershell
+cd D:\ClassRoom
+node e2e/assessment-api.mjs
+$env:E2E_MEDIA_ORIGIN='https://media.poiplegal.online' # origin media thực tế của server này
+node e2e/assessment-media.mjs
+node e2e/assessment-browser.cjs
+```
+
+API/media mặc định backend loopback 8080; browser mặc định frontend 13000. Nếu ghi đè BASE_URL, các script chỉ cho localhost/127.0.0.1. Chạy lại media trước browser vì browser cần lượt làm thứ hai còn trống. Browser dùng microphone giả của Chrome để ghi/upload thật, và mô phỏng NotAllowedError để kiểm tra fallback; không chứng minh microphone trên thiết bị iOS/Android vật lý. Ảnh/axe nằm trong `.artifacts/assessment-browser`.
+
+Bộ nền tảng hiện tại trên PC:
+
+```powershell
+$env:BASE_URL='http://localhost:13000'
+$env:E2E_MEDIA_ORIGIN='https://media.poiplegal.online'
+$env:E2E_DEMO='0' # server giữ dữ liệu hiện tắt demo seed và thanh toán giả lập
+$env:A11Y_STRICT='1'
+$env:A11Y_ALL='1'
+node e2e/all.js
+```
+
+Project đang phục vụ cổng 13000 tên `classroom-demo`, nhưng demo seed và thanh toán giả lập đều tắt. Bộ trên chạy 9 script; `e2e5.js` bỏ qua đúng cấu hình. Tên project không có nghĩa đây là dữ liệu dùng một lần. Không dùng `down -v` để dọn fixture trên server giữ dữ liệu: vô hiệu hóa đúng tài khoản/lưu trữ đúng lớp fixture và giữ lịch sử học/chấm.
+
+Để kiểm thử lớp riêng tư/trả phí đầy đủ, dùng project QA riêng với volume riêng, cùng image ứng dụng đã triển khai và overlay demo bật seed/sandbox. Lượt 13/10 dùng `classroom-assessment-qa`, frontend loopback 23000, MinIO 29000. Khi stack QA đã healthy, chạy từ `e2e/`:
+
+```powershell
+$env:BASE_URL='http://localhost:23000'
+$env:E2E_MINIO_PORT='29000'
+Remove-Item Env:E2E_MEDIA_ORIGIN -ErrorAction SilentlyContinue
+$env:E2E_DEMO='1'
+$env:A11Y_STRICT='1'
+$env:A11Y_ALL='1'
+node e2e5.js
+node round23.js
+```
+
+QA này chỉ dành cho kiểm thử local; không bật thanh toán giả lập trên server giữ dữ liệu để chạy test. Sau nghiệm thu, chỉ volume của project QA dùng một lần được dọn; artifact kết quả được giữ ngoài Git.

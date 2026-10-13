@@ -52,6 +52,30 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class MediaService {
     private static final Logger log = LoggerFactory.getLogger(MediaService.class);
+    private final java.util.concurrent.Semaphore assessmentProbes=new java.util.concurrent.Semaphore(2);
+
+    /** Inspect actual private voice bytes outside the attempt transaction. Never pass a user URL to ffprobe. */
+    public long probeAssessmentRecording(String assetId) {
+        MediaAsset asset=getAsset(assetId);
+        if(!"ASSESSMENT_RESPONSE".equals(asset.getUploadPurpose()) || !"UPLOADED".equals(asset.getStatus()) || !asset.getMimeType().startsWith("audio/"))
+            throw new AppException(ErrorCode.BAD_REQUEST,"Tệp ghi âm không hợp lệ");
+        if(!assessmentProbes.tryAcquire())throw new AppException(ErrorCode.CONFLICT,"Máy chủ đang kiểm tra bản ghi khác, hãy thử lại");
+        java.nio.file.Path dir=null;Process process=null;
+        try{
+            dir=java.nio.file.Files.createTempDirectory("assessment-voice-");var input=dir.resolve("voice.bin");var output=dir.resolve("probe.txt");
+            try(InputStream stream=minioClient.getObject(GetObjectArgs.builder().bucket(minioProperties.getBucket()).object(asset.getObjectKey()).build());var file=java.nio.file.Files.newOutputStream(input)){
+                byte[] buffer=new byte[8192];long total=0;int n;while((n=stream.read(buffer))!=-1){total+=n;if(total>100L*1024*1024)throw new AppException(ErrorCode.BAD_REQUEST,"Bản ghi quá lớn");file.write(buffer,0,n);}}
+            process=new ProcessBuilder("ffprobe","-v","error","-max_alloc","33554432","-threads","1","-protocol_whitelist","file","-format_whitelist","mov,mp3,wav,ogg,matroska,webm","-select_streams","a:0","-read_intervals","%+3602","-show_entries","packet=pts_time,duration_time","-of","csv=p=0",input.toString())
+                .redirectOutput(output.toFile()).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            if(!process.waitFor(10,TimeUnit.SECONDS) || process.exitValue()!=0 || java.nio.file.Files.size(output)>5*1024*1024)
+                throw new AppException(ErrorCode.BAD_REQUEST,"Không đọc được bản ghi âm trong giới hạn xử lý");
+            double first=Double.POSITIVE_INFINITY,last=0;
+            for(String line:java.nio.file.Files.readAllLines(output,StandardCharsets.UTF_8)){String[] parts=line.split(",");if(parts.length<2)continue;try{double start=Double.parseDouble(parts[0]),duration=Double.parseDouble(parts[1]);if(Double.isFinite(start+duration) && duration>=0){first=Math.min(first,start);last=Math.max(last,start+duration);}}catch(NumberFormatException ignored){}}
+            long milliseconds=Math.round((last-first)*1000);if(milliseconds<1 || milliseconds>3602000)throw new AppException(ErrorCode.BAD_REQUEST,"Tệp không có âm thanh hợp lệ");return milliseconds;
+        }catch(AppException e){throw e;}catch(InterruptedException e){Thread.currentThread().interrupt();throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR,"Kiểm tra bản ghi bị gián đoạn");}
+        catch(Exception e){throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR,"Không thể kiểm tra thời lượng bản ghi");}
+        finally{if(process!=null && process.isAlive())process.destroyForcibly();if(dir!=null)try(var files=java.nio.file.Files.list(dir)){for(var file:files.toList())java.nio.file.Files.deleteIfExists(file);java.nio.file.Files.deleteIfExists(dir);}catch(Exception ignored){}assessmentProbes.release();}
+    }
 
     private final MinioClient minioClient;
     private final MinioClient presigningClient;
@@ -73,6 +97,7 @@ public class MediaService {
     public static final long MAX_ALLOWED_FILE_SIZE_BYTES = 500L * 1024 * 1024; // 500 MB
 
     public static final java.util.Set<String> ALLOWED_MIME_TYPES = java.util.Set.of(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "application/pdf",
             "image/jpeg",
             "image/png",
@@ -83,6 +108,13 @@ public class MediaService {
             "video/quicktime",
             "audio/mpeg",
             "audio/wav",
+            "audio/ogg",
+            "audio/webm",
+            "audio/mp4",
+            "audio/x-m4a",
+            "audio/m4a",
+            "audio/x-wav",
+            "audio/wave",
             "text/plain",
             "application/zip",
             "application/x-zip-compressed",
@@ -147,6 +179,9 @@ public class MediaService {
         asset.setUploadPurpose(request.getPurpose() == null ? "MEDIA" : request.getPurpose().trim().toUpperCase(java.util.Locale.ROOT));
         asset.setScopeCourseId(request.getScopeCourseId() == null || request.getScopeCourseId().isBlank() ? null : request.getScopeCourseId().trim());
         MediaAsset saved = mediaAssetRepository.save(asset);
+        // Assessment binds the asset with JDBC in this transaction. Flush the JPA insert
+        // before that foreign-key write; UUID ids do not force an immediate INSERT.
+        if ("ASSESSMENT_RESPONSE".equals(saved.getUploadPurpose())) mediaAssetRepository.flush();
 
         try {
             String presignedUrl = presigningClient.getPresignedObjectUrl(
@@ -285,14 +320,14 @@ public class MediaService {
         // MinIO reads. Re-validating here previously meant a transient MinIO read error on an
         // already-completed asset could delete the live final object out from under users who can
         // already download it.
-        if ("UPLOADED".equalsIgnoreCase(asset.getStatus())) {
-            return new Claim(asset, null, true, false);
-        }
-
         // Recheck the original author's current grant, not just their identity at intent creation.
         String purpose = asset.getUploadPurpose() == null ? "MEDIA" : asset.getUploadPurpose();
         String scope = asset.getScopeCourseId();
+        if (purpose.startsWith("ASSESSMENT")) accessPolicy.enforceNotSuspended(asset.getClassId());
         boolean authorized = switch (purpose) {
+            case "ASSESSMENT" -> accessPolicy.canManage(userId, asset.getClassId(), "ASSESSMENT", "CREATE", null)
+                    || accessPolicy.canManage(userId, asset.getClassId(), "ASSESSMENT", "EDIT", null);
+            case "ASSESSMENT_RESPONSE" -> accessPolicy.isMember(userId, asset.getClassId());
             case "ABOUT" -> accessPolicy.canManage(userId, asset.getClassId(), "ABOUT", "EDIT", null);
             case "CLASS_COVER", "CLASS_AVATAR" -> accessPolicy.canManage(userId, asset.getClassId(), "CLASS", "EDIT", null);
             case "BLOG" -> accessPolicy.canManage(userId, asset.getClassId(), "BLOG", "CREATE", null)
@@ -315,6 +350,8 @@ public class MediaService {
         if (!asset.getUploaderId().equals(userId) || !authorized) {
             throw new AppException(ErrorCode.FORBIDDEN, "Bạn không có quyền xác nhận tải lên tệp này");
         }
+
+        if ("UPLOADED".equalsIgnoreCase(asset.getStatus())) return new Claim(asset, null, true, false);
 
         Instant now = Instant.now();
         if ("UPLOADING".equalsIgnoreCase(asset.getStatus()) && asset.getCompletionClaimedAt() != null
@@ -538,6 +575,10 @@ public class MediaService {
 
         accessPolicy.enforceMember(userId, asset.getClassId());
 
+        if ("ASSESSMENT".equals(asset.getUploadPurpose()) || "ASSESSMENT_RESPONSE".equals(asset.getUploadPurpose())) {
+            throw new AppException(ErrorCode.FORBIDDEN, "Tệp bài tập chỉ được mở qua bài tập hoặc màn hình chấm bài");
+        }
+
         boolean isOwner = accessPolicy.isOwner(userId, asset.getClassId());
 
         // Check if referenced by DocumentAsset
@@ -654,6 +695,17 @@ public class MediaService {
     @Deprecated
     public DownloadUrlResponse generateDownloadUrl(String assetId) {
         throw new UnsupportedOperationException("Unauthenticated media download is prohibited. Use generateAuthorizedDownloadUrl instead.");
+    }
+
+    /** Internal assessment delivery: callers authorize the document/attempt and enforce playback limits before signing. */
+    @Transactional(readOnly = true)
+    public DownloadUrlResponse signAssessmentAsset(String assetId, String classId, String purpose) {
+        if (!java.util.Set.of("ASSESSMENT", "ASSESSMENT_RESPONSE").contains(purpose))
+            throw new AppException(ErrorCode.FORBIDDEN, "Loại tệp bài tập không hợp lệ");
+        MediaAsset asset = mediaAssetRepository.findById(assetId)
+                .filter(a -> classId.equals(a.getClassId()) && purpose.equals(a.getUploadPurpose()))
+                .orElseThrow(() -> new AppException(ErrorCode.NOT_FOUND, "Không tìm thấy tệp của bài tập"));
+        return signPresignedDownloadUrl(asset);
     }
 
     /** R8-01: presigned GET URLs are short-lived, so a capability leaked in logs/history is only ever usable briefly. */
@@ -862,6 +914,7 @@ public class MediaService {
         boolean abandonedClaim = "UPLOADING".equals(stale.getStatus())
                 && (stale.getCompletionClaimedAt() == null || stale.getCompletionClaimedAt().isBefore(cutoff));
         if (!abandonedPending && !abandonedClaim) return;
+        if (java.util.Set.of("ASSESSMENT","ASSESSMENT_RESPONSE").contains(stale.getUploadPurpose()) && mediaAssetRepository.countAssessmentReferences(assetId)>0) return;
         try {
             minioClient.removeObject(RemoveObjectArgs.builder()
                     .bucket(minioProperties.getBucket()).object(stale.getUploadObjectKey()).build());
@@ -930,24 +983,33 @@ public class MediaService {
             case "application/x-zip-compressed":
             case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
             case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+            case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
                 return header.length >= 4 && header[0] == 0x50 && header[1] == 0x4B
                         && (header[2] == 0x03 || header[2] == 0x05 || header[2] == 0x07);
             case "video/mp4":
             case "video/quicktime":
+            case "audio/mp4":
+            case "audio/x-m4a":
+            case "audio/m4a":
                 if (header.length >= 8) {
                     return header[4] == 0x66 && header[5] == 0x74 && header[6] == 0x79 && header[7] == 0x70;
                 }
                 return true;
             case "video/webm":
+            case "audio/webm":
                 return header.length >= 4 && (header[0] & 0xFF) == 0x1A && (header[1] & 0xFF) == 0x45 && (header[2] & 0xFF) == 0xDF && (header[3] & 0xFF) == 0xA3;
             case "audio/mpeg":
                 if (header.length >= 3 && header[0] == 0x49 && header[1] == 0x44 && header[2] == 0x33) return true;
                 return header.length >= 2 && (header[0] & 0xFF) == 0xFF && ((header[1] & 0xE0) == 0xE0);
             case "audio/wav":
+            case "audio/x-wav":
+            case "audio/wave":
                 if (header.length >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46) {
                     return header[8] == 0x57 && header[9] == 0x41 && header[10] == 0x56 && header[11] == 0x45;
                 }
                 return false;
+            case "audio/ogg":
+                return header.length >= 4 && header[0] == 'O' && header[1] == 'g' && header[2] == 'g' && header[3] == 'S';
             case "text/plain":
                 return true;
             default:

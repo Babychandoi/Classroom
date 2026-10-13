@@ -1,0 +1,536 @@
+ĐẶC TẢ ĐỀ XUẤT — HỆ THỐNG QUESTION BUILDER CHO GIÁO VIÊN LỚP 1–12
+Phiên bản: 1.0 | Ngày: 10/10/2026 | Mã hóa: UTF-8
+
+MỤC TIÊU
+Xây dựng công cụ để giáo viên tạo ngân hàng câu hỏi, bài tập, phiếu học tập,
+đề kiểm tra, đề ôn tập và nhiệm vụ thực hành cho các môn học từ lớp 1 đến lớp 12.
+Một đề có thể chứa câu hỏi độc lập, phần/nhóm câu hỏi và câu hỏi con. Một câu hỏi
+có thể dùng văn bản, hình ảnh, công thức, bảng, sơ đồ, bản đồ, audio/voice,
+video và tệp đính kèm.
+
+LƯU Ý BẮT BUỘC CỦA SẢN PHẨM
+[1] TIẾNG ANH VÀ NGOẠI NGỮ CÓ AUDIO/VOICE:
+    - Đề nghe có audio phát cho học sinh nghe và các câu hỏi liên quan.
+    - Giáo viên có thể tải audio, ghi âm, hoặc tạo giọng đọc từ văn bản (TTS,
+      nếu hệ thống tích hợp dịch vụ và có quyền sử dụng).
+    - Học sinh có thể ghi âm câu trả lời Speaking và nộp để giáo viên đánh giá.
+    - Một audio có thể áp dụng CHUNG CHO NHIỀU CÂU HỎI CON, hoặc gắn riêng
+      cho từng câu hỏi, đáp án/đoạn hội thoại nếu cần.
+[2] CÂU HỎI CHA / ĐỀ BÀI CHUNG + NHIỀU CÂU HỎI CON:
+    - Ví dụ: một đoạn văn đọc hiểu + 5 câu hỏi; một đoạn nghe + 8 câu hỏi;
+      một biểu đồ, hình thí nghiệm, tình huống, bảng số liệu + nhiều câu con.
+    - Các câu con có thể KHÁC LOẠI NHAU (trắc nghiệm, điền từ, đúng/sai,
+      tự luận, ghi âm...), có đáp án và điểm riêng, dùng chung ngữ liệu cha.
+    - Có thể phân cấp Đề > Phần > Nhóm (câu dẫn chung) > Câu hỏi con.
+      Tránh giới hạn hệ thống ở dạng danh sách câu hỏi phẳng.
+[3] ĐÁNH GIÁ ĐA DẠNG: điểm số, Đạt/Chưa đạt, rubric, nhận xét giáo viên;
+    không bắt mọi nhiệm vụ thực hành phải có đáp án chấm tự động.
+
+======================================================================
+I. PHẠM VI MÔN HỌC / NỘI DUNG GIÁO DỤC
+======================================================================
+
+Tổng hợp 25 tên môn hoặc biến thể tên môn theo cấp học, KHÔNG phải khẳng định
+Bộ GD&ĐT công bố tổng cộng đúng 25 môn độc lập trên toàn hệ thống:
+
+01. Tiếng Việt
+02. Ngữ văn
+03. Ngoại ngữ 1 (ví dụ: Tiếng Anh)
+04. Ngoại ngữ 2
+05. Tiếng dân tộc thiểu số
+06. Toán
+07. Đạo đức
+08. Giáo dục công dân
+09. Giáo dục kinh tế và pháp luật
+10. Tự nhiên và Xã hội
+11. Khoa học
+12. Khoa học tự nhiên
+13. Vật lí
+14. Hóa học
+15. Sinh học
+16. Lịch sử và Địa lí
+17. Lịch sử
+18. Địa lí
+19. Tin học và Công nghệ
+20. Tin học
+21. Công nghệ
+22. Âm nhạc
+23. Mĩ thuật
+24. Giáo dục thể chất
+25. Giáo dục quốc phòng và an ninh
+
+Cần thêm danh mục nội dung/hoạt động có thể giao bài: Hoạt động trải nghiệm;
+Hoạt động trải nghiệm, hướng nghiệp; Nội dung giáo dục địa phương; các cụm
+chuyên đề học tập THPT.
+
+Quy tắc quản trị danh mục:
+- Không hard-code 25 mục cho mọi khối; dùng quan hệ cấp học > lớp > môn
+  được phép mở > chương trình/phiên bản > chủ đề > bài > yêu cầu cần đạt.
+- Hỗ trợ môn tích hợp (Nghệ thuật; Khoa học tự nhiên; Lịch sử và Địa lí;
+  Tin học và Công nghệ) và phân môn/thành phần tương ứng.
+- Ngoại ngữ 1, Ngoại ngữ 2 phải có languageCode (en, fr, ja, zh...) và
+  các tùy chọn giọng đọc phù hợp ngôn ngữ.
+- Số môn trong thời khóa biểu thực tế, môn tự chọn và tổ hợp THPT tùy trường;
+  việc tạo bài phải dựa vào lớp và cấu hình môn của lớp đó.
+
+======================================================================
+II. DANH MỤC 28 KIỂU CÂU HỎI / NHIỆM VỤ
+======================================================================
+
+A. CƠ BẢN
+Q01 SINGLE_CHOICE         Chọn đúng 1 đáp án (A/B/C/D hoặc số lựa chọn khác).
+Q02 MULTIPLE_CHOICE       Chọn nhiều đáp án đúng; chấm một phần tùy cấu hình.
+Q03 TRUE_FALSE            Chọn Đúng hoặc Sai cho một nhận định.
+Q04 TRUE_FALSE_MATRIX     Nhiều mệnh đề a/b/c/d, mỗi mệnh đề Đ/S độc lập.
+Q05 MATCHING              Ghép cặp hai cột (từ-nghĩa, sự kiện-mốc thời gian).
+Q06 ORDERING              Sắp xếp thứ tự bước giải, sự kiện, đoạn văn.
+Q07 FILL_BLANK            Điền một/nhiều chỗ trống bằng bàn phím.
+Q08 DRAG_WORDS_TO_BLANKS  Kéo từ trong ngân hàng vào chỗ trống.
+Q09 INLINE_DROPDOWN       Chọn từ/đáp án ngay trong một đoạn văn.
+Q10 SHORT_TEXT            Nhập từ, cụm từ hoặc câu trả lời ngắn.
+Q11 NUMERIC               Nhập số, đơn vị, sai số, khoảng giá trị hợp lệ.
+Q12 ESSAY                 Viết đoạn, bài giải, bài phân tích hoặc nghị luận.
+
+B. TƯƠNG TÁC NÂNG CAO
+Q13 COMPREHENSION_GROUP   NHÓM câu hỏi dùng chung đoạn đọc/tư liệu/audio;
+                          là loại CONTAINER, không phải đáp án đơn lẻ.
+Q14 IMAGE_HOTSPOT         Bấm/chọn vị trí, vùng trên ảnh, sơ đồ, bản đồ.
+Q15 IMAGE_LABEL_DRAG      Kéo nhãn vào bộ phận, vị trí trên hình.
+Q16 CATEGORIZATION        Phân loại thẻ/đối tượng vào nhóm.
+Q17 TABLE_COMPLETION      Điền dữ liệu vào bảng hoặc các ô còn trống.
+Q18 GRAPH_CHART           Đọc, hoàn thiện hoặc vẽ đồ thị/biểu đồ.
+Q19 MATH_EXPRESSION       Nhập công thức, biểu thức hoặc phương trình.
+Q20 MULTI_STEP_SOLUTION   Bài toán nhiều bước; mỗi bước có thể có điểm.
+
+C. AUDIO / THỰC HÀNH / ĐA PHƯƠNG TIỆN
+Q21 LISTENING_TASK        Cung cấp audio làm ngữ liệu cho 1 hoặc N câu con.
+                          Bản thân LISTENING_TASK cũng có thể là container.
+Q22 SPEAKING_RECORDING    Học sinh ghi âm lời nói; giáo viên chấm bằng rubric.
+Q23 DRAW_HANDWRITING      Học sinh vẽ, chú thích hoặc viết tay trên canvas.
+Q24 FILE_SUBMISSION       Nộp ảnh, PDF, tài liệu, bảng tính, sản phẩm số.
+Q25 VIDEO_SUBMISSION      Nộp/quay video minh chứng thực hành.
+Q26 CODE_EDITOR_TASK      Viết code, thực thi trong sandbox, chấm test case.
+Q27 SIMULATION_TASK       Tương tác mô phỏng/thí nghiệm và nộp kết quả.
+Q28 PROJECT_RUBRIC        Nhiệm vụ/dự án có rubric, minh chứng và nhận xét.
+
+LƯU Ý VỀ KIẾN TRÚC: Đây là 28 mẫu trải nghiệm/tương tác, không nhất thiết
+28 bộ chấm điểm. Q13 và Q21 thường là container/ngữ liệu, trong đó học sinh
+thực tế làm Q01/Q04/Q07/Q10/Q12/Q22... Tách rõ kiểu container với kiểu
+input và kiểu chấm điểm để tránh phải làm hệ thống rời rạc.
+
+======================================================================
+III. MA TRẬN GỢI Ý MÔN HỌC — KIỂU CÂU HỎI
+======================================================================
+
+Tiếng Việt                  Q05 Q06 Q07 Q10 Q12 Q13 Q21 Q22
+Ngữ văn                     Q10 Q12 Q13 Q22 Q28
+Ngoại ngữ 1                 Q01 Q02 Q05 Q07 Q09 Q10 Q12 Q13 Q21 Q22
+Ngoại ngữ 2                 Q01 Q05 Q07 Q09 Q13 Q21 Q22
+Tiếng dân tộc thiểu số      Q05 Q07 Q10 Q13 Q21 Q22
+Toán                        Q01 Q07 Q11 Q18 Q19 Q20 Q23
+Đạo đức                     Q01 Q03 Q06 Q12 Q28
+Giáo dục công dân           Q01 Q04 Q05 Q12 Q13
+Giáo dục kinh tế và PL      Q01 Q04 Q11 Q12 Q13
+Tự nhiên và Xã hội          Q01 Q05 Q14 Q15 Q16
+Khoa học                    Q01 Q07 Q14 Q17 Q27
+Khoa học tự nhiên           Q01 Q04 Q11 Q15 Q17 Q19 Q27
+Vật lí                      Q04 Q11 Q18 Q19 Q20 Q27
+Hóa học                     Q04 Q07 Q11 Q15 Q19 Q27
+Sinh học                    Q01 Q04 Q14 Q15 Q16 Q17 Q27
+Lịch sử và Địa lí           Q01 Q05 Q06 Q13 Q14 Q18
+Lịch sử                     Q01 Q04 Q06 Q12 Q13 Q28
+Địa lí                      Q01 Q11 Q13 Q14 Q17 Q18
+Tin học và Công nghệ        Q01 Q06 Q16 Q24 Q26 Q28
+Tin học                     Q01 Q06 Q10 Q17 Q24 Q26
+Công nghệ                   Q01 Q05 Q06 Q15 Q24 Q27 Q28
+Âm nhạc                     Q01 Q05 Q21 Q22 Q24 Q25 Q28
+Mĩ thuật                    Q01 Q14 Q23 Q24 Q25 Q28
+Giáo dục thể chất           Q01 Q06 Q25 Q28
+Giáo dục quốc phòng & AN    Q01 Q04 Q06 Q12 Q25 Q28
+Trải nghiệm / Hướng nghiệp  Q12 Q22 Q24 Q25 Q28
+Nội dung GD địa phương      Q01 Q12 Q13 Q14 Q24 Q28
+
+Danh mục trên chỉ là lựa chọn mặc định để giáo viên dễ bắt đầu; giáo viên
+vẫn có thể dùng mọi kiểu hợp lệ nếu phù hợp mục tiêu giảng dạy.
+
+======================================================================
+IV. MÔ HÌNH ĐỀ CÓ PHẦN, CÂU HỎI CHA VÀ CÂU HỎI CON
+======================================================================
+
+CẤU TRÚC KHUYẾN NGHỊ:
+Assessment (đề/bài tập)
+  + Section (phần I, phần II ...)
+      + QuestionGroup (câu dẫn/đề bài lớn/ngữ liệu chung)
+          + QuestionItem (câu con 1: chọn đáp án)
+          + QuestionItem (câu con 2: điền từ)
+          + QuestionItem (câu con 3: tự luận)
+          + QuestionItem (câu con 4: ghi âm)
+      + QuestionItem (câu độc lập)
+  + Section (phần khác)
+      + QuestionGroup (bộ câu hỏi dùng chung biểu đồ/bản đồ)
+          + QuestionItem (...)
+
+Ví dụ A — Tiếng Anh lớp 7, LISTENING:
+  PHẦN I: LISTENING (5 điểm)
+  Đề bài lớn: "Listen to the conversation and answer questions 1–4."
+  Tệp nghe: conversation_unit03.mp3, giọng đọc en-GB.
+  Câu 1 (1 điểm): Where is Anna going? -> Q01 (chọn một đáp án)
+  Câu 2 (1 điểm): True/False: Anna is going by bus. -> Q03
+  Câu 3 (1 điểm): The train leaves at ____. -> Q07/Q10
+  Câu 4 (2 điểm): Record a short answer about Anna's plan. -> Q22
+  => 1 AUDIO CHUNG, 4 CÂU CON KHÁC LOẠI, MỖI CÂU CÓ ĐIỂM RIÊNG.
+
+Ví dụ B — Ngữ văn lớp 9, ĐỌC HIỂU:
+  Một đoạn thơ/đoạn trích chung; phía dưới có 5 câu con, gồm nhận biết,
+  giải thích biện pháp tu từ và viết đoạn cảm nhận. Không lặp lại đoạn trích
+  ở từng câu con, nhưng có thể giữ khung ngữ liệu ở đầu trang khi cuộn.
+
+Ví dụ C — Toán lớp 10:
+  Đề bài lớn cho hàm số và đồ thị; câu a yêu cầu tính đạo hàm (nếu thuộc
+  nội dung chương trình áp dụng), câu b tìm nghiệm, câu c giải thích hình
+  học. Một hình, nhiều bước và đáp án/điểm thành phần.
+
+Ví dụ D — Địa lí:
+  Một bảng số liệu dân số; câu a tính tỉ lệ, câu b chọn biểu đồ thích hợp,
+  câu c nhận xét xu hướng. Dùng chung bảng số liệu, chấm khác kiểu.
+
+YÊU CẦU CỐT LÕI CHO GROUP:
+- Có id, tiêu đề, chỉ dẫn, thứ tự, loại ngữ liệu, contentBlocks, mediaRefs.
+- Có thể chứa N câu con; MỖI câu con có type, điểm, đáp án, feedback,
+  trạng thái, thứ tự và thang chấm riêng.
+- Điểm nhóm = tổng điểm câu con (hoặc điểm nhóm có phân bổ minh bạch).
+- Hỗ trợ một ngữ liệu dùng chung bởi nhiều nhóm mà không nhân bản file.
+- Nhóm có thể cấu hình "hiển thị ngữ liệu khi làm mọi câu con".
+- Mỗi câu con được gắn mã hiển thị "Câu 1a / 1b" hoặc "Question 1–4".
+- Cho phép trộn thứ tự nhóm và thứ tự câu con ĐỘC LẬP, tắt trộn nếu câu
+  phụ thuộc trình tự; giữ đánh số nhất quán sau khi trộn.
+- Có thể hiển thị 1 câu con/lần hoặc tất cả trên cùng trang; dữ liệu vẫn
+  thuộc cùng group.
+- Không bắt câu hỏi con phải cùng loại hoặc cùng cách chấm.
+- Cho phép một câu có nhiều ý a/b/c/d (Q04) mà KHÔNG nhầm các ý đó với
+  nhiều QuestionItem tách biệt: Q04 = 1 câu item có nhiều subStatements.
+- Phân biệt "Group -> child items" và "Item -> subparts" nếu cần chấm
+  điểm khác nhau; xác định quy tắc rõ ràng khi xuất đề và in PDF.
+
+======================================================================
+V. AUDIO/VOICE CHO TIẾNG ANH VÀ CÁC NGOẠI NGỮ
+======================================================================
+
+5.1. DẠNG NGHE (LISTENING)
+- Giáo viên upload MP3/M4A/WAV/OGG/WebM tùy khả năng giải mã của hệ thống;
+  backend xác nhận MIME thực, chuẩn hóa file khi cần.
+- Giáo viên cũng có thể thu âm ngay trên trình duyệt; hoặc sinh audio bằng
+  Text-to-Speech nếu tích hợp TTS (chọn ngôn ngữ, giọng, tốc độ nói).
+- Gắn audio ở cấp đề, section, group, item hoặc phương án đáp án; ưu tiên
+  kế thừa audio từ group để chia sẻ cho toàn bộ câu hỏi con.
+- Cấu hình: thời lượng, tốc độ nghe cho phép, tự phát hay người học nhấn,
+  số lượt nghe (không giới hạn/1/2/...); khoảng dừng trước khi trả lời,
+  cho tua/không cho tua và thời gian phát lại.
+- Cung cấp transcript cho giáo viên; có chính sách ẩn transcript với học
+  sinh trước và trong khi làm bài; chỉ công bố sau nộp khi được cho phép.
+- Có thể là audio hội thoại 2–3 nhân vật, audio đọc đoạn văn, từ đơn,
+  phát âm, nghe phân biệt trọng âm, nghe và chép chính tả.
+- Hỗ trợ hiển thị nhiều câu con dưới một thanh audio; không bắt phát lại
+  audio từ đầu ở từng câu.
+- Hỗ trợ phụ đề/transcript có mốc thời gian cho mục đích ôn tập; không
+  vô tình lộ phần đáp án trong chế độ kiểm tra.
+- Không chấm theo thông tin "đã nghe audio"; chấm dựa vào câu trả lời.
+
+5.2. DẠNG NÓI (SPEAKING)
+- Học sinh nhấn Ghi âm -> Dừng -> Nghe lại -> Gửi bài.
+- Hỏi quyền dùng microphone rõ ràng; có hướng dẫn khi trình duyệt từ chối.
+- Có cấu hình thời gian chuẩn bị, thời lượng tối đa, số lần ghi lại, kích
+  thước tệp, tệp thay thế nếu không được cấp quyền microphone.
+- Hỗ trợ: đọc to, trả lời theo câu hỏi, mô tả tranh, hội thoại/đóng vai,
+  nói theo chủ đề, phát biểu tự do.
+- Chấm thủ công/rubric: mức đáp ứng yêu cầu, phát âm, độ trôi chảy,
+  từ vựng, ngữ pháp, tương tác. Trọng số tùy cấp/lớp/mục tiêu bài.
+- Có thể dùng speech-to-text và AI đưa gợi ý, nhưng KHÔNG tự động coi
+  nhận dạng giọng nói là thước đo tuyệt đối của phát âm hoặc năng lực nói.
+- Bảo vệ dữ liệu giọng nói học sinh; có giới hạn lưu trữ, xóa/tải xuống,
+  phân quyền và chính sách bảo vệ dữ liệu trẻ em.
+
+5.3. AUDIO ĐƯỢC GẮN CHO TỪNG ĐÁP ÁN
+- Một số bài nghe lớp nhỏ có 4 đoạn âm thanh tương ứng 4 lựa chọn thay vì
+  đáp án dạng chữ; option có thể mang mediaRef riêng.
+- Có thể hiển thị hình ảnh kèm audio (nghe và chọn bức tranh đúng).
+- Audio còn có thể là một contentBlock nằm trong câu dẫn, không yêu cầu
+  tạo dạng câu hỏi Q21 riêng nếu kiểu trả lời thực là Q01/Q07.
+
+5.4. VÍ DỤ KIỂM THỬ CHO AUDIO
+- 1 audio + 8 câu con, lưu/nộp/chấm từng câu thành công.
+- 1 câu con ghi âm nằm trong một nhóm bài nghe và không làm mất audio cha.
+- Học sinh tải lại trang vẫn giữ câu trả lời nháp và lượt nghe theo policy.
+- Phát âm thanh dùng trên điện thoại; có thông báo khi file không khả dụng.
+- Transcript bị ẩn với học sinh trước hạn công bố.
+- Không lộ URL audio riêng tư hoặc lời giải khi chưa được phép.
+
+======================================================================
+VI. DỮ LIỆU CHUNG CHO MỌI CÂU HỎI
+======================================================================
+
+Đề xuất schema nội bộ dạng JSON có version:
+- assessment: id, title, grade, subjectIds, language, sections, policy, version.
+- section: id, title, instructions, order, groupIds/questionIds, scoring.
+- questionGroup: id, groupType, title, instructions, contentBlocks, assets,
+  childQuestionIds, displayPolicy, playbackPolicy, order.
+- question: id, questionType, stemBlocks, answerInteraction, answerKey,
+  gradingPolicy, maxPoints, feedback, rubricId, tags, curriculumMap,
+  attachments, difficulty, status, version.
+- contentBlocks: rich_text, math, chemical_formula, image, table, chart,
+  audio, video, code, diagram, document_reference.
+- mediaAssets: assetId, type, path, mime, durationMs, languageCode,
+  voice/accent, transcriptRef, accessibilityMetadata, ownerId.
+- scoring: gradingMode = AUTO / MANUAL / HYBRID / PASS_FAIL;
+  partialCredit, tolerance, acceptedVariants, rubric, maxPoints.
+- questionMetadata: cấp học, lớp, môn, chương/chủ đề, bài, mức độ, năng lực,
+  yêu cầu cần đạt, năm học, bộ sách (tùy chọn, không ép mọi tài liệu theo
+  một bộ sách), người tạo, thời gian cập nhật.
+- attempt: assignmentId, studentId, versionSnapshotId, answers, recordings,
+  timestamps, submitStatus, grading, teacherComments.
+
+NGUYÊN TẮC BẢO MẬT:
+- Tuyệt đối không gửi answerKey, lời giải ẩn, rubric bí mật, transcript
+  bị khóa hoặc bộ test ẩn của câu lập trình xuống frontend học sinh.
+- Tạo student-facing DTO riêng cho từng dạng câu.
+- Ghi nhận version của đề ở thời điểm giao để nội dung lịch sử không đổi
+  khi giáo viên sửa ngân hàng câu hỏi.
+- File upload phải kiểm tra loại tệp thực, hạn mức dung lượng, quyền xem,
+  quét độc hại khi phù hợp và cấp URL tải về ngắn hạn.
+
+======================================================================
+VII. VÍ DỤ JSON: MỘT ĐỀ BÀI TIẾNG ANH CÓ AUDIO + CÂU HỎI CON
+======================================================================
+
+Ví dụ cấu trúc LƯU Ở SERVER (chỉ để minh họa, không gửi answerKey cho HS):
+
+{
+  "schemaVersion": 1,
+  "assessmentId": "eng7_001",
+  "title": "English 7 - Listening Practice",
+  "grade": 7,
+  "subjectCode": "FOREIGN_LANGUAGE_1",
+  "languageCode": "en",
+  "sections": [
+    {
+      "id": "s1",
+      "title": "Part I - Listening",
+      "items": [
+        {
+          "kind": "QUESTION_GROUP",
+          "id": "g1",
+          "groupType": "LISTENING",
+          "instructions": "Listen to the conversation and answer questions 1-3.",
+          "media": [
+            {
+              "assetId": "aud_100",
+              "type": "audio",
+              "languageCode": "en-GB",
+              "durationMs": 64000,
+              "transcriptVisibility": "AFTER_SUBMISSION"
+            }
+          ],
+          "playbackPolicy": {"maxPlays": 2, "allowSeeking": false},
+          "children": [
+            {
+              "kind": "QUESTION",
+              "id": "q1",
+              "type": "SINGLE_CHOICE",
+              "prompt": "Where is Anna going?",
+              "options": [
+                {"id": "A", "text": "Library"},
+                {"id": "B", "text": "School"},
+                {"id": "C", "text": "Park"},
+                {"id": "D", "text": "Museum"}
+              ],
+              "grading": {"mode": "AUTO", "maxPoints": 1},
+              "answerKey": {"optionId": "A"}
+            },
+            {
+              "kind": "QUESTION",
+              "id": "q2",
+              "type": "TRUE_FALSE",
+              "prompt": "Anna is travelling by bus.",
+              "grading": {"mode": "AUTO", "maxPoints": 1},
+              "answerKey": {"value": false}
+            },
+            {
+              "kind": "QUESTION",
+              "id": "q3",
+              "type": "SPEAKING_RECORDING",
+              "prompt": "Say one sentence about Anna's plan.",
+              "recordingPolicy": {"maxSeconds": 45, "maxRetakes": 2},
+              "grading": {"mode": "MANUAL", "maxPoints": 2,
+                          "rubricId": "english_speaking_basic"}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+LƯU Ý: "Library", "bus", v.v. trong JSON là dữ liệu minh họa không đi kèm
+một file nghe cụ thể, nên đáp án giả định ở ví dụ KHÔNG dùng để phát cho HS.
+Trong triển khai thực tế, phải biên soạn audio và đối chiếu answerKey trước
+khi xuất bản. Tránh để một file audio làm nguồn sự thật nhưng answerKey lệch.
+
+======================================================================
+VIII. QUY TẮC CHẤM ĐIỂM VÀ ĐÁNH GIÁ
+======================================================================
+
+- AUTO: chọn đáp án, đúng/sai, ghép cặp, thứ tự, số, điền từ, hotspot,
+  bài code chạy test case, một số dạng biểu thức khi kiểm chứng được.
+- MANUAL: tự luận, ghi âm nói, biểu diễn âm nhạc, mĩ thuật, thể chất, dự án.
+- HYBRID: câu nhiều bước hoặc câu trả lời mở có phần tự chấm + phần giáo
+  viên duyệt; máy hỗ trợ gợi ý nhưng giáo viên quyết định cuối.
+- PASS_FAIL: Đạt/Chưa đạt; có thể kèm rubric và nhận xét.
+- PARTIAL_CREDIT: cho điểm từng mệnh đề, từng bước hoặc từng tiêu chí.
+- NUMERIC_TOLERANCE: sai số tuyệt đối/tương đối, đơn vị đo, làm tròn.
+- TEXT_NORMALIZATION: chuẩn hóa khoảng trắng, dấu câu, chữ hoa thường
+  có kiểm soát; không xóa mọi dấu một cách mù quáng (đặc biệt Tiếng Việt).
+- MATH_EQUIVALENCE: dùng bộ phân tích biểu thức an toàn, giới hạn phạm vi
+  biểu thức; có kiểm tra miền xác định khi cần.
+- CHEMICAL_EQUATION: tách hệ số, chất, kiểm tra bảo toàn nguyên tố/điện
+  tích tùy bài; không chỉ so khớp chuỗi.
+- RUBRIC: tiêu chí + trọng số + mô tả từng mức đạt + nhận xét.
+- Chế độ điểm phải dựa vào cấu hình của bài kiểm tra và quy định áp dụng;
+  không hard-code mọi câu trắc nghiệm đúng/sai đều chia 0,25 điểm.
+
+======================================================================
+IX. UX TẠO ĐỀ DÀNH CHO GIÁO VIÊN
+======================================================================
+
+LUỒNG CƠ BẢN:
+1. Chọn lớp -> môn -> chương/chủ đề -> hình thức bài tập hoặc đề kiểm tra.
+2. Tạo đề mới hoặc sử dụng mẫu.
+3. Thêm PHẦN (Section) hoặc thêm CÂU HỎI ĐỘC LẬP.
+4. Chọn "Thêm nhóm câu hỏi / đề bài chung" để tạo Group.
+5. Soạn đề bài chung: văn bản, đoạn đọc, bảng, công thức, ảnh, audio/video.
+6. Trong Group bấm "+ Thêm câu hỏi con" nhiều lần; chọn các Qxx tương ứng.
+7. Cấu hình đáp án, điểm, giải thích, chấm tự động/thủ công và rubric.
+8. Preview: xem đúng như học sinh trên desktop/mobile, đặc biệt nhóm audio.
+9. Kiểm tra đề: thiếu đáp án, nhóm rỗng, điểm sai, file lỗi, quá dung lượng,
+   đường dẫn không hợp lệ, chấm điểm xung đột.
+10. Lưu bản nháp -> đưa vào ngân hàng -> giao lớp hoặc xuất bản/in.
+
+GIAO DIỆN EDITOR NÊN CÓ:
+- Thanh bên trái: cây Đề > Phần > Nhóm > Câu con (kéo thả sắp xếp).
+- Giữa: editor ngữ liệu hoặc editor câu hỏi đang chọn.
+- Bên phải: cấu hình đáp án, chấm điểm, media và preview.
+- Nút "Đổi dạng câu" nhưng cảnh báo nếu dữ liệu/đáp án không tương thích.
+- Nút "Nhân bản câu/nhóm", "Lấy từ ngân hàng", "Lưu làm mẫu".
+- Audio group: trình phát nghe thử, transcript, tùy chọn lượt nghe,
+  kiểm tra âm lượng và danh sách câu con bên dưới.
+- Với lớp nhỏ: chữ lớn, tương phản tốt, thao tác chạm, hình ảnh và audio.
+
+======================================================================
+X. DỮ LIỆU / BACKEND / PHÂN QUYỀN
+======================================================================
+
+Thực thể gợi ý:
+- curriculum_versions, grades, subjects, grade_subjects,
+  topics, lessons, learning_outcomes
+- media_assets, question_banks, questions, question_versions,
+  question_groups, group_child_links, rubrics, rubric_criteria
+- assessments, assessment_versions, assessment_sections,
+  assessment_nodes (nếu chọn mô hình cây), assignments
+- student_attempts, attempt_answers, attempt_media,
+  grading_results, grading_reviews, teacher_feedback
+
+Phân quyền:
+- Giáo viên: tạo/sửa đề của mình, chia sẻ theo quyền, chấm bài lớp phụ trách.
+- Học sinh: chỉ thấy đề được giao, media được cấp quyền, bài mình nộp.
+- Quản trị: quản lí danh mục, cấu hình chính sách và xử lí nội dung.
+- Hỗ trợ quyền đồng biên soạn và công khai ngân hàng theo cấu hình sản phẩm.
+
+Độ tin cậy / an toàn:
+- Autosave câu trả lời, phục hồi khi mất mạng, nộp lại theo chính sách.
+- Giao đề tạo snapshot bất biến; chấm điểm và lịch sử sửa đổi có audit log.
+- Giới hạn file, chống tải mã độc, chống HTML script/XSS qua rich text.
+- Với bài code, chạy ở môi trường sandbox cô lập có giới hạn CPU/RAM/time.
+- Truyền audio/video qua cơ chế quyền riêng tư, không công khai định danh HS.
+- Hỗ trợ xuất/import dữ liệu nội bộ và chuẩn trao đổi như QTI khi phù hợp.
+
+======================================================================
+XI. GIAI ĐOẠN TRIỂN KHAI
+======================================================================
+
+P0 — CỐT LÕI (nên có ngay):
+- Danh mục lớp/môn/chủ đề; ngân hàng, tạo đề, lớp học, giao bài, nộp/chấm.
+- Q01–Q12, Q13 (Group) và mô hình Section > Group > Question.
+- Q21 Listening tối thiểu: upload audio vào câu dẫn nhóm + câu con đa dạng.
+- Q22 Speaking tối thiểu: học sinh ghi âm và giáo viên chấm thủ công.
+- Rich text + ảnh + công thức toán; preview và autosave.
+
+P1 — TƯƠNG TÁC THEO MÔN:
+- Q14–Q20; kéo thả/biểu đồ/bản đồ/hóa học.
+- Audio TTS nếu có, transcript, ghi âm tích hợp, rubric chi tiết,
+  đọc hiểu nâng cao và giao diện mobile đầy đủ.
+
+P2 — THỰC HÀNH:
+- Q23–Q28: vẽ tay, nộp file/video, code sandbox, mô phỏng, dự án.
+
+P3 — NÂNG CAO:
+- Tạo đề theo ma trận, nhập từ Word/Excel/định dạng trao đổi, đề biến số,
+  tự động gợi ý câu hỏi, báo cáo năng lực và liên kết với LMS.
+
+ƯU TIÊN SẢN PHẨM:
+Ngay phiên bản đầu nên hỗ trợ Group + Child và Audio/Voice, vì đây là hai
+kịch bản cốt lõi của đề Ngữ văn, Ngoại ngữ, Toán, Khoa học và đề có ngữ liệu
+chung. Nếu chỉ xây câu đơn trước rồi ghép nhóm sau, sẽ tốn nhiều công sửa
+mô hình dữ liệu, engine chấm điểm, preview, import/export và UI tạo đề.
+
+======================================================================
+XII. CHECKLIST KIỂM THỬ NGHIỆM THU
+======================================================================
+
+[ ] Tạo được câu đơn, đề nhiều phần và câu hỏi cha có N câu hỏi con.
+[ ] Một group hỗ trợ các câu con khác loại và đáp án/điểm riêng.
+[ ] Một file audio dùng chung cho 10 câu con mà không bị phát lại bắt buộc.
+[ ] Giáo viên có thể upload audio, xem thử và thay file không mất câu con.
+[ ] Học sinh có thể nghe voice trên desktop, Android, iPhone/iPad.
+[ ] Học sinh có thể ghi âm Speaking, nghe lại, xóa và nộp.
+[ ] Nếu microphone bị từ chối, có hướng dẫn và cơ chế xử lý phù hợp.
+[ ] Transcript/answerKey ẩn đúng trong lúc kiểm tra.
+[ ] Ngữ liệu cha còn hiển thị khi học sinh làm câu con ở dưới.
+[ ] Có thể đổi thứ tự câu con, giữ đánh số và đáp án chính xác.
+[ ] Tổng điểm nhóm và toàn đề tính đúng; rubric hỗ trợ Đạt/Chưa đạt.
+[ ] Có câu nhiều ý Đúng/Sai mà không nhầm thành 4 câu độc lập.
+[ ] Công thức Toán/Hóa, ảnh, bảng, biểu đồ hiển thị đúng trên mobile.
+[ ] Lưu nháp câu trả lời, reload trang không mất bài làm.
+[ ] Giáo viên sửa ngân hàng sau giao đề không làm biến đổi đề đã giao.
+[ ] Xuất/in đề thể hiện đầy đủ ngữ liệu chung và đánh số câu con.
+[ ] Bảo vệ dữ liệu bản ghi âm/video của học sinh theo quyền truy cập.
+[ ] Có thống kê kết quả từng câu con, từng nhóm, từng kỹ năng.
+
+======================================================================
+XIII. TÀI LIỆU THAM CHIẾU NÊN ĐỐI CHIẾU KHI PHÁT TRIỂN
+======================================================================
+
+- Chương trình giáo dục phổ thông 2018 và các văn bản sửa đổi liên quan.
+- Thông tư 27/2020/TT-BGDĐT: đánh giá học sinh tiểu học.
+- Thông tư 22/2021/TT-BGDĐT: đánh giá học sinh THCS/THPT.
+- Thông tư 13/2022/TT-BGDĐT: sửa đổi chương trình GDPT.
+- Thông tư 17/2025/TT-BGDĐT: cập nhật các nội dung chương trình có liên quan.
+- Công bố cấu trúc định dạng đề thi tốt nghiệp THPT từ năm 2025 (Bộ GD&ĐT):
+  https://vqa.moet.gov.vn/vi/news/thong-bao/cau-truc-dinh-dang-de-thi-tot-nghiep-thpt-tu-nam-2025-74.html
+- 1EdTech Question and Test Interoperability (QTI):
+  https://www.1edtech.org/standards/qti/index
+- 1EdTech CASE (liên kết chuẩn năng lực):
+  https://www.1edtech.org/standards/case
+- Moodle Question Types: https://docs.moodle.org/en/Question_types
+- MathLive: https://mathlive.io/mathfield/
+- GeoGebra Apps Embedding: https://geogebra.github.io/docs/reference/en/GeoGebra_Apps_Embedding/
+
+Đây là bản đặc tả thiết kế sản phẩm tham khảo, không phải văn bản ban hành bởi
+Bộ GD&ĐT. Khi triển khai mẫu đề chuẩn cụ thể phải cập nhật văn bản hiện hành,
+cấu trúc kiểm tra tương ứng, mục tiêu đánh giá và điều kiện của trường.
+
+KẾT LUẬN
+Một hệ thống chung cho lớp 1–12 nên có 3 trụ cột ngay từ đầu:
+(1) Câu hỏi linh hoạt theo môn học và nhiều cách chấm;
+(2) Dạng phân cấp ĐỀ > PHẦN > ĐỀ BÀI LỚN/NGỮ LIỆU > CÂU HỎI CON;
+(3) Audio/Voice đa chiều: nghe - trả lời, ghi âm nói, một audio nhiều câu.
+Điều này giúp giáo viên xây dựng đề truyền thống và bài tập đa phương tiện
+trong cùng một Question Builder thay vì phải sử dụng nhiều công cụ rời rạc.

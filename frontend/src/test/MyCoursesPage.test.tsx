@@ -33,18 +33,18 @@ describe('MyCoursesPage', () => {
     expect(within(first).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
     const resume = within(first).getByRole('link', { name: /Học tiếp/ });
     expect(resume).toHaveAttribute('href', '/classes/demo/learn/lessons/l-1');
-    expect(resume.className).toContain('bg-blue-600');
+    expect(resume.className).toContain('bg-slate-900'); // D-35: the primary button is ink-900
 
     const second = within(started).getByRole('heading', { name: 'Khóa 2' }).closest('article')!;
     const review = within(second).getByRole('link', { name: /Xem lại/ });
     expect(review).toHaveAttribute('href', '/classes/demo/learn');
-    expect(review.className).not.toContain('bg-blue-600');
+    expect(review.className).not.toContain('bg-slate-900');
 
     const fresh = screen.getByRole('heading', { name: 'Chưa bắt đầu' }).closest('section')!;
     const third = within(fresh).getByRole('link', { name: /Bắt đầu học/ });
     expect(third).toHaveAttribute('href', '/classes/demo/learn/lessons/l-3');
-    expect(third.className).not.toContain('bg-blue-600');
-    expect(screen.getAllByRole('link').filter((l) => l.className.includes('bg-blue-600'))).toHaveLength(1);
+    expect(third.className).not.toContain('bg-slate-900');
+    expect(screen.getAllByRole('link').filter((l) => l.className.includes('bg-slate-900'))).toHaveLength(1);
   });
 
   it('omits the "Đang học" section when nothing is started', async () => {

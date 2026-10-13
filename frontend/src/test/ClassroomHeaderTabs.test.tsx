@@ -135,16 +135,17 @@ describe('ClassroomHeader tab strip scroll affordance (R17-05)', () => {
 describe('ClassroomHeader tab set (design order, labels, locking)', () => {
   const links = () => screen.getAllByRole('link').filter((a) => (a.getAttribute('href') ?? '').startsWith('/classes/demo-class/'));
 
-  it('shows the ten tabs in the design order with the design labels; route paths are unchanged', () => {
+  it('shows the eleven tabs in the design order with the design labels; route paths are unchanged', () => {
     render(<ClassroomHeader classroom={classroom} />);
     expect(links().map((a) => a.textContent)).toEqual([
-      'Blog', 'Thảo luận', 'Khóa học', 'Thi', 'Sự kiện', 'Tài liệu', 'Thành viên', 'Shop', 'Bảng xếp hạng', 'Giới thiệu',
+      'Blog', 'Thảo luận', 'Khóa học', 'Bài tập', 'Thi', 'Sự kiện', 'Tài liệu', 'Thành viên', 'Shop', 'Bảng xếp hạng', 'Giới thiệu',
     ]);
-    expect(links().map((a) => a.getAttribute('href')?.split('/').pop())).toEqual(TAB_ORDER);
+    // D-34: "Bài tập" (homework) sits right after "Khóa học".
+    expect(links().map((a) => a.getAttribute('href')?.split('/').pop())).toEqual([...TAB_ORDER.slice(0, 3), 'homework', ...TAB_ORDER.slice(3)]);
   });
 
   it('renders locked tabs as non-links with a lock and a spoken "dành cho thành viên"', () => {
-    render(<ClassroomHeader classroom={classroom} lockedTabs={['learn', 'exams', 'leaderboard', 'documents', 'members']} />);
+    render(<ClassroomHeader classroom={classroom} lockedTabs={['learn', 'homework', 'exams', 'leaderboard', 'documents', 'members']} />);
     expect(links().map((a) => a.textContent)).toEqual(['Blog', 'Thảo luận', 'Sự kiện', 'Shop', 'Giới thiệu']);
     const locked = screen.getByText('Khóa học').closest('span[aria-disabled="true"]') as HTMLElement;
     expect(locked).toBeInTheDocument();

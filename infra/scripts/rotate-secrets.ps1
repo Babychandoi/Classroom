@@ -1,6 +1,17 @@
 param([string]$InfraDir = (Join-Path $PSScriptRoot '..'))
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
+# This legacy workflow changes two stacks. Verify both before changing either.
+foreach ($legacyTarget in @(@{Name='classroom-mysql';Project='online-classroom'},@{Name='classroom-demo-mysql';Project='classroom-demo'})) {
+    $legacyIds = @(& docker ps -aq --filter "name=^/$($legacyTarget.Name)$")
+    if ($LASTEXITCODE -ne 0 -or $legacyIds.Count -ne 1) {
+        throw 'Legacy two-stack rotation requires both original stacks. Use rotate-current-stack-secrets.py with an explicit project instead.'
+    }
+    $legacyMeta = (& docker inspect $legacyIds[0] | ConvertFrom-Json)[0]
+    if ($legacyMeta.Config.Labels.'com.docker.compose.project' -ne $legacyTarget.Project) {
+        throw 'Legacy stack project differs. Use rotate-current-stack-secrets.py; no credentials have been changed.'
+    }
+}
 $InfraDir = Get-AbsolutePath $InfraDir
 $envPath = Join-Path $InfraDir '.env'
 $pendingPath = Join-Path $InfraDir 'rotation.pending.env'

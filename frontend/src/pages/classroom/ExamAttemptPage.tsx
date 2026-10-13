@@ -561,7 +561,7 @@ export const ExamAttemptPage: React.FC = () => {
       )}
 
       {/* Sticky bar: back, title + autosave state, server-driven countdown, the one primary action. */}
-      <div className="glass-bar sticky top-[72px] z-30 flex flex-wrap items-center gap-x-4 gap-y-2.5 rounded-2xl border border-slate-200 px-4 py-3 shadow-hairline sm:flex-nowrap sm:px-5">
+      <div className="glass-bar sticky top-3 z-30 flex flex-wrap items-center gap-x-4 gap-y-2.5 rounded-2xl border border-slate-200 px-4 py-3 shadow-hairline sm:flex-nowrap sm:px-5">
         <Link
           to={`/classes/${slug}/exams`}
           className="inline-flex min-h-[40px] flex-shrink-0 items-center gap-1.5 text-ui font-medium text-slate-600 transition-colors duration-micro hover:text-slate-900"
@@ -635,7 +635,7 @@ export const ExamAttemptPage: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 items-start gap-4 pt-2 lg:grid-cols-[minmax(0,1fr)_248px] lg:gap-6">
-        <aside className="lg:sticky lg:top-[156px] lg:order-2">{navigator}</aside>
+        <aside className="lg:sticky lg:top-[96px] lg:order-2">{navigator}</aside>
 
         {/* Questions list */}
         <div className="min-w-0 space-y-4 lg:order-1">

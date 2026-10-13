@@ -36,4 +36,14 @@ Video bài học có thể là liên kết YouTube (`youtube-nocookie.com`) ho�
 
 ## Căn cứ và công việc của đơn vị vận hành
 
+### Question Builder — bổ sung 13/10/2026
+
+- Bài làm assessment gồm câu trả lời, nét vẽ, mã nguồn, voice/video/tệp minh chứng và điểm/nhận xét. Chỉ học viên chính chủ và giáo viên có ASSESSMENT GRADE mở minh chứng; server kiểm tra thành viên hiện tại/trạng thái bài. Không công khai object key, hidden test/answerKey hoặc transcript chưa công bố.
+- `/privacy/me/export` có `assessmentAttempts`, `assessmentAnswers`, `assessmentUploads`, tối đa 1000 hàng mỗi nhóm/trang. Chỉ dữ liệu của tài khoản xác nhận mật khẩu; điểm/nhận xét ẩn trước công bố. Snapshot đề/rubric/chấm, token, object key và signed URL không nằm trong bản sao. Tệp vật lý lấy qua quyền hiện hành hoặc quy trình cung cấp dữ liệu của đơn vị vận hành.
+- Bản ghi/minh chứng hoàn tất giữ cùng hồ sơ học/chấm, không tự xóa bởi cleanup media đang upload. Upload chưa hoàn tất vẫn theo cleanup cũ. Admin cần rà soát tệp, nét vẽ, câu trả lời, mã nguồn và snapshot/căn cứ lưu trước khi giải quyết COMPLETED. Ẩn danh hóa hồ sơ không xóa toàn bộ nội dung học tập.
+- Không gửi voice cho STT/TTS/AI ngoài. Code chạy trên worker cục bộ/container không mạng. Báo cáo kỹ năng dựa trên điểm và tag/yêu cầu giáo viên đặt, không phải chẩn đoán hay suy luận AI.
+- Backup có cả dữ liệu này; restore phải áp dụng lại ledger yêu cầu đóng/xóa sau thời điểm backup, giữ ACL và legal hold hiện tại.
+
+## Căn cứ pháp lý hiện có
+
 Nguồn chính thức: [Luật Bảo vệ dữ liệu cá nhân 91/2025/QH15](https://vanban.chinhphu.vn/?classid=1&docid=214590&pageid=27160&typegroup=), ban hành 26/06/2025, hiệu lực 01/01/2026. Người vận hành phải xác định mình là bên kiểm soát/xử lý nào, công bố danh tính/liên hệ thực tế, căn cứ xử lý, hồ sơ đánh giá tác động và việc chuyển dữ liệu nếu có; xử lý dữ liệu trẻ em và nghĩa vụ chứng từ theo trường hợp thực tế. Chưa có danh tính pháp lý của đơn vị vận hành trong yêu cầu này nên không tự điền tên công ty hay tuyên bố đạt pháp lý.

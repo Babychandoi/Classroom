@@ -13,11 +13,20 @@ import uuid
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--apply', action='store_true')
+parser.add_argument('--project-name', default='online-classroom', choices=['online-classroom','classroom-demo'])
+parser.add_argument('--since', help='UTC lower bound, YYYY-MM-DD HH:MM:SS; required for demo maintenance')
 args = parser.parse_args()
+if args.project_name == 'classroom-demo' and not args.since:
+    raise SystemExit('Demo maintenance requires an explicit UTC --since bound.')
+if args.since:
+    try:
+        datetime.datetime.strptime(args.since, '%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        raise SystemExit('Invalid UTC --since bound.')
 repo = Path(__file__).resolve().parents[2]
 container = json.loads(subprocess.check_output(['docker', 'inspect', 'classroom-mysql']))[0]
-if container['Config']['Labels'].get('com.docker.compose.project') != 'online-classroom':
-    raise SystemExit('Refusing a container outside the main classroom project.')
+if container['Config']['Labels'].get('com.docker.compose.project') != args.project_name:
+    raise SystemExit('Refusing a container outside the explicitly selected classroom project.')
 
 def sql(statement):
     result = subprocess.run(['docker', 'exec', '-i', 'classroom-mysql', 'sh', '-c',
@@ -31,7 +40,13 @@ def sql(statement):
 predicate = """role='USER' AND status='ACTIVE' AND (
  (email REGEXP '^lt[.](owner[0-9]+|s[0-9]+|nat[0-9]+|bf)[.][a-z0-9]+@example[.]com$'
   AND (full_name LIKE 'LoadTest %' OR full_name LIKE 'NAT %' OR full_name='Brute force target'))
- OR (email REGEXP '^e2e[.][a-zA-Z0-9.-]+@example[.]com$' AND full_name LIKE 'E2E %'))"""
+ OR (email REGEXP '^e2e[.][a-zA-Z0-9.-]+@example[.]com$' AND full_name LIKE 'E2E %')
+ OR (email REGEXP '^e2e[.]race[.][a-z0-9]+@example[.]com$' AND full_name LIKE 'Race %')
+ OR (email REGEXP '^e2e[.]origin[.][a-z0-9]+@example[.]com$' AND full_name LIKE 'Origin %')
+ OR (email REGEXP '^r23[.][a-z0-9]+[.][a-z0-9]+@example[.]com$' AND full_name LIKE 'R23 %')
+ OR (email REGEXP '^assessment[.](owner|student|outsider)[.][a-z0-9]+@example[.]com$' AND full_name IN ('Assessment QA Owner','Assessment QA Student','Assessment QA Outsider')))"""
+if args.since:
+    predicate += " AND created_at>='" + args.since + "'"
 users = [json.loads(line) for line in sql("SELECT JSON_OBJECT('id',id,'status',status) FROM users WHERE " + predicate + ';').splitlines()]
 if any(str(uuid.UUID(record['id'])) != record['id'] for record in users):
     raise SystemExit('Refusing non-UUID fixture identifiers.')
@@ -62,4 +77,4 @@ statements += ["INSERT INTO audit_events(id,actor_id,action,target_type,target_i
     + predicate.replace("status='ACTIVE'", "status='INACTIVE'") + '));', 'COMMIT;']
 sql('\n'.join(statements))
 assert sql('SELECT COUNT(*) FROM users WHERE id IN (' + ids + ") AND status='ACTIVE';") == '0'
-print('Test fixtures disabled; records preserved, previous states saved, changes audited. Demo unchanged.')
+print('Test fixtures disabled; records preserved, previous states saved, changes audited. Project: '+args.project_name)

@@ -22,6 +22,8 @@ export const CLASS_TABS: { key: string; label: string }[] = [
   { key: 'blog', label: 'Blog' },
   { key: 'feed', label: 'Thảo luận' },
   { key: 'learn', label: 'Khóa học' },
+  // D-34: "Bài tập" (homework assigned from Studio "Bài tập & đề"), members only.
+  { key: 'homework', label: 'Bài tập' },
   { key: 'exams', label: 'Thi' },
   { key: 'events', label: 'Sự kiện' },
   { key: 'documents', label: 'Tài liệu' },
@@ -137,7 +139,7 @@ export const ClassroomHeader: React.FC<{
       <div className="mx-auto w-full max-w-container px-4 pt-4 sm:px-8 sm:pt-7">
         {/* Masthead: cover (or topic tile) + the image overlay gradient, with the class chips on the glass. */}
         <section aria-label="Thông tin lớp học">
-          <div className="relative h-[180px] overflow-hidden rounded-card bg-slate-100 sm:h-[288px] sm:rounded-section">
+          <div className="ap-in relative h-[150px] overflow-hidden rounded-2xl bg-slate-100 sm:h-[240px] sm:rounded-section">
             {coverSrc && !coverFailed ? (
               <img
                 src={coverSrc}
@@ -187,21 +189,21 @@ export const ClassroomHeader: React.FC<{
                   data-testid="class-avatar-image"
                   onError={() => setAvatarFailed(true)}
                   style={{ objectPosition: objectPosition(classroom.avatarPosition) }}
-                  className="relative -mt-7 h-14 w-14 flex-shrink-0 self-start rounded-2xl border-4 border-slate-50 bg-white object-cover sm:h-[72px] sm:w-[72px] sm:rounded-[20px]"
+                  className="relative -mt-7 h-14 w-14 flex-shrink-0 self-start rounded-2xl border-4 border-white bg-white object-cover sm:h-[72px] sm:w-[72px] sm:rounded-[20px]"
                 />
               ) : (
                 <ClassAvatar
                   title={classroom.title}
                   seed={classroom.id || classroom.slug}
                   size={72}
-                  className="relative -mt-7 self-start !rounded-[20px] border-4 border-slate-50 !text-[26px] max-sm:!h-14 max-sm:!w-14 max-sm:!text-[20px] max-sm:!rounded-2xl"
+                  className="relative -mt-7 self-start !rounded-[20px] border-4 border-white !text-[26px] max-sm:!h-14 max-sm:!w-14 max-sm:!text-[20px] max-sm:!rounded-2xl"
                 />
               )}
-              <div className="min-w-0 pt-3">
-                <h1 className="text-[20px] font-semibold leading-7 tracking-[-0.3px] text-slate-900 sm:text-[22px] sm:leading-[30px]">
+              <div className="min-w-0 pt-2.5">
+                <h1 className="text-[20px] font-extrabold leading-[26px] tracking-[-0.5px] text-slate-900 sm:text-[24px] sm:leading-[30px]">
                   {classroom.title}
                 </h1>
-                <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-meta text-slate-600">
+                <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-caption text-slate-500">
                   {classroom.category && (
                     <span data-testid="class-category" className="mr-1 inline-flex h-[22px] items-center gap-1 rounded-full bg-slate-100 px-2 text-caption font-semibold text-slate-600">
                       <Tag className="h-3 w-3" strokeWidth={2} aria-hidden="true" />
@@ -269,17 +271,18 @@ export const ClassroomHeader: React.FC<{
 
       {/* Tab strip (hidden for a BLOCKED person) - sticky under the 64px top bar. */}
       {!hideTabs && (
-        <nav aria-label="Các khu vực trong lớp học" className="sticky top-16 z-40 mt-5 bg-slate-50 sm:mt-6">
+        // D-35: an underline strip from sm up, ink pills on phones (prototype FilterPills) - same links either way.
+        <nav aria-label="Các khu vực trong lớp học" className="sticky top-16 z-40 mt-4 bg-slate-50 sm:mt-6">
           <div className="relative mx-auto w-full max-w-container px-4 sm:px-8">
-            <div className="border-b border-slate-200">
-              <div ref={tabsRef} className="relative flex gap-6 overflow-x-auto overscroll-x-contain pt-2 scrollbar-none sm:gap-7">
+            <div className="sm:border-b sm:border-line-card">
+              <div ref={tabsRef} className="relative flex gap-1.5 overflow-x-auto overscroll-x-contain py-2 scrollbar-none sm:gap-7 sm:pb-0">
                 {tabs.map((tab) =>
                   tab.locked ? (
                     <span
                       key={tab.key}
                       aria-disabled="true"
                       title="Dành cho thành viên lớp"
-                      className="-mb-px inline-flex flex-shrink-0 items-center gap-[5px] whitespace-nowrap border-b-2 border-transparent px-0.5 pb-3 text-ui font-medium text-slate-400"
+                      className="inline-flex h-[30px] flex-shrink-0 items-center gap-[5px] whitespace-nowrap rounded-full bg-slate-100 px-3 text-meta font-medium text-slate-400 sm:-mb-px sm:h-auto sm:rounded-none sm:border-b-2 sm:border-transparent sm:bg-transparent sm:px-0.5 sm:pb-3 sm:text-ui"
                     >
                       {tab.label}
                       <Lock className="h-[11px] w-[11px] text-slate-300" strokeWidth={2.2} aria-hidden="true" />
@@ -290,10 +293,10 @@ export const ClassroomHeader: React.FC<{
                       key={tab.key}
                       to={tab.path}
                       className={({ isActive }) =>
-                        `-mb-px inline-flex flex-shrink-0 items-center whitespace-nowrap border-b-2 px-0.5 pb-3 text-ui transition-colors duration-micro ${
+                        `inline-flex h-[30px] flex-shrink-0 items-center whitespace-nowrap rounded-full px-3 text-meta font-semibold transition-colors duration-micro sm:-mb-px sm:h-auto sm:rounded-none sm:border-b-2 sm:bg-transparent sm:px-0.5 sm:pb-3 sm:text-ui ${
                           isActive
-                            ? 'border-blue-600 font-semibold text-blue-600'
-                            : 'border-transparent font-medium text-slate-600 hover:text-slate-900'
+                            ? 'bg-slate-900 text-white sm:border-slate-900 sm:text-slate-900'
+                            : 'bg-slate-100 text-slate-900 hover:bg-slate-200 sm:border-transparent sm:font-medium sm:text-slate-600 sm:hover:bg-transparent sm:hover:text-slate-900'
                         }`
                       }
                     >

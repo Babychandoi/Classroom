@@ -1,6 +1,7 @@
 package com.classroom.modules.media.service;
 
 import com.classroom.common.AppException;
+import com.classroom.common.ErrorCode;
 import com.classroom.config.MinioProperties;
 import com.classroom.modules.classroom.policy.AccessPolicy;
 import com.classroom.modules.commerce.model.Entitlement;
@@ -41,6 +42,23 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 public class MediaSecurityTest {
+    @Test
+    void assessmentResponseUploaderCanClaimWithActiveMembership() {
+        asset.setUploadPurpose("ASSESSMENT_RESPONSE");
+        when(accessPolicy.isMember("uploader-1", "class-1")).thenReturn(true);
+        var claim=mediaService.claimCompletion("asset-1", "uploader-1");
+        assertFalse(claim.alreadyUploaded());
+        assertEquals("UPLOADING", asset.getStatus());
+    }
+
+    @Test
+    void uploadedAssetRetryStillRequiresItsUploader() {
+        asset.setStatus("UPLOADED");
+        AppException error=assertThrows(AppException.class,()->mediaService.claimCompletion("asset-1", "other-user"));
+        assertEquals(ErrorCode.FORBIDDEN,error.getErrorCode());
+        verifyNoInteractions(minioClient);
+    }
+
 
     @Mock
     private MinioClient minioClient;

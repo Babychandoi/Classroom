@@ -1,7 +1,8 @@
 import React from 'react';
 
-// Shared building blocks of the Connecty design system (design-system/02-components.md). Pages compose these
-// instead of re-deriving the tokens, so a button / badge / card looks the same on every screen.
+// Shared building blocks of the Connecty design system (design-system/02-components.md), restyled to the D-35 prototype
+// (ink-900 primary, line-card borders, 20px cards). Pages compose these instead of re-deriving the tokens, so a button /
+// badge / card looks the same on every screen. Export names and signatures are a contract (features/assessment uses them).
 
 const cx = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(' ');
 
@@ -18,10 +19,10 @@ const BUTTON_SIZE: Record<ButtonSize, string> = {
   sm: 'h-8 px-3 text-meta rounded-[10px]',
 };
 const BUTTON_VARIANT: Record<ButtonVariant, string> = {
-  primary: 'bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400',
+  primary: 'bg-slate-900 text-white hover:bg-slate-700 disabled:bg-slate-200 disabled:text-slate-500',
   secondary: 'border border-slate-200 bg-white text-slate-900 hover:bg-slate-100 disabled:text-slate-400 disabled:hover:bg-white',
-  tertiary: 'text-blue-600 hover:text-blue-700 !h-auto !px-0 disabled:text-slate-400',
-  danger: 'border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-60',
+  tertiary: 'text-blue-700 hover:text-slate-900 !h-auto !px-0 disabled:text-slate-500',
+  danger: 'border border-red-200 bg-white text-red-700 hover:bg-red-50 disabled:opacity-60',
   done: 'border border-green-200 bg-green-100 text-green-800 hover:bg-green-200/60',
   'on-dark': 'bg-white text-slate-900 hover:bg-slate-100',
   ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
@@ -46,7 +47,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAt
       type={type}
       aria-label={label}
       title={label}
-      className={cx('inline-flex h-10 w-10 items-center justify-center rounded-btn text-slate-600 transition-colors duration-micro hover:bg-slate-100 hover:text-slate-900', className)}
+      className={cx('inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition-colors duration-micro hover:bg-slate-100 hover:text-slate-900', className)}
       {...rest}
     >
       {children}
@@ -115,7 +116,7 @@ export const Card: React.FC<React.HTMLAttributes<HTMLDivElement> & {
 }> = ({ as: Tag = 'div', padded = true, hover = false, radius = 'card', className, children, ...rest }) => (
   <Tag
     className={cx(
-      'border border-slate-200 bg-white shadow-hairline',
+      'border border-line-card bg-white',
       radius === 'card' && 'rounded-card',
       radius === 'lg' && 'rounded-2xl',
       radius === 'md' && 'rounded-btn',
@@ -151,7 +152,7 @@ export const Container: React.FC<React.HTMLAttributes<HTMLDivElement> & { width?
 export const Eyebrow: React.FC<{ children: React.ReactNode; className?: string; as?: 'p' | 'span' | 'h2' | 'h3' }> = ({
   children, className, as: Tag = 'p',
 }) => (
-  <Tag className={cx('text-caption font-semibold uppercase tracking-[0.6px] text-slate-500', className)}>{children}</Tag>
+  <Tag className={cx('text-micro font-semibold uppercase tracking-[0.6px] text-slate-500', className)}>{children}</Tag>
 );
 
 // Section heading row: title (+ optional description) on the left, a "Xem tất cả"-style action on the right.
@@ -170,7 +171,7 @@ export const SectionHeader: React.FC<{
         id={id}
         className={cx(
           'font-semibold text-slate-900',
-          size === 'h1' && 'text-h2 sm:text-h1',
+          size === 'h1' && 'text-h2 font-extrabold tracking-[-0.6px] sm:text-h1',
           size === 'h2' && 'text-h2-sm sm:text-h2',
           size === 'h2-sm' && 'text-h2-sm',
           size === 'h3' && 'text-h3-lg',
@@ -333,9 +334,9 @@ export const ProgressBar: React.FC<{ value: number; max?: number; className?: st
       aria-valuemax={max}
       aria-valuenow={value}
       aria-label={label}
-      className={cx('h-1.5 w-full overflow-hidden rounded-full', onDark ? 'bg-white/20' : 'bg-slate-100', className)}
+      className={cx('h-1.5 w-full overflow-hidden rounded-full', onDark ? 'bg-white/20' : 'bg-track', className)}
     >
-      <div className="h-full rounded-full bg-blue-600 transition-[width] duration-state" style={{ width: `${pct}%` }} />
+      <div className={cx('h-full rounded-full transition-[width] duration-state', onDark ? 'bg-white' : 'bg-slate-900')} style={{ width: `${pct}%` }} />
     </div>
   );
 };
@@ -357,7 +358,7 @@ export const Toggle: React.FC<{
     onClick={() => onChange(!checked)}
     className={cx(
       'relative inline-flex h-6 w-10 flex-shrink-0 items-center rounded-full transition-colors duration-state disabled:opacity-50',
-      checked ? 'bg-blue-600' : 'bg-slate-200',
+      checked ? 'bg-slate-900' : 'bg-slate-300',
     )}
   >
     <span className={cx('inline-block h-5 w-5 rounded-full bg-white shadow-hairline transition-transform duration-state', checked ? 'translate-x-[18px]' : 'translate-x-0.5')} />
@@ -365,12 +366,12 @@ export const Toggle: React.FC<{
 );
 
 // ---------------------------------------------------------------------------------------------------------------
-// Form controls: 44px high, radius 12, hairline border, blue focus ring.
+// Form controls: 44px high, radius 12, hairline border, ink focus border (prototype --focus-border).
 
 export const inputClass = (extra?: string) =>
   cx(
     'block w-full rounded-input border border-slate-200 bg-white px-3.5 text-ui text-slate-900 transition-colors duration-micro',
-    'placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/20',
+    'placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10',
     'disabled:bg-slate-100 disabled:text-slate-400',
     extra,
   );
@@ -442,7 +443,7 @@ export const FilterChip: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> 
     aria-pressed={selected}
     className={cx(
       'inline-flex h-9 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-meta font-semibold transition-colors duration-micro',
-      selected ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+      selected ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-900 hover:bg-slate-200',
       className,
     )}
     {...rest}
@@ -453,8 +454,8 @@ export const FilterChip: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> 
 export const DateBlock: React.FC<{ date: Date; className?: string }> = ({ date, className }) => {
   const weekday = ['CN', 'Th 2', 'Th 3', 'Th 4', 'Th 5', 'Th 6', 'Th 7'][date.getDay()];
   return (
-    <div className={cx('flex h-14 w-[52px] flex-shrink-0 flex-col items-center justify-center rounded-community bg-slate-100', className)}>
-      <span className="text-micro font-semibold uppercase text-slate-600">{weekday}</span>
+    <div className={cx('flex h-14 w-[52px] flex-shrink-0 flex-col items-center justify-center rounded-community border border-line-card bg-white', className)}>
+      <span className="text-micro font-bold uppercase text-red-700">{weekday}</span>
       <span className="text-h2-sm font-semibold leading-6 text-slate-900 tabular">{String(date.getDate()).padStart(2, '0')}</span>
     </div>
   );

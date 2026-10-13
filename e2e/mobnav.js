@@ -83,7 +83,7 @@ const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch:
     await page.goto(`${BASE}/classes/${S.classSlug}/store`);
     await settle(page, 600);
     const info = await page.evaluate(() => {
-      const active = document.querySelector('[aria-current="page"]');
+      const active = document.querySelector('nav[aria-label="Các khu vực trong lớp học"] [aria-current="page"]');
       const strip = active.parentElement;
       const a = active.getBoundingClientRect();
       const s = strip.getBoundingClientRect();
@@ -112,7 +112,7 @@ const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch:
     await page.goto(`${BASE}/classes/${S.classSlug}/about`);
     await settle(page, 600);
     const info = await page.evaluate(() => {
-      const active = document.querySelector('[aria-current="page"]');
+      const active = document.querySelector('nav[aria-label="Các khu vực trong lớp học"] [aria-current="page"]');
       const strip = active.parentElement;
       const a = active.getBoundingClientRect();
       const s = strip.getBoundingClientRect();
@@ -143,7 +143,7 @@ const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch:
     await page.screenshot({ path: path.join(SHOTS, 'M2-class-tabs-feed-active.png'), clip: { x: 0, y: 0, width: 390, height: 460 } });
     if (info.fadeLeft || !info.fadeRight) throw new Error(JSON.stringify(info));
     // cuộn thử bằng thao tác cảm ứng/wheel: vùng mờ trái phải xuất hiện
-    await page.evaluate(() => { const s = document.querySelector('[aria-current="page"]').parentElement; s.scrollLeft = 120; });
+    await page.evaluate(() => { const s = document.querySelector('nav[aria-label="Các khu vực trong lớp học"] [aria-current="page"]').parentElement; s.scrollLeft = 120; });
     await page.waitForFunction(() => !!document.querySelector('[data-testid="tabs-fade-left"]'), null, { timeout: 3000 });
   });
 

@@ -17,7 +17,7 @@ import { SuspendedNotice } from '../components/SuspendedNotice';
 
 // D-19: the tabs whose data is members-only on the server (an EXPIRED member gets 403 MEMBERSHIP_EXPIRED for them, a person who
 // never paid gets 403). Giới thiệu and Shop (store) are the public / renewal-friendly tabs; the feed is public until the membership lapsed.
-const MEMBER_ONLY_TABS = ['learn', 'exams', 'leaderboard', 'documents', 'members'];
+const MEMBER_ONLY_TABS = ['learn', 'homework', 'exams', 'leaderboard', 'documents', 'members'];
 const EXPIRED_TABS = ['about', 'store'];
 
 export const ClassroomLayout: React.FC = () => {
@@ -241,7 +241,7 @@ export const ClassroomLayout: React.FC = () => {
   // Focus mode: a lesson being studied and an exam attempt being taken are "push" screens - the class masthead and the tab strip
   // are hidden so the content starts right under the top bar (the pages carry their own way back). Only for someone who is
   // actually inside the class; a visitor / lapsed / blocked person keeps the full header with its gating and calls to action.
-  const focusMode = !notAMember && /^\/classes\/[^/]+\/(learn\/lessons\/[^/]+|exams\/[^/]+\/attempt)\/?$/.test(location.pathname);
+  const focusMode = !notAMember && /^\/classes\/[^/]+\/(learn\/lessons\/[^/]+|exams\/[^/]+\/attempt|homework\/[^/]+\/attempt)\/?$/.test(location.pathname);
   const lockedTab = isExpired ? !EXPIRED_TABS.includes(tab) : paidOutsider ? MEMBER_ONLY_TABS.includes(tab) : false;
   const gateProps = {
     classroom,

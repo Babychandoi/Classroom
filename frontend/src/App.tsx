@@ -58,6 +58,12 @@ import { AdminClassDetail } from './pages/admin/AdminClassDetail';
 import { AdminPrivacy } from './pages/admin/AdminPrivacy';
 import { AdminAudit } from './pages/admin/AdminAudit';
 
+import { AppSidebar } from './components/shell/AppSidebar';
+import { MobileTabBar } from './components/shell/MobileTabBar';
+import { isFocusRoute, isHomeArea, showsAppSidebar } from './components/shell/focusRoutes';
+import { CLASS_TABS } from './components/ClassroomHeader';
+import { classHomeworkRoutes, studioAssessmentRoutes, assessmentTopLevelRoutes } from './features/assessment/routes';
+
 export const RequireLogin: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading, isReconnecting, retryReconnect } = useAuth();
   const location = useLocation();
@@ -121,19 +127,52 @@ const NotFound: React.FC = () => (
   </div>
 );
 
-/** Full-screen pages that bring their own header (close-X + logo) render without the global top bar. */
-const FULL_SCREEN_PATHS = ['/classes/new'];
+const HOME_TITLES: Record<string, string> = {
+  '/classes': 'Khám phá lớp học',
+  '/me/classes': 'Lớp học của tôi',
+  '/me/courses': 'Khóa học của tôi',
+  '/me/events': 'Sự kiện tham gia',
+  '/me/profile': 'Hồ sơ của tôi',
+  '/privacy': 'Quyền riêng tư & dữ liệu',
+};
+
+/** The Topbar's page title (prototype titleFor): the home page name, the class tab, or the Studio / admin area. */
+export function topbarTitle(pathname: string): string {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  if (HOME_TITLES[path]) return HOME_TITLES[path];
+  const [, area, second, third] = path.split('/');
+  if (area === 'classes' && second) {
+    if (third === 'homework') return 'Lớp học · Bài tập';
+    const tab = CLASS_TABS.find((t) => t.key === third);
+    return tab ? `Lớp học · ${tab.label}` : 'Lớp học';
+  }
+  if (area === 'studio') return 'Xưởng';
+  if (area === 'admin') return 'Quản trị nền tảng';
+  return '';
+}
+
+/**
+ * D-35: the global Topbar. Focus screens (class creation, exam / homework attempt, Question Builder) bring their own header
+ * and render without it.
+ */
 export const AppNavbar: React.FC = () => {
   const { pathname } = useLocation();
-  return FULL_SCREEN_PATHS.includes(pathname.replace(/\/+$/, '')) ? null : <Navbar />;
+  return isFocusRoute(pathname) ? null : <Navbar title={topbarTitle(pathname)} withSidebar={showsAppSidebar(pathname)} />;
 };
 
 // The app lives in a *data* router (RouterProvider with one catch-all route whose element holds the <Routes> tree below)
 // instead of <BrowserRouter>: only a data router offers useBlocker, which the course wizard needs to ask "Thoát mà chưa
 // lưu?" before leaving by link, Back button or any other navigation.
-const AppShell: React.FC = () => {
+// D-35 shell: [AppSidebar (home + class areas, lg+)] + [Topbar + page]. Studio and admin keep their own sidebars under the
+// 64px Topbar; focus routes drop both. The home area also gets the phone tab bar.
+export const AppShell: React.FC = () => {
+  const { pathname } = useLocation();
+  const sidebar = showsAppSidebar(pathname);
+  const tabBar = isHomeArea(pathname) && !isFocusRoute(pathname);
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
+    <div className="flex min-h-screen bg-slate-50 text-slate-900">
+      {sidebar && <AppSidebar />}
+      <div className={`flex min-w-0 flex-1 flex-col ${tabBar ? 'pb-20 lg:pb-0' : ''}`}>
       <AppNavbar />
       <div className="flex-1 flex flex-col">
         <Routes>
@@ -173,6 +212,8 @@ const AppShell: React.FC = () => {
             <Route path="members/:userId" element={<RequireSignIn><MemberProfilePage /></RequireSignIn>} />
             <Route path="about" element={<AboutTab />} />
             <Route path="store" element={<StoreTab />} />
+            {/* D-34 "Bài tập": /classes/:slug/homework, .../homework/:assignmentId/attempt, .../result */}
+            {classHomeworkRoutes()}
           </Route>
 
           {/* Studio Routes */}
@@ -199,7 +240,12 @@ const AppShell: React.FC = () => {
             <Route path="about" element={<StudioAbout />} />
             <Route path="blog" element={<StudioBlog />} />
             <Route path="events" element={<StudioEvents />} />
+            {/* D-34 "Bài tập & đề": /studio/classes/:id/assessments, .../assessments/results/:assignmentId */}
+            {studioAssessmentRoutes()}
           </Route>
+
+          {/* D-34 Question Builder (focus screen, outside StudioLayout): /studio/classes/:id/assessments/:assessmentId/edit */}
+          {assessmentTopLevelRoutes()}
 
           {/* Platform admin ("Quản trị nền tảng"): guests go to /login, other accounts see a ForbiddenState. */}
           <Route path="/admin" element={<RequireLogin><AdminLayout /></RequireLogin>}>
@@ -218,6 +264,8 @@ const AppShell: React.FC = () => {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </div>
+      </div>
+      {tabBar && <MobileTabBar pathname={pathname} />}
     </div>
   );
 };
